@@ -4,6 +4,10 @@
 
 Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并将任务交给本地 agent 或服务。本地 agent 或服务在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。它继续观察该 MR 的 CI/CD pipeline：若检查失败，就读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，它再次检查结果，目标是让当前 MR 的相关检查全部通过。Slack Bot 将进度和结果发回原私信 thread。
 
+## 当前状态
+
+截至 2026-11-11，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。它尚未连接本地 agent，也不会创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
+
 ## 目标流程
 
 ```mermaid
@@ -21,22 +25,22 @@ flowchart LR
     I --> J[团队审查 MR]
 ```
 
-## 项目交付物
+## 计划交付物
 
 | 交付物 | 作用 |
 | --- | --- |
 | Slack Bot | 接收问题消息，在原消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
-| 配置文档 | 说明 Slack、Jira、GitLab 和 CI 的接入步骤、权限与变量配置、启动方法，以及如何验证整条流程。文档不保存密钥值。 |
+| 配置文档 | 当前记录 Slack 接入；后续补齐 Jira、GitLab 和 CI 的接入步骤、权限、变量、启动方法及验证流程。文档不保存密钥值。 |
 
-## 每次任务的输出
+## 目标任务输出
 
 - 根据 Slack 消息创建的 `F2PGBA` Jira 工单。
 - 位于 GitLab F2P 仓库的 Draft MR，包含修复代码和相关单元测试。
 - 原 MR 中每轮修复的 commit，以及对应的 pipeline 结果。
 - 发回 Slack 和 Jira 的最终结果：全部通过，或明确说明尚未解决的阻塞。
 
-## Slack 回传
+## 目标 Slack 回传
 
 Bot 在发起任务的 Slack 消息 thread 中更新关键节点：
 
@@ -62,7 +66,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | --- | --- | --- |
 | [Plan：实施计划](plans/chat-to-fix-agent.md) | 整体目标、里程碑、验收标准、未完成事项和当前阻塞。已完成的事项从待办中移走，验收标准仍保留。 | Feature 开始、范围或验收标准变化、待办或阻塞变化时。 |
 | [Done：已完成事项](plans/done.md) | 已落实并核对的配置、代码和验证结果。记录完成事实，不把待审批或未验证的工作写成完成。 | 一项工作完成且得到验证后，从 Plan 移入 Done。 |
-| Spec：`spec/<feature>.md`（按需创建） | 一个 Feature 的行为约定，包括输入输出、接口、权限、错误路径和验收场景；区分待实现与已实现行为。当前尚无 Spec 文件。 | 新增 Feature 或改变其行为约定时创建或更新。 |
+| [Spec：Slack 私信入口](spec/slack-dm-entry.md) | 一个 Feature 的行为约定，包括输入输出、接口、权限、错误路径和验收场景；区分待实现与已实现行为。其他 Feature 按需在 `spec/` 下建文档。 | 新增 Feature 或改变其行为约定时创建或更新。 |
 | [配置记录](config/slack/README.md) | Slack 等外部系统的实际设置、凭据取得位置和验证步骤；不保存凭据值。 | 外部配置、权限、安装状态或启动方法变化后立即更新。 |
 
 每次 Feature 的代码或配置发生变化，都检查并更新受影响的 Plan、Done、Spec 和配置记录。代码与文档尽量在同一次提交中更新；外部系统的独立操作完成后，立即更新并提交文档。功能目标、流程或文档入口变化时，也更新本 README。未验证的结果保留在 Plan，不移入 Done。

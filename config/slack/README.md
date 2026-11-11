@@ -51,6 +51,8 @@
 3. 给 `Chat-to-Fix` 发送一条测试私信。确认 Bot 只在原私信 thread 回复一次。当前回复会明确说明这是接入测试，不创建 Jira 工单或 GitLab MR。
 4. M0 验收通过后，在 M1 对接本地 agent 或服务；之后再验证工单、MR 和 CI 结果回到原 thread。
 
+当前测试 Bot 的消息处理规则见 [Slack 私信入口规格](../../spec/slack-dm-entry.md)。
+
 ## 参考
 
 - [Slack：Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/)
