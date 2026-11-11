@@ -16,7 +16,7 @@ flowchart LR
     F --> G[在原 MR 追加修复 commit]
     G --> E
     E -->|全部通过| H[向 Slack 和 Jira 报告结果]
-    E -->|无法自动修复| H
+    E -->|无法自动修复或达到修复上限| H
     H --> I[团队审查 MR]
 ```
 
@@ -35,10 +35,8 @@ flowchart LR
 - 原 MR 中每轮修复的 commit，以及对应的 pipeline 结果。
 - 发回 Slack 和 Jira 的最终结果：全部通过，或明确说明尚未解决的阻塞。
 
-Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeline 的成功结果宣称修复完成。如果失败无法从日志定位、超出工单范围或无法自动修复，Bot 停止循环并报告原因。MR 由团队审查和合并。
+Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeline 的成功结果宣称修复完成。如果失败无法从日志定位、超出工单范围、无法自动修复或达到预设的修复次数上限，Bot 停止循环并报告原因。MR 由团队审查和合并。
 
-## 当前阶段
-
-**以上是产品目标，完整流程尚未实现。** 现有 [Rovo CI Relay 实验仓库](https://github.com/whhe-coder/rovo-ci-relay)分别验证了 Jira 工单创建 Draft MR、GitLab Runner 读取真实 job 日志，以及 Runner 向 Studio 发送合成 WebHook 数据。Slack Bot、完整的本地 Agent、配置文档、真实 CI 结果回传和原 MR 的自动修复循环仍待交付或端到端验证。
+## 开发原则
 
 当前先打通最小业务闭环。非阻断的细节问题记录后处理，不让局部优化打断主链路。
