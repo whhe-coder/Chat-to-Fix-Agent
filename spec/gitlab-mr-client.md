@@ -2,6 +2,8 @@
 
 状态：客户端方法和本地测试已实现；现有 MR 与 CI 的只读调用已验证。Git push、真实 Draft MR 创建及标题／描述更新尚未验证。
 
+客户端位于 [`src/gitlab/client.js`](../src/gitlab/client.js)。本地 agent 可通过 [`createGitlabConnection`](gitlab-connection.md) 取得这些方法，无需启动 HTTP 服务。
+
 ## Draft MR
 
 - `createDraftMergeRequest` 使用任务分支作为来源，以 `master` 为目标。它先查找同一来源分支的开放 MR，避免普通重试重复创建。新 MR 标题保持 `Draft:` 前缀。

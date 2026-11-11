@@ -15,6 +15,8 @@ GET http://127.0.0.1:4000/gitlab/merge-requests/<MR_IID>/checks
 
 启动前，设置 `GITLAB_TOKEN` 或准备上述钥匙串条目。可选变量：`GITLAB_URL`、`GITLAB_PROJECT`、`GITLAB_BRANCH`、`PORT`。不要把 token 写入仓库、命令行参数、日志或 Slack 消息。当前服务只监听本机。
 
+GitLab 连接现由 [`createGitlabConnection()`](../../src/gitlab/connection.js) 独立创建。后续本地 agent 可直接调用它，无需经过 HTTP 服务。进程启动时创建一次连接并复用；服务处理请求时不再读取钥匙串。每次重启仍可能出现 macOS 钥匙串授权提示。连接函数和当前验证范围见 [连接规格](../../spec/gitlab-connection.md)。
+
 ## 完整任务所需权限
 
 | Agent 动作 | GitLab 授权要求 |

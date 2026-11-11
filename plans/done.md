@@ -20,4 +20,5 @@
 - [x] 使用新 token 只读验证目标仓库分支、MR、pipeline、jobs 和一条 job trace，均返回 `200`。Git push、Draft MR 创建与标题／描述更新尚未验证。
 - [x] 本地服务已从约定的 Mac 钥匙串条目读取新 token，并通过 `/gitlab/status` 返回目标仓库的 `master` 提交信息；默认端口 `4000` 已验证可用。
 - [x] GitLab 客户端已实现 Draft MR 创建与标题／描述更新方法，并在本地验证分支检查和 Draft 状态保护。真实 MR 写入尚未执行。
-- [x] `/gitlab/merge-requests/:iid/checks` 已通过现有 MR 的真实只读调用；它返回当前 commit、主 pipeline、已发现的下游 pipeline 和失败 jobs。完整本地测试 12 项通过。尚未验证多条当前 commit pipeline 的选择规则或自动修复循环。
+- [x] `/gitlab/merge-requests/:iid/checks` 已通过现有 MR 的真实只读调用；它返回当前 commit、主 pipeline、已发现的下游 pipeline 和失败 jobs。尚未验证多条当前 commit pipeline 的选择规则或自动修复循环。
+- [x] 将 GitLab 客户端移到 [`src/gitlab/`](../src/gitlab/)，抽出 `createGitlabConnection()` 和 `loadGitlabToken()`。服务改用该连接对象；本地测试共 14 项通过，其中 2 项验证凭据来源和独立连接。重构后的服务尚未做真实 GitLab 复测。
