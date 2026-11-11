@@ -60,3 +60,4 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 - [Slack 应用配置与当前状态](config/slack/README.md)
 - [Chat-to-Fix Agent 实施计划](plans/chat-to-fix-agent.md)
+- [已完成事项](plans/done.md)

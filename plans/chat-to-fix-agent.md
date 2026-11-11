@@ -36,17 +36,10 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 ## 当前里程碑 M0
 
-- [x] `Messages` 标签页允许用户发送私信。
-- [x] Socket Mode 已开启。
-- [x] Events API 仅订阅 `message.im`。
-- [x] Bot Token Scopes 仅有 `im:history`、`chat:write`；User Token Scopes 为空。
-- [x] 生成并安全保存带 `connections:write` 的 App-level token。
-- [x] 提交目标工作区安装申请，等待管理员批准。
-- [ ] 完成目标工作区安装并取得 Bot OAuth token。
-- [x] 编写最小私信测试 Bot，并通过本地消息处理测试。
+- [ ] 等待工作区管理员批准安装，取得并安全保存 Bot OAuth token。
 - [ ] 运行最小 Slack 测试 Bot，接收测试私信并在原 thread 回复一次。
 
-当前仓库已有最小 Slack 私信测试 Bot，尚未对接本地 agent。工作区安装申请等待批准，Bot OAuth token 尚未取得，真实私信收发仍未验证。M0 未通过验收，不能把权限配置完成等同于 Bot 可用。
+当前阻塞：等待工作区管理员批准安装。M0 尚未通过验收。已完成事项见 [done.md](done.md)。
 
 ## 执行规则
 
