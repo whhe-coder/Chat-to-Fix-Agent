@@ -14,7 +14,9 @@ flowchart LR
     J --> K[修改 F2P 代码与测试]
     K --> G[GitLab Draft MR]
     G --> C{最新 commit 的 pipeline}
-    C -->|失败且可修复，最多 3 轮| R
+    C -->|失败且可修复，最多 3 轮| L[本地 agent 读取失败日志并定位原因]
+    L --> F[在原 MR 分支追加修复 commit]
+    F --> C
     C -->|全部通过或停止修复| B
     B --> T[原私信 thread 的进度与结果]
 ```

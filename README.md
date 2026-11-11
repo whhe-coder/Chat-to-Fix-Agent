@@ -1,23 +1,24 @@
 # Chat-to-Fix Agent
 
-**在 Slack 描述问题，由 Bot 创建 F2P 工单和 MR，并以 MR 的 pipeline 全部通过为目标持续修复。**
+**在 Slack 私信描述问题，由本地 agent 创建 F2P 工单和 MR，并以 MR 的 pipeline 全部通过为目标持续修复。**
 
-Chat-to-Fix Agent 是一个以 Slack 为入口的修复 Bot。用户发送包含问题描述的消息后，Bot 在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。Bot 继续观察该 MR 的 CI/CD pipeline：若检查失败，它读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，Bot 再次检查结果，目标是让当前 MR 的相关检查全部通过。
+Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并将任务交给本地 agent 或服务。本地 agent 或服务在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。它继续观察该 MR 的 CI/CD pipeline：若检查失败，就读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，它再次检查结果，目标是让当前 MR 的相关检查全部通过。Slack Bot 将进度和结果发回原私信 thread。
 
 ## 目标流程
 
 ```mermaid
 flowchart LR
-    A[Slack 问题消息] --> B[创建 F2PGBA Jira 工单]
-    B --> C[修改 F2P 仓库代码和相关单元测试]
-    C --> D[创建 GitLab Draft MR]
-    D --> E{检查该 MR 的 CI/CD pipeline}
-    E -->|失败| F[读取错误日志并定位原因]
-    F --> G[在原 MR 追加修复 commit]
-    G --> E
-    E -->|全部通过| H[向 Slack 和 Jira 报告结果]
-    E -->|无法自动修复或已修复 3 轮仍失败| H
-    H --> I[团队审查 MR]
+    A[Slack 私信问题] --> B[Slack Bot 转交任务]
+    B --> C[本地 agent 创建 F2PGBA Jira 工单]
+    C --> D[修改 F2P 仓库代码和相关单元测试]
+    D --> E[创建 GitLab Draft MR]
+    E --> F{检查该 MR 的最新 CI/CD pipeline}
+    F -->|失败| G[读取错误日志并定位原因]
+    G --> H[在原 MR 分支追加修复 commit]
+    H --> F
+    F -->|全部通过| I[Slack Bot 回报结果，agent 更新 Jira]
+    F -->|无法自动修复或已修复 3 轮仍失败| I
+    I --> J[团队审查 MR]
 ```
 
 ## 项目交付物
@@ -28,7 +29,7 @@ flowchart LR
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
 | 配置文档 | 说明 Slack、Jira、GitLab 和 CI 的接入步骤、权限与变量配置、启动方法，以及如何验证整条流程。文档不保存密钥值。 |
 
-## Bot 每次任务的输出
+## 每次任务的输出
 
 - 根据 Slack 消息创建的 `F2PGBA` Jira 工单。
 - 位于 GitLab F2P 仓库的 Draft MR，包含修复代码和相关单元测试。
