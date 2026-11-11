@@ -1,34 +1,36 @@
 # Chat-to-Fix Agent
 
-**从 Slack 对话出发，交付经过 CI 验证的 Draft MR。**
+**在 Slack 描述问题，由 Bot 创建 F2P 工单和 MR，并持续修复到 MR 的 pipeline 通过。**
 
-Chat-to-Fix Agent 计划把团队在 Slack 中提出的代码问题转成可追踪的修复任务。它创建或同步 Jira 工单，修改目标仓库的代码和相关单元测试，提交 Draft MR，并根据 CI 结果在**同一个 MR**中持续修复。完成后，它把 MR、验证结果和未解决的问题反馈到 Slack 与 Jira，供团队审查。
+Chat-to-Fix Agent 是一个以 Slack 为入口的修复 Bot。用户发送包含问题描述的消息后，Bot 在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。Bot 继续观察该 MR 的 CI/CD pipeline：若检查失败，它读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，Bot 再次检查结果，重复这个过程，直到当前 MR 的相关检查全部通过。
 
 ## 目标流程
 
 ```mermaid
 flowchart LR
-    A[Slack 对话] --> B[整理需求并创建 Jira 工单]
-    B --> C[修改代码和单元测试]
-    C --> D[创建 Draft MR]
-    D --> E{CI 结果}
-    E -->|可修复的失败| F[读取失败日志并在原 MR 追加 commit]
-    F --> E
-    E -->|检查通过或需要人工处理| G[反馈 Slack 与 Jira]
-    G --> H[团队审查 MR]
+    A[Slack 问题消息] --> B[创建 F2PGBA Jira 工单]
+    B --> C[修改 F2P 仓库代码和相关单元测试]
+    C --> D[创建 GitLab Draft MR]
+    D --> E{检查该 MR 的 CI/CD pipeline}
+    E -->|失败| F[读取错误日志并定位原因]
+    F --> G[在原 MR 追加修复 commit]
+    G --> E
+    E -->|全部通过| H[向 Slack 和 Jira 报告结果]
+    E -->|无法自动修复| H
+    H --> I[团队审查 MR]
 ```
 
-一次任务应交付：
+## 一次任务的交付物
 
-- 有问题描述和验收条件的 Jira 工单。
-- 包含代码、相关单元测试和变更说明的 Draft MR。
-- 与 MR 当前 commit 对应的 CI 结果，以及每次修复的记录。
-- 发回原 Slack 对话和 Jira 工单的结论。
+- 根据 Slack 消息创建的 `F2PGBA` Jira 工单。
+- 位于 GitLab F2P 仓库的 Draft MR，包含修复代码和相关单元测试。
+- 原 MR 中每轮修复的 commit，以及对应的 pipeline 结果。
+- 发回 Slack 和 Jira 的最终结果：全部通过，或明确说明尚未解决的阻塞。
 
-Agent 只处理能归因于本次改动、且属于工单范围的 CI 失败。信息不足、检查无法读取或达到修复上限时，它停止并说明原因。MR 由团队审查和合并。
+Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeline 的成功结果宣称修复完成。如果失败无法从日志定位、超出工单范围或无法自动修复，Bot 停止循环并报告原因。MR 由团队审查和合并。
 
 ## 当前阶段
 
-**这是产品目标，完整流程尚未实现。** 现有 [Rovo CI Relay 实验仓库](https://github.com/whhe-coder/rovo-ci-relay)分别验证了 Jira 工单创建 Draft MR、GitLab Runner 读取真实 job 日志，以及 Runner 向 Studio 发送合成 WebHook 数据。真实 CI 结果送达子 Agent、Slack 入口、本地 Agent 和自动修复循环仍待端到端验证。
+**以上是产品目标，完整流程尚未实现。** 现有 [Rovo CI Relay 实验仓库](https://github.com/whhe-coder/rovo-ci-relay)分别验证了 Jira 工单创建 Draft MR、GitLab Runner 读取真实 job 日志，以及 Runner 向 Studio 发送合成 WebHook 数据。Slack Bot、真实 CI 结果回传和原 MR 的自动修复循环仍待端到端验证。
 
 当前先打通最小业务闭环。非阻断的细节问题记录后处理，不让局部优化打断主链路。
