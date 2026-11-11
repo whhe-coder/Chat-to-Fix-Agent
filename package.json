@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/slackBot/slack-bot.js",
     "start:server": "node src/server/start.js",
+    "check:jira": "node src/jira/check-board.js",
     "test": "node --test"
   },
   "dependencies": {

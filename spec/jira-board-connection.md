@@ -1,0 +1,17 @@
+# Jira board 连接规格
+
+状态：只读连接函数与本地测试已完成。尚未创建 Jira token，也未执行真实 API 请求。
+
+## 目标与入口
+
+本地 agent 通过 [`createJiraConnection()`](../src/jira/connection.js) 读取 `F2PGBA` board。连接检查只调用 Jira Software Cloud 的 `GET /rest/agile/1.0/board/{boardId}`，返回 board ID、名称和响应中可用的项目 key。它不创建或修改 Jira 工单。
+
+调用方设置 `JIRA_CLOUD_ID`、`JIRA_BOARD_ID`。`JIRA_TOKEN` 优先来自环境变量；未设置时，从 Mac 钥匙串 `Chat-to-Fix-Agent/JIRA_TOKEN`（账号 `local-agent`）读取。服务账号 token 使用 Bearer；若设置 `JIRA_EMAIL`，则使用该邮箱和个人 scoped token 的 Basic 认证。请求发送到 `https://api.atlassian.com/ex/jira/{cloudId}`。`npm run check:jira` 运行一次检查并只输出 board 元数据。
+
+## 权限与安全
+
+读取单个 board 的 token scopes 为 `read:board-scope:jira-software` 和 `read:issue-details:jira`。身份还必须有查看该 board 的 Jira 权限。连接函数不返回 token，也不转发 Jira 错误正文。目标项目的创建工单和评论权限将在后续功能中单独配置并验证。
+
+## 验证边界
+
+本地测试覆盖服务账号 Bearer、个人账号 Basic、目标 board 路径和错误脱敏。真实 board API、服务账号的实际权限及 Jira 写入均未验证。
