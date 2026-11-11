@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node src/slackBot/slack-bot.js",
+    "start:server": "node src/server/start.js",
     "test": "node --test"
   },
   "dependencies": {
