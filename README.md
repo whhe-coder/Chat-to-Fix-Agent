@@ -54,3 +54,8 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 ## 开发原则
 
 当前先打通最小业务闭环。非阻断的细节问题记录后处理，不让局部优化打断主链路。
+
+## 配置与计划
+
+- [Slack 应用配置与当前状态](config/slack/README.md)
+- [Chat-to-Fix Agent 实施计划](plans/chat-to-fix-agent.md)
