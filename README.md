@@ -20,7 +20,15 @@ flowchart LR
     H --> I[团队审查 MR]
 ```
 
-## 一次任务的交付物
+## 项目交付物
+
+| 交付物 | 作用 |
+| --- | --- |
+| Slack Bot | 接收问题消息，展示工单、MR 和修复进度，并把最终结果发回原对话。 |
+| Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
+| 配置文档 | 说明 Slack、Jira、GitLab 和 CI 的接入步骤、权限与变量配置、启动方法，以及如何验证整条流程。文档不保存密钥值。 |
+
+## Bot 每次任务的输出
 
 - 根据 Slack 消息创建的 `F2PGBA` Jira 工单。
 - 位于 GitLab F2P 仓库的 Draft MR，包含修复代码和相关单元测试。
@@ -31,6 +39,6 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 ## 当前阶段
 
-**以上是产品目标，完整流程尚未实现。** 现有 [Rovo CI Relay 实验仓库](https://github.com/whhe-coder/rovo-ci-relay)分别验证了 Jira 工单创建 Draft MR、GitLab Runner 读取真实 job 日志，以及 Runner 向 Studio 发送合成 WebHook 数据。Slack Bot、真实 CI 结果回传和原 MR 的自动修复循环仍待端到端验证。
+**以上是产品目标，完整流程尚未实现。** 现有 [Rovo CI Relay 实验仓库](https://github.com/whhe-coder/rovo-ci-relay)分别验证了 Jira 工单创建 Draft MR、GitLab Runner 读取真实 job 日志，以及 Runner 向 Studio 发送合成 WebHook 数据。Slack Bot、完整的本地 Agent、配置文档、真实 CI 结果回传和原 MR 的自动修复循环仍待交付或端到端验证。
 
 当前先打通最小业务闭环。非阻断的细节问题记录后处理，不让局部优化打断主链路。
