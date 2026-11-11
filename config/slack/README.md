@@ -19,7 +19,7 @@
 | `Event Subscriptions` | 已开启；Bot 事件仅有 `message.im` | 接收发给 Bot 的私信 |
 | `OAuth & Permissions → Bot Token Scopes` | 仅有 `im:history`、`chat:write` | 读取 Bot 所在的私信，并以 Bot 身份回复 |
 | `OAuth & Permissions → User Token Scopes` | 无 | Bot 不代表用户访问 Slack |
-| `Install App` | 页面仍显示 `Request to Workspace Install` | 工作区安装尚未完成，Bot OAuth token 尚未取得 |
+| `Install App` | 已显示 `Request to Workspace Install Submitted` | 安装申请已提交，等待工作区管理员批准；Bot OAuth token 尚未取得 |
 
 频道 `@提及` 不属于当前入口。已删除 `app_mention` 事件和 `app_mentions:read` 权限。也已删除早期配置中的频道、群组、反应、用户资料和用户身份权限。
 
@@ -29,10 +29,10 @@
 
 | 凭据 | 取得位置与权限 | 当前状态 | 程序变量 |
 | --- | --- | --- | --- |
-| App-level token，前缀 `xapp-` | `Basic Information → App-Level Tokens`，生成时只选 `connections:write` | 尚未生成 | `SLACK_APP_TOKEN` |
-| Bot User OAuth Access Token，前缀 `xoxb-` | 完成 `Install App` 的工作区安装后，在 `OAuth & Permissions` 查看 | 尚未取得 | `SLACK_BOT_TOKEN` |
+| App-level token，前缀 `xapp-` | `Basic Information → App-Level Tokens`，只选 `connections:write` | 已生成，存于本机 Mac 登录钥匙串 | `SLACK_APP_TOKEN` |
+| Bot User OAuth Access Token，前缀 `xoxb-` | 工作区批准并完成安装后，在 `OAuth & Permissions` 查看 | 等待安装批准，尚未取得 | `SLACK_BOT_TOKEN` |
 
-`connections:write` 是 App-level token 的权限，不属于 Bot Token Scopes。当前不需要 User OAuth token。将 token 存在运行环境的密钥管理器或环境变量中。不要把真实值写入仓库、日志、Slack 消息或计划文档。
+`connections:write` 是 App-level token 的权限，不属于 Bot Token Scopes。当前不需要 User OAuth token。本地程序优先读取环境变量；在 Mac 上也可读取登录钥匙串中账号为 `local-agent`、名称为 `Chat-to-Fix-Agent/SLACK_APP_TOKEN` 或 `Chat-to-Fix-Agent/SLACK_BOT_TOKEN` 的条目。不要把真实值写入仓库、日志、Slack 消息或计划文档。
 
 ## 本次操作记录
 
@@ -42,15 +42,14 @@
 4. 删除 `app_mention` 事件和 `app_mentions:read`。保留发送进度消息所需的 `chat:write`。
 5. 再次核对：Bot 权限仅为 `im:history`、`chat:write`；User 权限为空；Bot 事件仅为 `message.im`。
 
-本次没有生成 token，没有提交安装申请，也没有运行 Bot 或发送测试私信。
+上述初次配置没有生成 token 或提交安装申请。后续已生成仅带 `connections:write` 的 App-level token，保存到本机 Mac 登录钥匙串，并提交工作区安装申请。Slack 页面确认申请已提交。尚未取得 Bot OAuth token，也没有运行 Bot 或发送测试私信。
 
 ## 接下来的配置与验证
 
-1. 在 `Basic Information` 生成带 `connections:write` 的 App-level token，并安全保存。
-2. 在 `Install App` 申请并完成目标工作区安装，取得 Bot OAuth token。
-3. 让 Slack 桥接程序使用两个 token 连接 Socket Mode，并接入本地 agent 或服务。
-4. 给 `Chat-to-Fix` 发送一条测试私信。确认 Bot 在同一私信 thread 中只回复一次，并把任务交给本地 agent。
-5. 验证用户消息、工单链接、MR 链接和 CI 结果都回到原 thread。测试时不得创建非预期的真实工单或 MR。
+1. 等待工作区管理员批准安装，然后在 `OAuth & Permissions` 取得 Bot OAuth token，并保存到名称为 `Chat-to-Fix-Agent/SLACK_BOT_TOKEN`、账号为 `local-agent` 的 Mac 登录钥匙串条目。
+2. 在仓库运行 `npm ci` 和 `npm start`。程序使用两个 token 连接 Socket Mode；需要 Node.js 18 或更新版本。也可通过同名环境变量提供 token。
+3. 给 `Chat-to-Fix` 发送一条测试私信。确认 Bot 只在原私信 thread 回复一次。当前回复会明确说明这是接入测试，不创建 Jira 工单或 GitLab MR。
+4. M0 验收通过后，在 M1 对接本地 agent 或服务；之后再验证工单、MR 和 CI 结果回到原 thread。
 
 ## 参考
 
