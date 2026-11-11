@@ -55,6 +55,8 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 - 本地 agent 的调用方式：进程、HTTP 服务或任务队列。
 - 长任务状态与去重记录的存储位置。
-- Jira 和 GitLab 的授权方式、凭据存储位置、最小权限与测试环境。
+- Jira 的授权方式。
+- GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
+- M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
 
-这些选择在 M1 至 M3 开始前确定。它们不改变 M0 的 Slack 私信配置。
+这些事项在对应里程碑开始前确定并验证。它们不改变 M0 的 Slack 私信配置。
