@@ -6,7 +6,7 @@
 // (--print is accepted, a no-op). Only project settings are loaded (--setting-sources project).
 // Plain mode: permission requests are denied, the run is cut off after 30 s.
 // --unattended: the Coding bot's argument list (codingArgs): no permission prompts, the reviewer
-// subagent (prompt from src/prompts/reviewer.md), the stdio MCP server of the cc-verify folder as
+// subagent (prompt from src/prompts/reviewer.md), the stdio MCP server given by --mcp-server as
 // `chat-to-fix` offering review_report, 180 s limit; every driver event is printed on one line.
 import { parseArgs } from 'node:util'
 import { claudeArgs, codingArgs } from '../src/engine/args.ts'
@@ -14,19 +14,23 @@ import { childEnv } from '../src/engine/env.ts'
 import { ClaudeSession } from '../src/engine/claude.ts'
 import { loadPrompt } from '../src/prompts/index.ts'
 
-const MCP_SERVER = '/private/tmp/claude-501/-Users-zihuifan-Documents-mywork-ba/956c7019-a4ec-45b8-8bd4-51e32f3c5fcb/scratchpad/cc-verify/mcp-server.mjs'
+// --mcp-server: the stdio MCP server script that offers review_report (needed with --unattended).
 
 const { values } = parseArgs({
   options: {
     cwd: { type: 'string' }, prompt: { type: 'string' }, bin: { type: 'string' },
     print: { type: 'boolean', default: true }, 'no-print': { type: 'boolean', default: false }, reviewer: { type: 'boolean', default: false },
     unattended: { type: 'boolean', default: false }, 'test-command': { type: 'string', default: 'sh test.sh' },
-    'max-turns': { type: 'string', default: '20' }, model: { type: 'string' }, 'mcp-log': { type: 'string' }, 'mcp-server': { type: 'string', default: MCP_SERVER },
+    'max-turns': { type: 'string', default: '20' }, model: { type: 'string' }, 'mcp-log': { type: 'string' }, 'mcp-server': { type: 'string' },
   },
 })
 const bin = values.bin ?? process.env.CLAUDE_BIN
 if (!values.cwd || !values.prompt || !bin) {
   console.error('usage: node scripts/claude-demo.ts [--unattended] --cwd <dir> --prompt "<text>" [--bin <path>] [--no-print] [--reviewer]  (bin defaults to $CLAUDE_BIN)')
+  process.exit(2)
+}
+if (values.unattended && !values['mcp-server']) {
+  console.error('--unattended needs --mcp-server <path to a stdio MCP server script that offers review_report>')
   process.exit(2)
 }
 

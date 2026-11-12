@@ -14,7 +14,7 @@
 
 The command is `node runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.ts`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
 
-The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_* TERM`, the proxy variables, `ANTHROPIC_API_KEY CHAT_TO_FIX_*_TOKEN CLAUDE_BIN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
+The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM`, the proxy variables (`HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY` and their lower-case forms), `ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
 
 | Variable | Value | Closes |
 |---|---|---|
