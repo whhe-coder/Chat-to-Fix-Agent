@@ -80,6 +80,8 @@ test('sample: a Slack @ runs on real DS Bot bots — system-made group, the Main
   assert.equal(room.members.length, 5)
 
   // The task was posted into the group as the user, with the Slack text inside the material block.
+  // (The run is 'running' before the post: the runner records the run, then posts.)
+  await settle(() => host.prompts.length === 1)
   assert.equal(host.prompts.length, 1)
   const prompt = host.prompts[0]
   assert.equal(prompt.sessionId, run.groupId)

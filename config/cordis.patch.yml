@@ -110,6 +110,9 @@
 #    tool keeps read and readImage and loses write, edit and apply_patch; the search tool is
 #    read-only; no bash, pwsh, jobs, web, subagent or plan tools are listed, so the preset has none.
 #    Compaction is composed as in the shipped presets, so a long session can still be compacted.
+#    Every session the bot layer creates (a bot's own, its group session, a fresh part, the group's
+#    relay session) names its bot's preset, so the shipped `standard` preset is left as it is; only
+#    the Coding bot uses it (its route is Claude Code, which brings its own tools).
 - insert:
     - id: preset-readonly
       name: '@deepseek-ai/dsh-agent-preset'
@@ -118,7 +121,7 @@
         name: Read only
         description: Read and search files; no write, edit, shell or web tools.
         order: 4
-        plugins: &readonly-plugins
+        plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
@@ -145,24 +148,6 @@
                 name: '@deepseek-ai/dsh-compaction-basic'
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
-
-# 6b. STOP-GAP: the shipped `standard` preset (web-app row `preset-standard`) gets the same
-#     read-only plugin list. Reason, observed in the smoke run: the bot layer creates each bot's
-#     own session with the preset the task layer names (`readonly` for the four API bots), but the
-#     sessions it creates later name no preset and so get `standard` (bot/src/host/roster.ts
-#     botPreset default): a bot's session inside the task group (groups.js:293), the group's own
-#     session (roster.js:510) and the next part after a handoff (parts.js:1056). The Main bot's turn
-#     in the group ran with bash, write and edit. The only bot meant to use `standard` is the
-#     Coding bot, whose route is Claude Code: the CLI brings its own tools and the bot layer
-#     bridges only team and role tools to it (local-agents/index.js toolsFor), so it loses nothing.
-#     Remove this row once those three call sites pass the bot's own preset.
-- id: preset-standard
-  config:
-    id: standard
-    name: Standard (read-only in chat-to-fix)
-    description: Same tools as readonly; see config/cordis.patch.yml row 6b.
-    order: 1
-    plugins: *readonly-plugins
 
 # 7. This project's plugin (src/plugin.ts): the bot layer and the task layer. The profile links
 #    the project as the package `chat-to-fix` (node_modules/chat-to-fix -> project root, made by the start

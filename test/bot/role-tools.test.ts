@@ -119,3 +119,19 @@ test('binding a bot gives its own-chat session the role tools, although that ses
   assert.ok(held(host, bots.slack).includes('task_read'))
   assert.ok(held(host, bots.coding).includes('review_report'))
 })
+
+// group_relay is the tool of the group's own session; in a bot's session it could only answer "Not a group chat".
+test('group_relay is offered to the group\'s own session only, not to the bots\' sessions', async (t) => {
+  const { host, post, running } = await rig(t)
+  const posted = await post({ eventId: 'E10', channel: 'C1', threadTs: '10.1', messageTs: '10.1', user: { id: 'U1', name: 'tester' }, text: 'the list is empty' })
+  const run = (await running(posted.taskId)).runs.at(-1)
+  for (const role of ROLES) {
+    host.agents.delete(run.bots[role])
+    await host.agentCreated(run.bots[role])
+    assert.ok(held(host, run.bots[role]).includes('message_bot'), `${role} still has the team tools`)
+    assert.equal(held(host, run.bots[role]).includes('group_relay'), false, `${role} has no group_relay`)
+  }
+  host.agents.delete(run.groupId)
+  await host.agentCreated(run.groupId)
+  assert.deepEqual(held(host, run.groupId), ['group_relay'])
+})

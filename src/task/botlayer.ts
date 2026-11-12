@@ -131,11 +131,28 @@ export function createBotLayer(rt) {
       return room.id
     },
 
-    // roster.js:579 updateRoom (actor undefined = the user).
+    // The code directory is the working folder of the Coding bot only (folders.js memberDirs:
+    // the folder of one member inside one group). A group-wide folder (updateRoom workDir) would
+    // move every member's existing group conversation to a fresh part at its next turn, with a
+    // model call for each API bot's handoff note; the four API bots keep their own folder.
+    // The Coding bot's group session is made after this call, in the directory (groups.js
+    // groupSessionFor); one that exists already follows at its next turn (followFolder).
     async setGroupWorkDir(groupId, dir) {
       await rt.load()
-      needRoom(groupId)
-      await rt.updateRoom(groupId, { workDir: dir })
+      const room = needRoom(groupId)
+      const coding = room.members.filter(id => bindings.get(id)?.role === 'coding')
+      if (coding.length === 0) {
+        rt.warn('chat-to-fix: no bound Coding bot in group %s; the work directory %s was not set for anyone', groupId, dir)
+        return
+      }
+      const path = await rt.cleanWorkDir(dir)
+      // The group may have changed while the path was checked.
+      const live = needRoom(groupId)
+      for (const id of coding.filter(member => live.members.includes(member))) {
+        ;(live.memberDirs ??= {})[id] = path ?? null
+      }
+      await rt.save()
+      for (const id of coding) void rt.followFolder({ botId: id, roomId: groupId })
     },
 
     // channel.js:670 sendUser, for a group id only and without ensureCapabilities.

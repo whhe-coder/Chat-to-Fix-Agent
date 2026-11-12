@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isPass, mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.ts'
+import { adminNote, isPass, lineText, mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.ts'
 import { attachReference } from '../src/host/turns.ts'
 
 const members = [{ name: 'M' }, { name: 'Mx' }, { name: 'K' }, { name: 'Writer' }]
@@ -56,4 +56,19 @@ test('a reference takes out only its own "@label", so a typed call with the same
   // "@Kate" is not the reference "K", so the "@K" after it is the one taken out.
   assert.deepEqual(names(mentionsIn('@Kate, @K', [...members, { name: 'Kate' }], [{ labels: ['K'] }])), { all: false, found: ['Kate'] })
   assert.deepEqual(names(mentionsIn('@K notes and @K', members, [{ labels: ['K notes'] }])), { all: false, found: ['K'] })
+})
+
+test('the admin note and the group notices name no tool or setting that does not exist here', () => {
+  const note = adminNote({ mode: 'admin' })
+  assert.match(note, /You are this group's admin\./)
+  assert.match(note, /call the members who should answer with @Name/)
+  assert.doesNotMatch(note, /update_group|group_goal|goal-grill|@all|the user asks/)
+  const notices = [
+    { kind: 'notice', reason: 'missed', names: ['Jira'], minutes: 4 },
+    { kind: 'notice', reason: 'failed', names: ['Jira'], detail: 'overloaded' },
+    { kind: 'notice', reason: 'folder', path: '/gone' },
+    { kind: 'notice', reason: 'admin-passed', names: ['Main'] },
+  ].map(line => lineText(line))
+  for (const text of notices) assert.doesNotMatch(text, /settings|DS Bot|the user can|the user writes/i, text)
+  assert.match(notices[1], /Jira stopped: its model call failed \(overloaded\)\. What it was doing here is not finished; call it again if it still matters\./)
 })

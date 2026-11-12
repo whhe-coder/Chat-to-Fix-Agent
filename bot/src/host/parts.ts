@@ -1053,7 +1053,9 @@ export function install(rt) {
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
+    // The fresh part keeps the preset of the Session it replaces: the bot's own, or the relay's.
+    const preset = bot === undefined ? rt.relayPreset : bot.preset
+    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir, preset, optionalPreset: bot === undefined })
     const picked = await freshRoute(bot, session)
     if (picked !== undefined) await selectRoute({ name }, freshId, picked)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)

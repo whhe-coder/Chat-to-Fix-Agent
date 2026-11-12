@@ -71,20 +71,24 @@ export function install(rt) {
   // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
   // turns down the group_relay call that a group chat's Session is given. A Session
   // keeps the preset it is made with. chat-to-fix: the caller may name the preset
-  // (`standard` when it names none); a named preset that is not served is an error.
-  async function botPreset(wanted = 'standard') {
+  // (`standard` when it names none); a named preset that is not served is an error,
+  // unless the caller says it is only preferred (`optional`).
+  async function botPreset(wanted = 'standard', optional = false) {
     const presets = ctx.get?.('agentPresets')
     if (presets === undefined) return {}
     const usable = (await presets.list()).some(preset => preset.id === wanted && preset.broken === undefined)
     if (usable) return { agentPreset: wanted }
-    if (wanted !== 'standard') throw new Error(`The permission preset ${wanted} is not available`)
+    if (wanted !== 'standard' && !optional) throw new Error(`The permission preset ${wanted} is not available`)
     return {}
   }
+  // The group's own Session only relays (it runs no model), so it never needs more than
+  // the read-only preset; a profile that does not serve it leaves the default.
+  const RELAY_PRESET = 'readonly'
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
   // unless the folder is already registered as a workspace, which it then joins (#710).
-  async function createSession(title, { dir, preset }: { dir?: any, preset?: any } = {}) {
+  async function createSession(title, { dir, preset, optionalPreset }: { dir?: any, preset?: any, optionalPreset?: boolean } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
@@ -93,7 +97,7 @@ export function install(rt) {
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
     const place = known !== undefined ? { workspaceId: known.id } : usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
-    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset(preset) })
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset(preset, optionalPreset) })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
@@ -420,7 +424,8 @@ export function install(rt) {
     // A different engine cannot share the conversation's CLI session: to or
     // from a local agent route, or between two different local agents, the
     // chat opens in a fresh part.
-    if (patch.model !== undefined) {
+    // A Bot that had no model yet has no conversation to carry over, so it needs no fresh part.
+    if (patch.model !== undefined && providerBefore !== undefined) {
       const providerAfter = splitRef(bot.appliedModel ?? bot.model)?.provider
       const wasLocal = rt.isLocalAgentRoute?.(providerBefore) === true
       const isLocal = rt.isLocalAgentRoute?.(providerAfter) === true
@@ -507,7 +512,7 @@ export function install(rt) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays; like a member's it moves to a fresh part
     // in the group's folder once the group has one (parts.js).
-    const id = await createSession(title)
+    const id = await createSession(title, { preset: RELAY_PRESET, optionalPreset: true })
     try {
       // A member deleted while the Session was made stays out, and the group is checked
       // again as it is written.
@@ -780,7 +785,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    ensureWorkspace, keepTeamFolder, createSession, relayPreset: RELAY_PRESET, createBot, duplicateBot, updateBot, setFlags,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })

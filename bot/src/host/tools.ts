@@ -495,6 +495,8 @@ export function install(rt) {
     const registered = []
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
+      // group_relay is for the group's own Session; a Bot's session would only get "Not a group chat".
+      if (owns && def.name === 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { start, settle } from './host.ts'
+import { fileURLToPath } from 'node:url'
+import { start, startApp, settle } from './host.ts'
+
+const FAKE = fileURLToPath(new URL('../fixtures/fake-claude.ts', import.meta.url))
+const CLI = { command: process.execPath, args: [FAKE] }
 
 // Drives the I1 facade on DS Bot's fake DSH context, in the style of bot/test/group-work.test.js.
 const NAMES = ['Boss', 'Slacker', 'Jirer', 'Piper', 'Coder']
@@ -174,11 +178,95 @@ test('stopGroup, deleteGroup and deleteBot leave nothing in the state file', asy
   assert.deepEqual([saved.bots, saved.rooms, saved.mainBotIds], [{}, {}, []])
 })
 
-test('setGroupWorkDir sets the group folder', async (t) => {
+test('setGroupWorkDir gives the folder to the Coding bot only; no other member moves to a new part', async (t) => {
+  const host = await start(t)
+  const { ids, groupId } = await team(host)
+  const [, , , , coder] = ids
+  await host.botlayer.bindBot(coder, { taskId: 'T1', role: 'coding' })
+  await host.botlayer.bindBot(ids[3], { taskId: 'T1', role: 'pipeline' })
+  const dir = mkdtempSync(join(tmpdir(), 'chat-to-fix-wd-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const followed = []
+  const follow = host.rt.followFolder
+  host.rt.followFolder = (owner) => { followed.push(owner); return follow(owner) }
+  await host.botlayer.setGroupWorkDir(groupId, dir)
+  const room = host.rt.roomOf(groupId)
+  const real = realpathSync(dir)
+  // No group-wide folder: that is what moves every member's conversation (and the group's own session).
+  assert.equal(room.workDir, undefined)
+  assert.deepEqual(room.memberDirs, { [coder]: real })
+  assert.equal(host.rt.workDirOf({ botId: coder, roomId: groupId }), real)
+  for (const id of ids.slice(0, 4)) assert.equal(host.rt.workDirOf({ botId: id, roomId: groupId }), undefined, host.rt.botOf(id).name)
+  // Only the Coding bot's group conversation is asked to follow the folder, and the group's own session is not.
+  assert.deepEqual(followed, [{ botId: coder, roomId: groupId }])
+  // Saved: a restart keeps the folder.
+  const saved = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8'))
+  assert.deepEqual(saved.rooms[groupId].memberDirs, { [coder]: real })
+  // The Coding bot's group session is made in the folder.
+  await host.rt.createSession('Coder · Task 1', { dir: host.rt.workDirOf({ botId: coder, roomId: groupId }) })
+  assert.equal(host.creates.at(-1).cwd, real)
+})
+
+test('setGroupWorkDir with no bound Coding bot in the group sets nothing', async (t) => {
   const host = await start(t)
   const { groupId } = await team(host)
   const dir = mkdtempSync(join(tmpdir(), 'chat-to-fix-wd-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   await host.botlayer.setGroupWorkDir(groupId, dir)
-  assert.ok(host.rt.roomOf(groupId).workDir)
+  const room = host.rt.roomOf(groupId)
+  assert.deepEqual([room.workDir, room.memberDirs], [undefined, undefined])
+})
+
+// What the bot layer asks DSH for when it makes a session: the agent preset of each bot, and the
+// read-only preset for the group's own session (which runs no model).
+test('every session the bot layer makes names its bot\'s preset; the relay session prefers readonly', async (t) => {
+  const host = await start(t, { presets: ['standard', 'readonly'] })
+  const { botlayer } = host
+  const ids = []
+  for (const [name, preset] of [['Boss', 'readonly'], ['Slacker', 'readonly'], ['Coder', 'standard']]) {
+    ids.push(await botlayer.createBot({ name, label: 'Role', instructions: `You are ${name}.`, model: 'deepseek/v4-flash', permission: 'workspace-write', preset }))
+  }
+  assert.deepEqual(host.creates.map(c => c.agentPreset), ['readonly', 'readonly', 'standard'])
+  const groupId = await botlayer.createGroup({ name: 'Task 1', memberIds: ids, adminId: ids[0], notice: 'Work on the task.' })
+  assert.equal(host.creates.length, 4)
+  assert.equal(host.creates[3].agentPreset, 'readonly', 'the group\'s own session')
+
+  // A member's group session, made on its first turn there (the admin's, as in the test above).
+  await botlayer.postTask(groupId, 'Fix the login bug', 'req-1')
+  const stop = new AbortController()
+  t.after(() => stop.abort())
+  host.emit(groupId, 'user/message', { content: host.prompts[0].content, source: { kind: 'user' } })
+  void host.tool('group_relay', {}, groupId, { callId: 'c1', signal: stop.signal }).catch(() => {})
+  await settle(() => host.rt.roomOf(groupId).sessions?.[ids[0]] !== undefined)
+  assert.equal(host.creates.length, 5)
+  assert.equal(host.creates[4].agentPreset, 'readonly', 'the admin\'s group session')
+})
+
+test('a profile without the readonly preset still makes the relay session; a bot naming it is refused', async (t) => {
+  const host = await start(t, { presets: ['standard'] })
+  const ids = []
+  for (const name of ['Coder', 'Helper']) ids.push(await host.botlayer.createBot({ name, label: 'Role', instructions: 'x', model: 'deepseek/v4-flash', preset: 'standard' }))
+  await host.botlayer.createGroup({ name: 'Task 1', memberIds: ids, adminId: ids[0] })
+  assert.equal(host.creates.at(-1).agentPreset, undefined)
+  await assert.rejects(host.botlayer.createBot({ name: 'Reader', label: 'Role', instructions: 'x', preset: 'readonly' }), /not available/)
+})
+
+// Creating the Coding bot sets its model, which switches its engine: a bot that never had a model
+// has no conversation to carry, so it must not get a fresh part (a second session).
+test('the Coding bot is made with one session; setting its Claude Code model opens no fresh part', async (t) => {
+  const { host, post } = await startApp(t, { cli: CLI, runtime: { presets: ['standard', 'readonly'] } })
+  await host.localAdapter()
+  assert.equal(host.rt.isLocalAgentRoute('claude-code'), true, 'the claude-code route is a local agent route')
+  const parts = []
+  const newPart = host.rt.newPart
+  host.rt.newPart = (...args) => { parts.push(args); return newPart(...args) }
+  const { bots } = await post()
+  await new Promise(resolve => setTimeout(resolve, 150))
+  // Five own sessions and the group's own session; no extra one for the Coding bot.
+  assert.equal(host.creates.length, 6)
+  assert.deepEqual(host.creates.map(c => c.agentPreset).sort(), ['readonly', 'readonly', 'readonly', 'readonly', 'readonly', 'standard'])
+  assert.deepEqual(parts, [], 'no part switch was started')
+  assert.equal(host.rt.chatOf(bots.coding), bots.coding)
+  assert.equal(host.rt.botOf(bots.coding).appliedModel ?? host.rt.botOf(bots.coding).model, 'claude-code/default')
+  assert.equal(host.rt.state.switching?.[bots.coding], undefined)
 })

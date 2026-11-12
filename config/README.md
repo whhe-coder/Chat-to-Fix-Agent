@@ -35,8 +35,7 @@ The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_* TE
 | 3 `approval: never`, `permission` with `defaultPreset: workspace-write` and three presets set to never | nothing waits for a click | yes: the row first refused to start ("defaults match no preset"), so `defaultPreset` and the approval row were added; the session logs show `read-only` / `workspace-write` pinned. A situation that would have asked was not exercised |
 | 4 telemetry rows disabled | no OTel export | yes: the composed tree shows `disabled: true`; the process had no outward socket or proxy attempt |
 | 5 headless: web-startup, webserver, web-runtime, modules, client-hmr, session-log-download, ui-deliverables, directory-picker, open-in-app, office-to-pdf, harness-dev-context and workspace-changes disabled; `connection` restated without `inject: [webStartup]` | no web server, browser or desktop integration | yes: every row activated, and the only listener is the control interface on 127.0.0.1 |
-| 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly` |
-| 6b `preset-standard` made read-only (stop-gap) | sessions the bot layer creates without a preset (group member, group, next part) get no write/shell tools | yes: before this row, the Main bot's group turn had bash/write/edit; after it, 18 tools, none of them writes or runs shell commands |
+| 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly`; since the bot layer passes each bot's preset at every session it creates (own chat, group session, fresh part; the relay session prefers `readonly`), the shipped `standard` preset is unchanged and only the Coding bot uses it |
 | 7 plugin row `chat-to-fix/src/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
 
 Loader rules confirmed against the real runtime:
@@ -53,4 +52,3 @@ Loader rules confirmed against the real runtime:
 - **Login shell.** The same file runs `$SHELL -l -c`, which reads `~/.zprofile` and `~/.zshenv`. These are reads only; that no file is written was shown with the sentinel HOME.
 - **Claude Code.** In real runs, Claude Code writes under `~/.claude` (projects, settings). This is known and accepted.
 - **Node binary.** Node comes from `~/Documents/mywork/ds-bot/.toolchain` (`dev-env.sh`). It is executed only, never written.
-- **Preset fix in code.** The three bot-layer call sites (`groups.js:293`, `roster.js:510`, `parts.js:1056`) should pass the bot's preset. Then row 6b can be removed.

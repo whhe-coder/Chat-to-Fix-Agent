@@ -12,13 +12,17 @@ import { fakeContext } from '../../bot/test/fake-ctx.ts'
 
 export async function start(t, config: any = {}) {
   const home = mkdtempSync(join(tmpdir(), 'chat-to-fix-botlayer-'))
-  const services = {
+  // `config.presets` (a list of agent preset ids) makes the fake DSH serve those agent presets.
+  const services: any = {
     permissionPresets: { resolve: name => name, set() {}, catalog: () => ({ options: [], defaultPreset: 'standard' }) },
+    ...(config.presets ? { agentPresets: { list: async () => config.presets.map(id => ({ id })), serviceFor: () => undefined } } : {}),
   }
   const ctx = fakeContext({ services })
   const agents = new Map()
   const selected = []
   const prompts = []
+  // Every request the bot layer made to create a session (cwd, workspaceId, agentPreset).
+  const creates = []
   // What the local agents module registers on the llm service (a route list and the adapter).
   const adapters = []
   let sessions = 0
@@ -66,7 +70,7 @@ export async function start(t, config: any = {}) {
     },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
-      create: async () => ({ sessionId: `s${++sessions}` }),
+      create: async (request) => { creates.push(request); return { sessionId: `s${++sessions}` } },
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async (request) => { selected.push(request) },
       prompt: async (request) => { prompts.push(request) },
@@ -76,7 +80,7 @@ export async function start(t, config: any = {}) {
   })
   // `config.build(ctx, home)` lets a test install something else on the context (the plugin
   // entry); it returns the facade or an object with a `botlayer`.
-  const { build, ...rest } = config
+  const { build, presets, ...rest } = config
   const built = build ? build(ctx, home) : createRuntime(ctx, { home, ...rest })
   const botlayer = built.botlayer ?? built
   const rt = runtimeOf(botlayer)
@@ -117,7 +121,7 @@ export async function start(t, config: any = {}) {
     assert.ok(adapters.length > 0, 'the local agent adapter was not registered')
     return adapters[0].adapter
   }
-  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, emit, tool, begin, finish, adapters, localAdapter }
+  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, creates, emit, tool, begin, finish, adapters, localAdapter }
 }
 
 export const settle = async (check) => {
