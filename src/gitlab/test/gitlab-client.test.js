@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createGitlabClient } from '../src/gitlab/client.js';
+import { createGitlabClient } from '../client.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status });

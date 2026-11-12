@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createJiraConnection, JiraApiError, loadJiraToken } from '../src/jira/connection.js';
+import { createJiraConnection, JiraApiError, loadJiraToken } from '../connection.js';
 
 const cloudId = '00000000-0000-0000-0000-000000000001';
 

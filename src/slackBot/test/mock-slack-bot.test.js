@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
-import { createMockSlackBot, createMockSlackServer } from '../src/slackBot/mock-slack-bot.js';
+import { createMockSlackBot, createMockSlackServer } from '../mock-slack-bot.js';
 
 test('模拟私信进入原 thread，并保留发送者和频道', async () => {
   const bot = createMockSlackBot({ now: () => 1000 });

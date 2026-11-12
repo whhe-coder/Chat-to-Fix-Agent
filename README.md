@@ -15,14 +15,17 @@ src/
 ├── chat-to-fix/
 │   ├── core/       Agent 主代码：应用、任务流程、适配器和工具
 │   ├── bot/src/    从 DS Bot 引入的 Bot 层，保留其内部目录
+│   ├── bot/test/   Bot 层测试
 │   ├── scripts/    启动、调试和验证脚本
 │   ├── test/       Agent 测试
 │   └── config/     DSH 配置
-├── gitlab/、jira/   Agent 接入准备时使用的连接函数
-└── slackBot/       待接入的 Slack Bot 和旧测试入口
+├── gitlab/、jira/   Agent 接入准备时使用的连接函数及各自的 test/
+└── slackBot/       待接入的 Slack Bot、旧测试入口及其 test/
 ```
 
 Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/`。设计规格和历史资料位于 [文档目录](docs/chat-to-fix/README.md)。
+
+测试放在对应模块的 `test/` 中。运行全部测试用 `npm test`；连接函数、Slack Bot、Agent 和 Bot 层可分别用 `npm run test:connections`、`npm run test:slack-bot`、`npm run test:agent`、`npm run test:agent-bot` 验证。Agent 与 Bot 层之间的测试用 `npm run test:agent-layer` 验证。
 
 ## 目标流程
 

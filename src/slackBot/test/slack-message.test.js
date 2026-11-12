@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDmHandler } from '../src/slackBot/slack-message.js';
+import { createDmHandler } from '../slack-message.js';
 
 const event = {
   type: 'message',

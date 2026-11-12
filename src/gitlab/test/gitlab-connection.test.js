@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createGitlabConnection, loadGitlabToken } from '../src/gitlab/connection.js';
+import { createGitlabConnection, loadGitlabToken } from '../connection.js';
 
 test('环境变量 token 优先，读取时不调用 Mac 钥匙串', () => {
   const token = loadGitlabToken({
