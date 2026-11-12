@@ -189,12 +189,15 @@ export function createRealGitlab(config, options: any = {}) {
   async function upsertDraft(binding, { branch, title, description }: any) {
     const project = projectOf(binding)
     const fields = { title: draftTitle(title), description: description ?? '' }
-    const update = async (iid) => {
-      const { body } = await request('PUT', `/projects/${project}/merge_requests/${iid}`, { body: fields })
-      return { url: body.web_url, iid: body.iid ?? iid }
+    const update = async (existing) => {
+      if (!existing.draft || existing.target !== (binding?.defaultBranch ?? 'master')) {
+        throw new AdapterError('mr_not_owned', 'the task branch already has an open MR that is not the expected Draft MR')
+      }
+      const { body } = await request('PUT', `/projects/${project}/merge_requests/${existing.iid}`, { body: fields })
+      return { url: body.web_url, iid: body.iid ?? existing.iid }
     }
     const existing = await find(binding, branch)
-    if (existing !== undefined) return update(existing.iid)
+    if (existing !== undefined) return update(existing)
     const created = await request('POST', `/projects/${project}/merge_requests`, {
       body: { source_branch: branch, target_branch: binding?.defaultBranch ?? 'master', ...fields },
       accept: [201, 409],
@@ -206,7 +209,7 @@ export function createRealGitlab(config, options: any = {}) {
     // 409: another open MR for this source branch exists (made in between): update that one.
     const again = await find(binding, branch)
     if (again === undefined) throw new AdapterError('gitlab_conflict', `GitLab reports a conflict creating the MR for ${branch} but no open MR was found`)
-    return update(again.iid)
+    return update(again)
   }
 
   async function get(binding, branch) {

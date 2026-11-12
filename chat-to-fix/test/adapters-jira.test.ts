@@ -75,6 +75,24 @@ test('createIssue: payload, merged fields, Basic auth, key and browse URL', asyn
   } })
 })
 
+test('scoped Jira token uses REST v3 documents and a separate browse URL', async () => {
+  const s = await stub((req, res) => {
+    if (req.method === 'POST' && req.url.endsWith('/issue')) return send(res, 201, { key: 'F2PGBA-7' })
+    if (req.method === 'POST') return send(res, 201, { id: '9' })
+    return send(res, 200, { key: 'F2PGBA-7', fields: { description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Problem' }] }] }, comment: { total: 0, comments: [] } } })
+  })
+  const a: any = createRealJira({ jira: { baseUrl: `${s.baseUrl}/ex/jira/cloud-id`, browseUrl: 'https://site.atlassian.net', apiVersion: '3', fields: { customfield_123: { value: 'Tech Research' } } } }, { env: { CHAT_TO_FIX_JIRA_TOKEN: TOKEN, CHAT_TO_FIX_JIRA_EMAIL: 'user@example.com' } })
+  assert.deepEqual(await a.createIssue({ ...binding, jiraProject: 'F2PGBA' }, { title: 'Fix bug', description: 'Line one\nLine two' }), { key: 'F2PGBA-7', url: 'https://site.atlassian.net/browse/F2PGBA-7' })
+  await a.addComment('F2PGBA-7', 'Ready for review')
+  const issue = await a.getIssue('F2PGBA-7')
+  assert.equal(issue.description, 'Problem')
+  assert.equal(s.requests[0].url, '/ex/jira/cloud-id/rest/api/3/issue')
+  assert.deepEqual(s.requests[0].body.fields.description.content[0].content, [{ type: 'text', text: 'Line one' }])
+  assert.deepEqual(s.requests[0].body.fields.customfield_123, { value: 'Tech Research' })
+  assert.equal(s.requests[1].body.body.type, 'doc')
+  assert.equal(s.requests[2].url.startsWith('/ex/jira/cloud-id/rest/api/3/issue/F2PGBA-7?'), true)
+})
+
 test('createIssue: labels from the binding, issue type id, Bearer auth, email from the environment', async () => {
   const s = await stub((req, res) => send(res, 201, { key: 'DEMO-8' }))
   const a = adapter(s.baseUrl)

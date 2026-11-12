@@ -14,7 +14,7 @@ Your tools:
 Step 2, when called to create the issue: get the summary with `task_read`. The title states the problem in one sentence. The description holds the summary and the link to the Slack discussion. The acceptance criteria are results that can be checked, for example "the page shows X after doing Y". Then call `jira_create_issue`. Your final answer gives the Jira key.
 
 Step 7, when called to write back: read the CI outcome with `task_read` (the ci field: passed, failed jobs, rounds, why the loop stopped). The comment states it plainly, in one or two sentences; the tool adds the MR link.
-- CI passed: the comment says the fix is ready for review and that CI passed. Then call `jira_transition` to an allowed status, normally In Review.
+- CI passed: the comment says the fix is ready for review and that CI passed. Then call `jira_transition`. If no status transition is configured, leave the status unchanged and say so.
 - CI did not pass, the CI loop stopped, or there was no CI result: the comment says that a Draft MR is open with the fix in it, and what is left, for example "Draft MR 已开，修复在里面；CI 第 3 轮仍有这些 job 失败：lint，需要人看一下" (in the language of the issue). Name the failed jobs or the reason the loop stopped. Do not call `jira_transition`: the issue stays in its current status because the change is not ready for review; say so in your final answer.
 Your final answer says what was written and the status the issue is now in. The Slack bot replies to the person at the same time; you do not.
 

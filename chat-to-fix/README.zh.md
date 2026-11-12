@@ -56,6 +56,22 @@ cd runtime && npm install --legacy-peer-deps=false --no-package-lock --no-fund -
 | 调试页 | `node scripts/flow-page.ts --dir <运行目录>`，打开 http://127.0.0.1:3092/ |
 | 终端里看一个任务 | `node scripts/watch.ts --dir <运行目录>` |
 
+## 接入现有 GitLab、Jira、Slack 配置
+
+根目录的 `.env.local` 保存现有连接的 token。`scripts/connected.ts` 复用这些变量，生成不含 token 的 Agent 配置。配置和隔离的 F2P 仓库放在 `chat-to-fix/.data/connected/`。
+
+```bash
+node scripts/connected.ts --check
+node scripts/connected.ts --channel C频道ID --repo /本机/F2P仓库路径
+node scripts/connected.ts --start
+```
+
+第一条命令只读检查 GitLab 分支和 Jira board，并报告 Slack Bot token 是否存在。第二条命令在取得频道 ID 后准备配置和隔离仓库；也可以在根目录 `.env.local` 中设置 `CHAT_TO_FIX_SLACK_CHANNEL` 与 `CHAT_TO_FIX_LOCAL_REPO`。第三条命令启动 Agent 和 `/fix` Socket Mode 转发器；需要获批安装后的 `SLACK_BOT_TOKEN`，以及现有的 `SLACK_APP_TOKEN`。本机使用 Node 24 运行这些命令。
+
+Agent 使用现有 `GITLAB_TOKEN`、`JIRA_TOKEN`、`SLACK_BOT_TOKEN` 和 `SLACK_APP_TOKEN`。Jira scoped token 走 REST v3；浏览器链接使用 Jira 站点地址。若无法自动查出站点地址，设置 `CHAT_TO_FIX_JIRA_SITE_URL`。当前配置不执行 Jira 状态迁移，因为现有 token 的迁移权限尚未验证。
+
+当前 Slack 应用只有 `commands` 和 `chat:write` Bot scopes。`/fix` 正文可直接交给 Agent；讨论串里的追问回复需要额外的消息事件和读取权限，当前尚未接通。真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
+
 Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读；`first-run.ts` 也能从 macOS 钥匙串读（服务名 `chat-to-fix-anthropic`）。代码、配置和日志里都没有凭据。
 
 ## 目录

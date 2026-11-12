@@ -91,6 +91,11 @@ function adapterSection(raw, name, kind, problems, { email = false, fields = fal
   }
   if (email && given.email !== undefined && !isText(given.email)) problems.push(`${name}.email must be a non-empty string`)
   if (fields && given.fields !== undefined && !isObject(given.fields)) problems.push(`${name}.fields must be an object`)
+  if (name === 'jira') {
+    if (given.apiVersion !== undefined && given.apiVersion !== '2' && given.apiVersion !== '3') problems.push('jira.apiVersion must be "2" or "3"')
+    if (given.browseUrl !== undefined && (!isHttpUrl(given.browseUrl) || hasCredentialsInUrl(given.browseUrl))) problems.push('jira.browseUrl must be an http(s) URL without credentials')
+  }
+  if (name === 'slack' && given.inputMode !== undefined && !['thread', 'command'].includes(given.inputMode)) problems.push('slack.inputMode must be "thread" or "command"')
   return { ...given }
 }
 

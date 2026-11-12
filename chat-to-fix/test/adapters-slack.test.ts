@@ -48,6 +48,15 @@ test('createRealSlack needs the bot token; the factory chooses it by config', ()
   assert.equal(typeof slack.reply, 'function')
 })
 
+test('slash command mode reads the submitted text without a history scope', async () => {
+  const { base, requests } = await stub((_req, res) => send(res, { ok: false, error: 'missing_scope' }))
+  const slack: any = createRealSlack({ slack: { apiBase: base, inputMode: 'command' } }, { env: { CHAT_TO_FIX_SLACK_TOKEN: TOKEN } })
+  assert.deepEqual(await slack.readThread({ ...ORIGIN, user: { id: 'U1', name: 'Ann' }, text: 'Fix checkout' }), [{
+    user: { id: 'U1', name: 'Ann' }, at: new Date(Number(ORIGIN.messageTs) * 1000).toISOString(), text: 'Fix checkout', files: [],
+  }])
+  assert.equal(requests.length, 0)
+})
+
 test('readThread: pages, names, mentions, entities, files; names are cached', async () => {
   const { base, requests } = await stub((req, res) => {
     if (req.path === '/api/conversations.replies') {

@@ -49,8 +49,8 @@ const commentOf = (c) => ({
 })
 
 /**
- * The real Jira adapter: the same four functions as the fake, against the Jira REST API v2 (plain
- * text / wiki markup bodies, no Atlassian document format to convert).
+ * The real Jira adapter: the same four functions as the fake. Jira Cloud scoped tokens use the
+ * gateway at api.atlassian.com and REST v3 with Atlassian Document Format bodies.
  *   config.jira = { baseUrl, email?, fields? }; token in env CHAT_TO_FIX_JIRA_TOKEN; the e-mail may also
  *   come from env CHAT_TO_FIX_JIRA_EMAIL. With an e-mail: Basic auth `email:token` (Jira Cloud API token);
  *   without: `Authorization: Bearer <token>`.
@@ -76,6 +76,16 @@ export function createRealJira(config, options: any = {}) {
     throw new AdapterError('bad_config', 'jira.baseUrl must not hold credentials, a query or a fragment')
   }
   const baseUrl = `${base.origin}${base.pathname.replace(/\/+$/, '')}`
+  const apiVersion = jira.apiVersion ?? '2'
+  if (apiVersion !== '2' && apiVersion !== '3') throw new AdapterError('bad_config', 'jira.apiVersion must be 2 or 3')
+  const browseUrl = jira.browseUrl ?? baseUrl
+  let browseBase
+  try {
+    const url = new URL(browseUrl)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('protocol')
+    if (url.username || url.password || url.search || url.hash) throw new Error('credentials')
+    browseBase = `${url.origin}${url.pathname.replace(/\/+$/, '')}`
+  } catch { throw new AdapterError('bad_config', 'jira.browseUrl must be an http(s) URL without credentials') }
   const email = text(jira.email) ? jira.email.trim() : text(env.CHAT_TO_FIX_JIRA_EMAIL) ? env.CHAT_TO_FIX_JIRA_EMAIL.trim() : undefined
   const authorization = email === undefined ? `Bearer ${token}` : `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
   const timeoutMs = options.timeoutMs ?? Math.min(REAL_TIMEOUT_MS, Math.max(1000, ((config?.limits?.toolTimeoutSeconds ?? 30) - 8) * 1000))
@@ -83,7 +93,10 @@ export function createRealJira(config, options: any = {}) {
     baseUrl, authorization, secrets: [token], timeoutMs,
     fetch: options.fetch, budgetMs: options.budgetMs, maxRetries: options.maxRetries, maxRetryWaitMs: options.maxRetryWaitMs, sleep: options.sleep,
   })
-  const api = '/rest/api/2'
+  const api = `/rest/api/${apiVersion}`
+  const adf = (value) => ({ type: 'doc', version: 1, content: String(value).replace(/\r\n?/g, '\n').split('\n').map((line) => ({
+    type: 'paragraph', ...(line ? { content: [{ type: 'text', text: line }] } : {}),
+  })) })
   const issuePath = (key) => `${api}/issue/${encodeURIComponent(key)}`
   const missing = (key) => ({ code: 'issue_not_found', message: `issue ${key} does not exist or is not visible to the Jira user` })
 
@@ -108,7 +121,7 @@ export function createRealJira(config, options: any = {}) {
         project: { key: binding.jiraProject.trim() },
         issuetype: /^\d+$/.test(type) ? { id: type } : { name: type },
         summary: title.trim().replace(/\s+/g, ' ').slice(0, 255),
-        description: body,
+        description: apiVersion === '3' ? adf(body) : body,
         ...(Array.isArray(binding.labels) && binding.labels.length > 0 ? { labels: [...binding.labels] } : {}),
         ...jira.fields,
         ...binding.jiraFields,
@@ -120,7 +133,7 @@ export function createRealJira(config, options: any = {}) {
       if (!isObject(created) || !text(created.key)) {
         throw new AdapterError('bad_response', 'Jira answered the create request without an issue key; the issue may have been created, check the project before trying again')
       }
-      return { key: created.key, url: `${baseUrl}/browse/${created.key}` }
+      return { key: created.key, url: `${browseBase}/browse/${created.key}` }
     },
 
     async getIssue(key) {
@@ -140,7 +153,7 @@ export function createRealJira(config, options: any = {}) {
       }
       return {
         key: issue.key ?? id,
-        url: `${baseUrl}/browse/${issue.key ?? id}`,
+        url: `${browseBase}/browse/${issue.key ?? id}`,
         title: f.summary ?? '',
         description: plain(f.description),
         status: f.status?.name ?? 'unknown',
@@ -155,7 +168,7 @@ export function createRealJira(config, options: any = {}) {
     async addComment(key, body) {
       const id = needKey(key)
       if (!text(body)) throw new AdapterError('bad_text', 'the comment text is empty')
-      await http.request('POST', `${issuePath(id)}/comment`, { body: { body }, notFound: missing(id) })
+      await http.request('POST', `${issuePath(id)}/comment`, { body: { body: apiVersion === '3' ? adf(body) : body }, notFound: missing(id) })
     },
 
     async transition(key, status) {

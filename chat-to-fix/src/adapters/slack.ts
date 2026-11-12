@@ -54,8 +54,9 @@ const unescapeSlack = (text) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 
 /**
  * The real Slack adapter: same two functions as the fake. Bot token from env CHAT_TO_FIX_SLACK_TOKEN
- * (scopes: channels:history, groups:history, chat:write; users:read is optional: without it speakers
- * are shown by user id). `config.slack.apiBase` / `options.apiBase` replace the API host (tests).
+ * In command mode, the slash command payload is the discussion. This needs only chat:write.
+ * Thread mode uses conversations.replies and needs channel history scopes.
+ * `config.slack.apiBase` / `options.apiBase` replace the API host (tests).
  * `options.fetch`, `sleep`, `requestTimeoutMs`, `readBudgetMs` are test hooks.
  */
 export function createRealSlack(config, options: any = {}) {
@@ -112,6 +113,15 @@ export function createRealSlack(config, options: any = {}) {
   return {
     async readThread(origin) {
       const { channel, threadTs } = checkSlackOrigin(origin)
+      if (config?.slack?.inputMode === 'command') {
+        if (typeof origin?.text !== 'string' || origin.text.trim() === '') throw new AdapterError('bad_origin', 'the slash command has no text')
+        return [{
+          user: { id: origin.user?.id ?? 'unknown', name: origin.user?.name ?? origin.user?.id ?? 'unknown' },
+          at: Number.isFinite(Number(origin.messageTs)) ? new Date(Number(origin.messageTs) * 1000).toISOString() : null,
+          text: origin.text,
+          files: [],
+        }]
+      }
       const deadlineAt = now() + readBudgetMs
       const raw = []
       let cursor

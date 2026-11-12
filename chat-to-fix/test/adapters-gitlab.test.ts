@@ -117,6 +117,17 @@ test('upsertDraft: an open MR exists -> PUT title and description to it, same li
   } finally { await s.close() }
 })
 
+test('upsertDraft leaves a non-Draft or differently targeted MR untouched', async () => {
+  for (const existing of [mr({ draft: false, title: 'Ready' }), mr({ target_branch: 'other' })]) {
+    const s = await stub(() => ({ status: 200, body: [existing] }))
+    try {
+      await assert.rejects(real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'Fix price' }),
+        (e: any) => e.code === 'mr_not_owned' && e.retryable === false)
+      assert.deepEqual(s.requests.map((r) => r.method), ['GET'])
+    } finally { await s.close() }
+  }
+})
+
 test('upsertDraft: 409 on create (an MR appeared in between) -> find again and update it; no second create', async () => {
   let gets = 0
   const s = await stub((r) => {
@@ -265,7 +276,7 @@ test('repo adapter with adapters.gitlab=real: commit, push to the git remote, MR
     // the same task again: the MR is found, the title and description are updated
     s.requests.length = 0
     await writeFile(join(p.dir, 'y.txt'), 'y')
-    const mrs = [mr({ sha: 'whatever' })]
+    const mrs = [mr({ sha: 'whatever', target_branch: 'master' })]
     const s2 = await stub((r) => (r.method === 'GET' ? { status: 200, body: mrs } : { status: 200, body: mr() }))
     try {
       const repo2 = createRepoAdapter({ ...config, gitlab: { baseUrl: s2.baseUrl } }, { env: { CHAT_TO_FIX_GITLAB_TOKEN: TOKEN }, warn() {} }) as any
