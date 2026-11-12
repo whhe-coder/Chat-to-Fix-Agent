@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process'
 import { lstat, mkdir, readFile as readFileFs, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { AdapterError } from './errors.ts'
+import { AdapterError, redactSecrets } from './errors.ts'
 
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_BUFFER = 64 * 1024 * 1024
@@ -22,14 +22,54 @@ const JIRA_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/
 
 const isText = (v) => typeof v === 'string' && v.trim() !== ''
 
+// The commit message of the target repositories: one Conventional Commit line, no body (handover section 6, row 12).
+export const COMMIT_TYPES = ['feat', 'fix', 'chore', 'refactor', 'test', 'docs', 'perf', 'build', 'ci', 'style', 'revert']
+export const COMMIT_MESSAGE_MAX = 100
+const COMMIT_MESSAGE = new RegExp(`^(${COMMIT_TYPES.join('|')})(\\([A-Za-z0-9][A-Za-z0-9._/,-]*\\))?!?: \\S.*$`)
+
+/** True when `text` is `type(scope)?!?: summary` on one line, at most 100 characters, with a known type. */
+export const isCommitMessage = (text) => typeof text === 'string' && text.length <= COMMIT_MESSAGE_MAX && COMMIT_MESSAGE.test(text)
+
+/** `fix: <title>` from an MR title: newlines and runs of blanks become one space, cut to 100 characters. */
+export function commitMessageFromTitle(title) {
+  const line = String(title ?? '').replace(/\s+/g, ' ').trim()
+  return `fix: ${line}`.slice(0, COMMIT_MESSAGE_MAX).trimEnd()
+}
+
 /** Config switches that make git independent of the machine it runs on. */
 const SAFE_CONFIG = [
   'core.hooksPath=/dev/null', 'commit.gpgsign=false', 'tag.gpgsign=false', 'core.fsmonitor=false',
   'core.autocrlf=false', 'protocol.ext.allow=never', 'gc.auto=0', 'advice.detachedHead=false',
 ]
 
-/** The environment of every git child process. */
-export function gitEnv(author) {
+/**
+ * Git credentials for one HTTPS GitLab host (spec 6 section 2.1): an `http.<url>.extraHeader` set through
+ * GIT_CONFIG_COUNT/KEY/VALUE in the child's environment only. Nothing is written to a config file, the
+ * remote URL stays clean (so logs and errors never show the token) and `ps` does not show it either.
+ * Basic auth with the user name `oauth2` works for personal and project access tokens.
+ * Returns `{ env: {}, secrets: [] }` unless `remoteUrl` is an https URL on the same origin as `auth.baseUrl`:
+ * a file:// or ssh remote, or another host, never receives the token.
+ */
+export function gitAuthEnv(auth, remoteUrl) {
+  const none: { env: any, secrets: string[] } = { env: {}, secrets: [] }
+  if (!auth || !isText(auth.baseUrl) || !isText(auth.token) || !isText(remoteUrl)) return none
+  let base
+  let remote
+  try { base = new URL(auth.baseUrl); remote = new URL(remoteUrl) } catch { return none }
+  if (remote.protocol !== 'https:' || base.protocol !== 'https:' || remote.origin !== base.origin) return none
+  const value = Buffer.from(`oauth2:${auth.token}`).toString('base64')
+  return {
+    env: {
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: `http.${base.origin}/.extraHeader`,
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${value}`,
+    },
+    secrets: [auth.token, value],
+  }
+}
+
+/** The environment of every git child process. `extra` is the credential environment of gitAuthEnv. */
+export function gitEnv(author, extra = {}) {
   const env: any = {
     PATH: process.env.PATH ?? '/usr/bin:/bin',
     HOME: tmpdir(),
@@ -46,22 +86,24 @@ export function gitEnv(author) {
     env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = author.name
     env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = author.email
   }
-  return env
+  return Object.assign(env, extra)
 }
 
 /**
  * Runs one git command. Resolves with { stdout, stderr }; rejects with an AdapterError
  * (`git_timeout` and `git_unavailable` are retryable; `network` marks fetch and push as retryable).
  */
-export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, network = false, raw = false }: { cwd?: string, author?: any, timeoutMs?: number, network?: boolean, raw?: boolean } = {}) {
+export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, network = false, raw = false, credentials }: { cwd?: string, author?: any, timeoutMs?: number, network?: boolean, raw?: boolean, credentials?: { env: any, secrets: string[] } } = {}) {
   const full = [...SAFE_CONFIG.flatMap((c) => ['-c', c]), ...args]
+  const secrets = credentials?.secrets ?? []
   return new Promise<any>((resolvePromise, reject) => {
-    execFile('git', full, { cwd, env: gitEnv(author), timeout: timeoutMs, maxBuffer: MAX_BUFFER, encoding: raw ? 'buffer' : 'utf8' }, (error, stdout, stderr) => {
+    execFile('git', full, { cwd, env: gitEnv(author, credentials?.env), timeout: timeoutMs, maxBuffer: MAX_BUFFER, encoding: raw ? 'buffer' : 'utf8' }, (error, stdout, stderr) => {
       if (error === null) { resolvePromise({ stdout, stderr }); return }
       if (error.code === 'ENOENT') { reject(new AdapterError('git_unavailable', 'git is not installed or not on PATH', { retryable: false })); return }
       if (error.killed || error.signal === 'SIGTERM') { reject(new AdapterError('git_timeout', `git ${args[0]} took longer than ${Math.round(timeoutMs / 1000)}s`, { retryable: true })); return }
       const detail = String(stderr || error.message).trim().split('\n').slice(-3).join(' | ')
-      reject(new AdapterError('git_failed', `git ${args[0]} failed: ${detail}`, { retryable: network, cause: error }))
+      // With credentials in the environment the raw error object is not attached, and the text is cleaned.
+      reject(new AdapterError('git_failed', redactSecrets(`git ${args[0]} failed: ${detail}`, secrets), { retryable: network, cause: secrets.length > 0 ? undefined : error }))
     })
   })
 }
@@ -90,9 +132,23 @@ const inside = (root, target) => {
 /**
  * @param {{ worktreesDir: string, commitAuthor: {name: string, email: string}, timeoutMs?: number }} options
  */
-export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIMEOUT_MS, auth }: { worktreesDir: string, commitAuthor: any, timeoutMs?: number, auth?: { baseUrl: string, token: string } }) {
   const run = (args, options: any = {}) => runGit(args, { author: commitAuthor, timeoutMs, ...options })
   const out = async (args, options) => (await run(args, options)).stdout
+
+  /**
+   * Credentials for one network command (fetch, push) against `remote` (a URL or a remote name).
+   * Only used when the real GitLab adapter provided `auth`, and only for an https remote on its host.
+   */
+  async function credentialsFor(remote, cwd) {
+    if (!auth || !isText(remote)) return undefined
+    let url = remote
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(remote)) {
+      try { url = (await out(['remote', 'get-url', remote], { cwd })).trim() } catch { return undefined }
+    }
+    const credentials = gitAuthEnv(auth, url)
+    return credentials.secrets.length > 0 ? credentials : undefined
+  }
 
   /** The real path of a code directory; it must exist and sit directly inside worktreesDir. */
   async function codeDir(dir) {
@@ -145,7 +201,7 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
     let baseRef = defaultBranch
     if (source !== undefined) {
       const ref = `refs/chat-to-fix/base/${defaultBranch}`
-      await run(['fetch', '--quiet', '--no-tags', source, `+refs/heads/${defaultBranch}:${ref}`], { cwd: repo, network: true })
+      await run(['fetch', '--quiet', '--no-tags', source, `+refs/heads/${defaultBranch}:${ref}`], { cwd: repo, network: true, credentials: await credentialsFor(source, repo) })
       baseRef = ref
     }
     const latest = (await out(['rev-parse', '--verify', `${baseRef}^{commit}`], { cwd: repo })).trim()
@@ -241,17 +297,18 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
 
   /**
    * Commits everything in the directory (tracked, changed, deleted and new files) with the
-   * configured author. `amend` replaces the last commit instead of adding one. Returns
-   * { sha, committed } (`committed` is false when there was nothing new to commit).
+   * configured author. The message is one line and never has a body. `amend` replaces the last
+   * commit instead of adding one. Returns { sha, committed } (`committed` is false when there was
+   * nothing new to commit).
    */
-  async function commitAll(dir, { message, description, amend = false }) {
+  async function commitAll(dir, { message, amend = false }: { message: string, amend?: boolean }) {
     const cwd = await codeDir(dir)
     if (!isText(message)) throw new AdapterError('bad_message', 'the commit message is missing')
+    if (/[\r\n]/.test(message)) throw new AdapterError('bad_message', 'the commit message must be a single line')
     await run(['add', '-A'], { cwd })
     const dirty = (await out(['status', '--porcelain'], { cwd })).trim() !== ''
     if (dirty) {
       const args = ['commit', '--quiet', '--no-verify', '-m', message]
-      if (isText(description)) args.push('-m', description)
       if (amend) args.push('--amend')
       await run(args, { cwd })
     }
@@ -272,7 +329,7 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
     const cwd = await codeDir(dir)
     checkRef(branch, 'branch')
     if (!isText(remote)) throw new AdapterError('no_remote', 'the binding has no remote to push to')
-    await run(['push', '--quiet', '--force', remote, `refs/heads/${branch}:refs/heads/${branch}`], { cwd, network: true })
+    await run(['push', '--quiet', '--force', remote, `refs/heads/${branch}:refs/heads/${branch}`], { cwd, network: true, credentials: await credentialsFor(remote, cwd) })
   }
 
   /** Removes the worktree directory. The branch stays. Does nothing when the directory is gone. */

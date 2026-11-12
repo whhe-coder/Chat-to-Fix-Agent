@@ -2,6 +2,7 @@
 // (task.repo.dir) and branch: there is no directory parameter. Purposes are from
 // tools-and-limits.md section 2. What comes out of the repository is marked as material.
 import { posix } from 'node:path'
+import { COMMIT_MESSAGE_MAX, COMMIT_TYPES, commitMessageFromTitle, isCommitMessage } from '../adapters/git.ts'
 import { currentRun, cutText, material } from './material.ts'
 
 // No key in the configuration's limits fits these, so they are named constants here.
@@ -37,6 +38,21 @@ const REF_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_./@^~-]*$/
 function checkRef(ref) {
   if (!REF_PATTERN.test(ref) || ref.includes('..')) throw new Error('ref is not a valid branch, tag or commit name')
   return ref
+}
+
+/**
+ * The commit message of the MR commit: one Conventional Commit line, no body. Absent: `fix: <MR title>`.
+ * A given message must match `type(scope)?!?: summary` with a known type and be at most 100 characters.
+ */
+export function checkCommitMessage(value, title) {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) return commitMessageFromTitle(title)
+  if (typeof value !== 'string') throw new Error('commit_message must be a string')
+  const text = value.trim()
+  if (/[\r\n]/.test(text)) throw new Error('commit_message must be a single line without a body')
+  if (!isCommitMessage(text)) {
+    throw new Error(`commit_message must look like "type(scope): summary" (scope optional, "!" allowed after it), type one of ${COMMIT_TYPES.join(', ')}, at most ${COMMIT_MESSAGE_MAX} characters`)
+  }
+  return text
 }
 
 const formatCommit = (commit) => (typeof commit === 'string'
@@ -139,10 +155,11 @@ export function repoTools() {
       name: 'mr_open_draft',
       roles: ['pipeline'],
       write: true,
-      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory, pushes the branch and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is updated and its link returned.',
+      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory as one commit with a one-line Conventional Commit message (no body), pushes the branch and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is updated and its link returned.',
       parameters: {
-        title: { type: 'string', required: true, description: 'Title of the MR' },
+        title: { type: 'string', required: true, description: 'Title of the MR, one line' },
         description: { type: 'string', required: true, description: 'What the change does and why' },
+        commit_message: { type: 'string', description: `The commit message: ONE line "type(scope): summary", scope optional, type one of ${COMMIT_TYPES.join(', ')}, at most ${COMMIT_MESSAGE_MAX} characters, no body. Default: "fix: <title>"` },
       },
       async run(ctx, args) {
         const { task } = ctx
@@ -151,10 +168,14 @@ export function repoTools() {
         if (!task.jira?.key) throw new Error('the task has no Jira issue')
         if (!task.binding) throw new Error('this task has no channel binding')
         const title = need(args.title, 'title')
-        const description = need(args.description, 'description')
+        const body = need(args.description, 'description')
+        const commitMessage = checkCommitMessage(args.commit_message, title)
+        // The Jira key is part of the MR: the title or the description names it (the branch name has it too).
+        const key = task.jira.key
+        const description = `${title}\n${body}`.includes(key) ? body : `${body}\n\nJira: ${key}`
         const existed = Boolean(task.mr?.url)
         // For an MR that exists the adapter reuses it (one MR per branch) and returns its link.
-        const mr = await ctx.adapters.repo.openDraftMR(task.binding, dir, task.repo.branch, { title, description, jiraKey: task.jira.key })
+        const mr = await ctx.adapters.repo.openDraftMR(task.binding, dir, task.repo.branch, { title, description, jiraKey: key, commitMessage })
         const url = mr?.url ?? task.mr?.url
         await ctx.store.patchTask(task.id, { mr: { url } })
         return existed ? `The task already had a Draft MR; it was updated: ${url}` : `Opened the Draft MR: ${url}`

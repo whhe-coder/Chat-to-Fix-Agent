@@ -34,11 +34,12 @@ after(async () => { await rm(tmp, { recursive: true, force: true }) })
 const git = (args, cwd?) => runGit(args, { cwd, author: { name: 'x', email: 'x@example.com' } }).then((r) => r.stdout)
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'))
 
-test('real adapters are refused at creation, per adapter', async () => {
+test('selecting a real adapter without its token or setup fails at creation with a clear, secret-free error', async () => {
   const { config } = await setup()
-  for (const [name, key] of [['slack', 'slack'], ['jira', 'jira'], ['gitlab', 'gitlab']]) {
+  for (const name of ['slack', 'jira', 'gitlab']) {
     const bad = { ...config, adapters: { ...config.adapters, [name]: 'real' } }
-    assert.throws(() => createAdapters(bad), (e: any) => e.code === 'not_implemented' && /not implemented yet: waiting for the hookup design/.test(e.message) && e.message.includes(`adapters.${key}`))
+    // An environment that holds an unrelated secret: it must never show up in the message.
+    assert.throws(() => createAdapters(bad, { env: { SOME_OTHER_SECRET: 'sekrit-value-123' }, warn() {} }), (e: any) => e.name === 'AdapterError' && typeof e.code === 'string' && !e.retryable && e.message.includes(name) && !e.message.includes('sekrit-value-123'), name)
   }
   const all = createAdapters(config)
   assert.deepEqual(Object.keys(all).sort(), ['jira', 'repo', 'slack'])
@@ -181,8 +182,9 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   assert.equal(entries['ai/DEMO-7'].draft, true)
   const pushed1 = (await git(['rev-parse', 'ai/DEMO-7'], made.remote)).trim()
   assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '1')
+  // One Conventional Commit line derived from the title, no body (the description stays on the MR).
   const commit = await git(['log', '-1', '--format=%an|%ae|%cn|%ce|%s|%b', 'ai/DEMO-7'], made.remote)
-  assert.match(commit, /^chat-to-fix\|chat-to-fix@example\.com\|chat-to-fix\|chat-to-fix@example\.com\|Fix discount\|Subtract it/)
+  assert.equal(commit, 'chat-to-fix|chat-to-fix@example.com|chat-to-fix|chat-to-fix@example.com|fix: Fix discount|\n')
   assert.match(await git(['show', 'ai/DEMO-7:src/new-file.js'], made.remote), /one = 1/)
   assert.deepEqual(await a.repo.getMR(b, 'ai/DEMO-7'), { state: 'opened', pipeline: 'none', url: first.url, draft: true, title: 'Fix discount' })
   await assert.rejects(a.repo.getMR(b, 'ai/NOPE-1'), (e: any) => e.code === 'mr_not_found')
@@ -307,6 +309,42 @@ test('git runs with a minimal environment: global config and hooks do not leak i
     await a.repo.openDraftMR(b, p.dir, p.branch, { title: 'identity' })
   } finally { process.env.HOME = previous }
   assert.match(await git(['log', '-1', '--format=%an %ae %cn', p.branch], made.remote), /^chat-to-fix chat-to-fix@example\.com chat-to-fix/)
+})
+
+test('repo.openDraftMR: commitMessage is used as given, derived from the title otherwise, never with a body', async () => {
+  const { adapters: a, binding: b, made } = await setup()
+  const p = await a.repo.prepare(b, 'DEMO-13', 18)
+  const message = async () => (await git(['log', '-1', '--format=%B', p.branch], made.remote)).trimEnd()
+  await writeFile(join(p.dir, 'one.txt'), '1')
+  await a.repo.openDraftMR(b, p.dir, p.branch, { title: 'Title\nwith a newline', description: 'Long\n\nbody', jiraKey: 'DEMO-13' })
+  assert.equal(await message(), 'fix: Title with a newline')
+  // given: used as it is, and the amend replaces the message
+  await writeFile(join(p.dir, 'two.txt'), '2')
+  await a.repo.openDraftMR(b, p.dir, p.branch, { title: 'T', description: 'd', commitMessage: 'feat(shop): add two' })
+  assert.equal(await message(), 'feat(shop): add two')
+  assert.equal((await git(['rev-list', '--count', 'master..' + p.branch], made.remote)).trim(), '1')
+  // refused before anything is committed or pushed
+  await writeFile(join(p.dir, 'three.txt'), '3')
+  const pushed = (await git(['rev-parse', p.branch], made.remote)).trim()
+  for (const bad of ['no type here', 'fix: a\nb', 'fix: a\n\nbody', `fix: ${'x'.repeat(100)}`, 'wip: a']) {
+    await assert.rejects(a.repo.openDraftMR(b, p.dir, p.branch, { title: 'T', commitMessage: bad }), (e: any) => e.code === 'bad_message' && e.retryable === false, bad)
+  }
+  assert.equal((await git(['rev-parse', p.branch], made.remote)).trim(), pushed)
+  // the git layer itself refuses a message with a body
+  const { createGit } = await import('../src/adapters/git.ts')
+  const raw = createGit({ worktreesDir: join(p.dir, '..'), commitAuthor: { name: 'x', email: 'x@example.com' } })
+  await assert.rejects(raw.commitAll(p.dir, { message: 'fix: a\n\nbody' }), (e: any) => e.code === 'bad_message')
+})
+
+test('commit message helpers: the Conventional Commit line check and the derived message', async () => {
+  const { isCommitMessage, commitMessageFromTitle } = await import('../src/adapters/git.ts')
+  for (const ok of ['feat: x', 'fix(a): x', 'fix(a-b/c.d)!: x', 'chore!: x', 'revert: x y z', `fix: ${'x'.repeat(95)}`]) assert.equal(isCommitMessage(ok), true, ok)
+  for (const bad of ['', 'fix', 'fix:', 'fix: ', 'fix:x', 'Fix: x', 'bug: x', 'fix(): x', 'fix(a b): x', 'fix (a): x', 'fix: x\n', 'fix: x\ny', `fix: ${'x'.repeat(96)}`, undefined, 7]) assert.equal(isCommitMessage(bad), false, String(bad))
+  assert.equal(commitMessageFromTitle('Fix price'), 'fix: Fix price')
+  assert.equal(commitMessageFromTitle('  a\r\n b\t\tc  '), 'fix: a b c')
+  assert.equal(commitMessageFromTitle('y'.repeat(300)).length, 100)
+  assert.equal(isCommitMessage(commitMessageFromTitle('y'.repeat(300))), true)
+  assert.equal(isCommitMessage(commitMessageFromTitle('word '.repeat(40))), true)
 })
 
 test('repo.openDraftMR refuses an empty branch', async () => {

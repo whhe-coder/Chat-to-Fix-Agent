@@ -1,0 +1,255 @@
+// The real Slack adapter against a local stub of the Slack Web API (node:http on 127.0.0.1).
+import { test, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import { createRealSlack, createSlackAdapter } from '../src/adapters/slack.ts'
+import { neutralizeBroadcasts, retryAfterMs } from '../src/adapters/slack-http.ts'
+
+const TOKEN = 'xoxb-test-secret-token-123'
+const ORIGIN = { channel: 'C0123ABC', threadTs: '1731377400.000100', eventId: 'Ev1', messageTs: '1731377400.000100', user: { id: 'U1' }, text: 'x' }
+const servers = []
+
+// handler(request, { url, body }, response); `requests` records every request.
+async function stub(handler) {
+  const requests = []
+  const server = createServer((req, res) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      const url = new URL(req.url, 'http://127.0.0.1')
+      const raw = Buffer.concat(chunks).toString('utf8')
+      const record = { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), headers: req.headers, raw, json: raw ? JSON.parse(raw) : undefined }
+      requests.push(record)
+      handler(record, res)
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  servers.push(server)
+  return { base: `http://127.0.0.1:${(server.address() as any).port}/api`, requests, server }
+}
+after(() => { for (const s of servers) { s.closeAllConnections?.(); s.close() } })
+
+const send = (res, data, status = 200, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(data)) }
+
+function make(base, extra: any = {}) {
+  const sleeps = []
+  const warnings = []
+  const slack: any = createRealSlack({ slack: { apiBase: base } }, {
+    env: { CHAT_TO_FIX_SLACK_TOKEN: TOKEN }, warn: (...a) => warnings.push(a.join(' ')),
+    sleep: async (ms) => { sleeps.push(ms) }, retryDelayMs: 1, ...extra,
+  })
+  return { slack, sleeps, warnings }
+}
+
+test('createRealSlack needs the bot token; the factory chooses it by config', () => {
+  assert.throws(() => createRealSlack({}, { env: {} }), (e: any) => e.code === 'missing_token' && !e.message.includes('xoxb'))
+  const slack: any = createSlackAdapter({ adapters: { slack: 'real' } }, { env: { CHAT_TO_FIX_SLACK_TOKEN: TOKEN } })
+  assert.equal(typeof slack.readThread, 'function')
+  assert.equal(typeof slack.reply, 'function')
+})
+
+test('readThread: pages, names, mentions, entities, files; names are cached', async () => {
+  const { base, requests } = await stub((req, res) => {
+    if (req.path === '/api/conversations.replies') {
+      if (req.query.cursor === undefined) {
+        return send(res, {
+          ok: true, has_more: true, response_metadata: { next_cursor: 'CUR2' },
+          messages: [{ type: 'message', user: 'U1', ts: '1731377400.000100', text: '<@UBOT> login &amp; logout <b> is broken &lt;ok&gt;', files: [{ name: 'a.png', permalink: 'https://x/a' }, { mode: 'tombstone' }] }],
+        })
+      }
+      return send(res, {
+        ok: true, has_more: false, response_metadata: { next_cursor: '' },
+        messages: [
+          { user: 'U2', ts: '1731377460.000200', text: 'me too, cc <@U1> in <#C9|dev>' },
+          { bot_id: 'B7', username: 'ci-bot', ts: '1731377520.000300', text: 'build red' },
+        ],
+      })
+    }
+    if (req.path === '/api/users.info') {
+      const names = { U1: { profile: { display_name: 'ann', real_name: 'Ann A' } }, U2: { profile: { display_name: '', real_name: 'Bob B' } }, UBOT: { name: 'fixbot' } }
+      return send(res, { ok: true, user: names[req.query.user] })
+    }
+    send(res, { ok: false, error: 'unknown_method' })
+  })
+  const { slack } = make(base)
+  const messages = await slack.readThread(ORIGIN)
+  assert.equal(messages.length, 3)
+  assert.deepEqual(messages[0], {
+    user: { id: 'U1', name: 'ann' }, at: new Date(1731377400.0001 * 1000).toISOString(),
+    text: '@fixbot login & logout <b> is broken <ok>', files: [{ name: 'a.png', url: 'https://x/a' }],
+  })
+  assert.equal(messages[1].user.name, 'Bob B')
+  assert.equal(messages[1].text, 'me too, cc @ann in #dev')
+  assert.deepEqual(messages[2].user, { id: 'B7', name: 'ci-bot' })
+  assert.deepEqual(messages[2].files, [])
+
+  const replies = requests.filter((r) => r.path === '/api/conversations.replies')
+  assert.equal(replies.length, 2)
+  assert.equal(replies[0].method, 'GET')
+  assert.deepEqual(replies[0].query, { channel: 'C0123ABC', ts: '1731377400.000100', limit: '200' })
+  assert.equal(replies[1].query.cursor, 'CUR2')
+  assert.equal(replies[0].headers.authorization, `Bearer ${TOKEN}`)
+  const lookups = requests.filter((r) => r.path === '/api/users.info').length
+  assert.equal(lookups, 3) // U1, U2, UBOT: one each
+
+  await slack.readThread(ORIGIN) // second read: the replies again, no new users.info
+  assert.equal(requests.filter((r) => r.path === '/api/users.info').length, lookups)
+})
+
+test('readThread: without users:read the names degrade to ids, and users.info is not called again', async () => {
+  const { base, requests } = await stub((req, res) => {
+    if (req.path === '/api/conversations.replies') return send(res, { ok: true, messages: [{ user: 'U1', ts: '1.1', text: 'hi <@U2>' }, { user: 'U3', ts: '2.2', text: 'yo' }] })
+    send(res, { ok: false, error: 'missing_scope', needed: 'users:read' })
+  })
+  const { slack, warnings } = make(base)
+  const messages = await slack.readThread(ORIGIN)
+  assert.deepEqual(messages.map((m) => m.user), [{ id: 'U1', name: 'U1' }, { id: 'U3', name: 'U3' }])
+  assert.equal(messages[0].text, 'hi @U2')
+  assert.equal(warnings.length, 1)
+  assert.ok(!warnings[0].includes(TOKEN))
+  const first = requests.filter((r) => r.path === '/api/users.info').length
+  await slack.readThread(ORIGIN)
+  assert.equal(requests.filter((r) => r.path === '/api/users.info').length, first)
+})
+
+test('readThread: bad origin, empty answer, Slack errors map to adapter codes without the token', async () => {
+  const { base } = await stub((req, res) => {
+    const channel = req.query.channel
+    if (channel === 'CEMPTY') return send(res, { ok: true, messages: [] })
+    const error = { CNOTIN: 'not_in_channel', CNONE: 'channel_not_found', CAUTH: 'invalid_auth', CTHREAD: 'thread_not_found', CSCOPE: 'missing_scope', CWEIRD: 'something_new' }[channel]
+    send(res, { ok: false, error, needed: 'channels:history,groups:history', provided: 'chat:write' })
+  })
+  const { slack } = make(base)
+  const expectations: [string, string, RegExp][] = [
+    ['CNOTIN', 'not_in_channel', /invite/], ['CNONE', 'channel_not_found', /channel/], ['CAUTH', 'invalid_auth', /token/],
+    ['CTHREAD', 'thread_not_found', /discussion/], ['CSCOPE', 'missing_scope', /needed: channels:history,groups:history/],
+    ['CWEIRD', 'slack_error', /something_new/], ['CEMPTY', 'thread_not_found', /no discussion/],
+  ]
+  for (const [channel, code, pattern] of expectations) {
+    await assert.rejects(slack.readThread({ ...ORIGIN, channel }), (e: any) => {
+      assert.equal(e.name, 'AdapterError')
+      assert.equal(e.code, code, channel)
+      assert.equal(e.retryable, false)
+      assert.match(e.message, pattern)
+      assert.ok(!e.message.includes(TOKEN))
+      return true
+    })
+  }
+  for (const bad of [undefined, {}, { channel: 'C1' }, { channel: 'C1', threadTs: 'abc' }, { channel: '../x', threadTs: '1.1' }, { channel: 'C1', threadTs: '1.1/..' }]) {
+    await assert.rejects(slack.readThread(bad), (e: any) => e.code === 'bad_origin')
+  }
+})
+
+test('reads are retried: 429 with Retry-After, 5xx, transient Slack errors, non-JSON', async () => {
+  let n = 0
+  const { base, requests } = await stub((req, res) => {
+    n++
+    if (n === 1) return send(res, { ok: false, error: 'ratelimited' }, 429, { 'retry-after': '2' })
+    if (n === 2) return send(res, { error: 'boom' }, 502)
+    if (n === 3) return send(res, { ok: false, error: 'internal_error' })
+    send(res, { ok: true, messages: [{ user: 'U1', ts: '1.1', text: 'ok' }] })
+  })
+  const { slack, sleeps } = make(base, { requestTimeoutMs: 2000 })
+  // users.info shares the stub: answer it with scope errors to keep the count of replies calls simple
+  const messages = await slack.readThread(ORIGIN).catch((e) => e)
+  // 3 attempts per call are allowed: attempt 1 = 429, 2 = 502, 3 = internal_error (last: raised)
+  assert.equal(messages.code, 'slack_unavailable')
+  assert.equal(requests.length, 3)
+  assert.equal(sleeps[0], 2000) // Retry-After honoured
+  assert.equal(sleeps.length, 2)
+
+  // a fresh call succeeds on its 2nd attempt after a 500
+  n = 2
+  const ok = await slack.readThread(ORIGIN)
+  assert.equal(ok[0].text, 'ok')
+})
+
+test('a read gives up on a persistent 429 and on a hang, within its budget', async () => {
+  const { base } = await stub((req, res) => { if (req.path.endsWith('conversations.replies') && req.query.channel === 'CHANG') return; send(res, { ok: false, error: 'ratelimited' }, 429, { 'retry-after': '120' }) })
+  const { slack } = make(base, { requestTimeoutMs: 150, readBudgetMs: 600 })
+  await assert.rejects(slack.readThread(ORIGIN), (e: any) => e.code === 'rate_limited' && /Retry-After 120 s/.test(e.message) && e.retryable === false)
+  const started = Date.now()
+  await assert.rejects(slack.readThread({ ...ORIGIN, channel: 'CHANG' }), (e: any) => e.code === 'slack_timeout')
+  assert.ok(Date.now() - started < 1500, 'bounded by the budget')
+})
+
+test('reply posts into the thread, neutralises broadcasts, returns the message id', async () => {
+  const { base, requests } = await stub((req, res) => send(res, { ok: true, channel: req.json.channel, ts: '1731377999.000400' }))
+  const { slack } = make(base)
+  const id = await slack.reply(ORIGIN, 'result', 'Done <!channel> <!here|here> <!everyone> <!subteam^S123|@devs> @channel @here, @everyone <!date^1> see <@U1> https://x/mr/1')
+  assert.equal(id, '1731377999.000400')
+  assert.equal(requests.length, 1)
+  const r = requests[0]
+  assert.equal(r.method, 'POST')
+  assert.equal(r.path, '/api/chat.postMessage')
+  assert.equal(r.headers.authorization, `Bearer ${TOKEN}`)
+  assert.match(r.headers['content-type'], /application\/json/)
+  assert.equal(r.json.channel, 'C0123ABC')
+  assert.equal(r.json.thread_ts, '1731377400.000100')
+  assert.equal(r.json.unfurl_links, false)
+  assert.equal(r.json.parse, 'none')
+  assert.ok(!/<!(channel|here|everyone|subteam)/.test(r.json.text))
+  assert.ok(!/(^|[^\w])@(channel|here|everyone)\b/.test(r.json.text))
+  assert.match(r.json.text, /<@U1> https:\/\/x\/mr\/1/) // a single mention and links are kept
+  assert.ok(!r.raw.includes(TOKEN))
+  for (const purpose of ['ack', 'question', 'system']) assert.equal(await slack.reply(ORIGIN, purpose, 'x'), '1731377999.000400')
+  const long = await slack.reply(ORIGIN, 'result', 'y'.repeat(9000))
+  assert.equal(long, '1731377999.000400')
+  assert.equal(requests.at(-1).json.text.length, 4000)
+})
+
+test('reply: argument errors are raised before any request', async () => {
+  const { base, requests } = await stub((req, res) => send(res, { ok: true, ts: '1.1' }))
+  const { slack } = make(base)
+  await assert.rejects(slack.reply(ORIGIN, 'nonsense', 'x'), (e: any) => e.code === 'bad_purpose')
+  await assert.rejects(slack.reply(ORIGIN, 'ack', '   '), (e: any) => e.code === 'bad_text')
+  await assert.rejects(slack.reply(ORIGIN, 'ack', undefined), (e: any) => e.code === 'bad_text')
+  await assert.rejects(slack.reply({ channel: 'C1' }, 'ack', 'x'), (e: any) => e.code === 'bad_origin')
+  assert.equal(requests.length, 0)
+})
+
+test('reply is never retried: ok:false, 429, 500, timeout each cost exactly one request', async () => {
+  const channels = { CNOTIN: ['not_in_channel', 'not_in_channel'], CARCH: ['is_archived', 'channel_archived'], CLONG: ['msg_too_long', 'message_too_long'], CAUTH: ['token_revoked', 'invalid_auth'] }
+  const { base, requests } = await stub((req, res) => {
+    const c = req.json.channel
+    if (channels[c]) return send(res, { ok: false, error: channels[c][0] })
+    if (c === 'C429') return send(res, { ok: false, error: 'ratelimited' }, 429, { 'retry-after': '1' })
+    if (c === 'C500') return send(res, {}, 500)
+    if (c === 'CNOID') return send(res, { ok: true })
+    // CSLOW: never answers
+  })
+  const { slack, sleeps } = make(base, { requestTimeoutMs: 150 })
+  for (const [channel, [, code]] of Object.entries(channels)) {
+    const before = requests.length
+    await assert.rejects(slack.reply({ ...ORIGIN, channel }, 'ack', 'x'), (e: any) => e.code === code && e.retryable === false && !e.message.includes(TOKEN))
+    assert.equal(requests.length, before + 1)
+  }
+  for (const [channel, code] of [['C429', 'rate_limited'], ['C500', 'slack_unavailable'], ['CSLOW', 'slack_timeout'], ['CNOID', 'slack_bad_response']]) {
+    const before = requests.length
+    await assert.rejects(slack.reply({ ...ORIGIN, channel }, 'ack', 'x'), (e: any) => e.code === code && e.retryable === false)
+    assert.equal(requests.length, before + 1, channel)
+  }
+  assert.deepEqual(sleeps, [])
+})
+
+test('an unreachable Slack: reads give up quietly, a write is retryable (nothing was sent)', async () => {
+  const { base, server } = await stub((req, res) => send(res, { ok: true, ts: '1.1' }))
+  const closed = new Promise((resolve) => server.close(resolve))
+  server.closeAllConnections()
+  await closed
+  const { slack } = make(base, { requestTimeoutMs: 500 })
+  await assert.rejects(slack.readThread(ORIGIN), (e: any) => e.code === 'slack_unreachable' && e.retryable === false && /ECONNREFUSED/.test(e.message))
+  await assert.rejects(slack.reply(ORIGIN, 'ack', 'x'), (e: any) => e.code === 'slack_unreachable' && e.retryable === true && !e.message.includes(TOKEN))
+})
+
+test('neutralizeBroadcasts and retryAfterMs', () => {
+  assert.equal(neutralizeBroadcasts('a <!channel> b'), 'a @​channel b')
+  assert.equal(neutralizeBroadcasts('<!EVERYONE|everyone>'), '@​everyone')
+  assert.equal(neutralizeBroadcasts('<!subteam^S1>'), '@​usergroup')
+  assert.equal(neutralizeBroadcasts('ping @Here now, (@channel)'), 'ping @​Here now, (@​channel)')
+  assert.equal(neutralizeBroadcasts('keep <@U1> and user@here.example'), 'keep <@U1> and user@here.example')
+  assert.equal(neutralizeBroadcasts('<!date^1|x>'), '&lt;!date^1|x>')
+  assert.equal(retryAfterMs('3'), 3000)
+  assert.equal(retryAfterMs(null), 1000)
+  assert.equal(retryAfterMs('soon'), 1000)
+})

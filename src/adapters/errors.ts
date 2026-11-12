@@ -24,3 +24,12 @@ export function notImplemented(name) {
     `adapters.${name} is "real": not implemented yet: waiting for the hookup design (use "fake" until then)`,
   )
 }
+
+/** Replaces every occurrence of the given secrets in `text` (list every encoded form of a secret too). */
+export function redactSecrets(text, secrets = []) {
+  let out = String(text)
+  for (const secret of secrets) {
+    if (typeof secret === 'string' && secret.length >= 4) out = out.split(secret).join('[redacted]')
+  }
+  return out
+}

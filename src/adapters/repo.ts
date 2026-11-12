@@ -3,16 +3,21 @@
 //   diff(dir, base)                    -> { files: [{ path, added, removed }], patch, totalFiles, totalLines }
 //   readFile(dir, path, ref?)          -> the file content (string)
 //   log(dir, path?, n?)                -> [{ sha, author, date, subject }]
-//   openDraftMR(binding, dir, branch, { title, description, jiraKey }) -> { url }
+//   openDraftMR(binding, dir, branch, { title, description, jiraKey, commitMessage? }) -> { url }
 //   getMR(binding, branch)             -> { state, pipeline, ... }
 //   cleanup(dir)                       -> undefined
 // The git half (prepare, diff, readFile, log, commit, push, cleanup) is real git in both the fake
 // and the real implementation (./git.js). Only the merge-request half differs: the fake keeps
-// <dataDir>/fake/gitlab/mrs.json, a real one will call GitLab (plug in at createRealGitlab).
+// <dataDir>/fake/gitlab/mrs.json, the real one calls the GitLab REST API (./gitlab-http.js).
+// The commit is one Conventional Commit line without a body (commitMessage, default `fix: <title>`);
+// the MR title and description carry the details.
 import { join } from 'node:path'
-import { AdapterError, notImplemented } from './errors.ts'
+import { AdapterError } from './errors.ts'
 import { fakeRoot, readJson, updateJson } from './fake/files.ts'
-import { createGit } from './git.ts'
+import { COMMIT_MESSAGE_MAX, commitMessageFromTitle, createGit, isCommitMessage } from './git.ts'
+import { createRealGitlab } from './gitlab-http.ts'
+
+export { createRealGitlab }
 
 export const mrsFile = (dataDir) => join(fakeRoot(dataDir), 'gitlab', 'mrs.json')
 
@@ -20,13 +25,18 @@ const isText = (v) => typeof v === 'string' && v.trim() !== ''
 
 /**
  * Chooses the merge-request half by `config.adapters.gitlab`.
- * A merge-request backend has two functions:
+ * A merge-request backend has three functions:
+ *   find(binding, branch) -> { url, headSha, ... } | undefined  (the open MR of the branch)
  *   upsertDraft(binding, { branch, title, description, jiraKey, headSha }) -> { url }  (same branch -> same url)
  *   get(binding, branch) -> { state, pipeline, url, ... }
  */
-export function createRepoAdapter(config, options = {}) {
+export function createRepoAdapter(config, options: any = {}) {
   const mr: any = config.adapters?.gitlab === 'real' ? (createRealGitlab as any)(config, options) : createFakeGitlab(config)
-  const git = createGit({ worktreesDir: config.worktreesDir, commitAuthor: config.commitAuthor })
+  // With the real GitLab adapter, git gets the same token for https remotes on the GitLab host (git.ts gitAuthEnv).
+  const realGitlab = config.adapters?.gitlab === 'real'
+  const token = (options.env ?? process.env).CHAT_TO_FIX_GITLAB_TOKEN
+  const auth = realGitlab && typeof token === 'string' && token !== '' ? { baseUrl: config.gitlab?.baseUrl, token } : undefined
+  const git = createGit({ worktreesDir: config.worktreesDir, commitAuthor: config.commitAuthor, auth })
 
   /**
    * The task keeps a copy of the binding that may lack localRepo and remote: complete it from the
@@ -50,16 +60,19 @@ export function createRepoAdapter(config, options = {}) {
      * the same branch it amends our own commit (or adds one when someone committed since), pushes
      * again and returns the same url.
      */
-    async openDraftMR(binding, dir, branch, { title, description, jiraKey }: any = {}) {
+    async openDraftMR(binding, dir, branch, { title, description, jiraKey, commitMessage }: any = {}) {
       const b = complete(binding)
       if (!isText(title)) throw new AdapterError('bad_title', 'the MR title is missing')
+      const message = isText(commitMessage) ? commitMessage.trim() : commitMessageFromTitle(title)
+      if (!isCommitMessage(message)) {
+        throw new AdapterError('bad_message', `the commit message must be one line "type(scope)?: summary" of at most ${COMMIT_MESSAGE_MAX} characters`)
+      }
       const { branch: current } = await git.head(dir)
       if (current !== branch) throw new AdapterError('wrong_branch', `the directory is on ${current}, not on ${branch}`)
       const existing = await mr.find(b, branch)
       const before = (await git.head(dir)).sha
       const commit = await git.commitAll(dir, {
-        message: title,
-        description,
+        message,
         amend: existing !== undefined && existing.headSha === before,
       })
       if (!commit.committed && existing === undefined && (await git.commitsAhead(dir, b?.defaultBranch ?? 'master')) === 0) {
@@ -71,11 +84,6 @@ export function createRepoAdapter(config, options = {}) {
 
     getMR: (binding, branch) => mr.get(complete(binding), branch),
   }
-}
-
-/** Plug-in point of the real GitLab half (work package R1): same three functions as the fake. */
-export function createRealGitlab() {
-  throw notImplemented('gitlab')
 }
 
 export function createFakeGitlab(config) {

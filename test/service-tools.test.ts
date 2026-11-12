@@ -399,12 +399,43 @@ test('mr_open_draft opens the MR, writes mr.url, and a repeat updates and return
   assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'Fix', description: 'Fixes it' }), /Opened the Draft MR: fake:\/\/gitlab\/group\/project\/mr\/1/)
   const [{ args }] = r.fake.named('repo.openDraftMR')
   assert.equal(args[0].repo, 'group/project')
-  assert.deepEqual(args.slice(1), ['/work/T-1', 'ai/DEMO-1', { title: 'Fix', description: 'Fixes it', jiraKey: 'DEMO-1' }])
+  // The Jira key is added to the description when neither title nor description names it; the commit message is derived.
+  assert.deepEqual(args.slice(1), ['/work/T-1', 'ai/DEMO-1', { title: 'Fix', description: 'Fixes it\n\nJira: DEMO-1', jiraKey: 'DEMO-1', commitMessage: 'fix: Fix' }])
   assert.equal((await r.now()).mr.url, 'fake://gitlab/group/project/mr/1')
   assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'Fix 2', description: 'Better' }), /already had a Draft MR; it was updated: fake:\/\/gitlab\/group\/project\/mr\/1/)
   assert.equal(r.fake.named('repo.openDraftMR').length, 2, 'the adapter is called to update; it keeps one MR per branch')
   assert.equal(r.fake.named('repo.openDraftMR')[1].args[3].title, 'Fix 2')
   assert.equal((await r.now()).mr.url, 'fake://gitlab/group/project/mr/1')
+})
+
+test('mr_open_draft: commit_message is one Conventional Commit line; the default is "fix: <title>"; the Jira key is in the MR', async () => {
+  const r = await rig()
+  await prepared(r)
+  r.fake.state.diff = { files: [{ path: 'a', added: 1, removed: 0 }], patch: '+a', totalFiles: 1, totalLines: 1 }
+  await r.store.patchTask(r.task.id, { review: { verdict: 'pass', comments: 'ok', rounds: 1, at: 't' } })
+  await r.step('mr')
+  const sent = () => r.fake.named('repo.openDraftMR').at(-1).args[3]
+  // refused: not one line, wrong type, no summary, too long, not a string-shaped message; nothing reaches the adapter
+  for (const bad of ['fix: a\n\nbody', 'fix: a\nbody', 'bugfix: a', 'fix:a', 'fix: ', 'Fix: a', 'fix(): a', 'fix(a b): c', 'feat!(x): y', `fix: ${'x'.repeat(96)}`, 'just a sentence']) {
+    assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: bad }), /^tool failed: commit_message must/, JSON.stringify(bad))
+  }
+  assert.equal(r.fake.named('repo.openDraftMR').length, 0)
+  // accepted forms
+  for (const good of ['feat: add x', 'fix(price): subtract the discount', 'refactor(core/api)!: drop v1', 'revert: x', `fix: ${'x'.repeat(95)}`]) {
+    assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: good }), /Draft MR/, good)
+    assert.equal(sent().commitMessage, good)
+  }
+  // absent or blank: derived from the title, newlines stripped, cut to 100 characters, never a body
+  await r.call('pipeline', 'mr_open_draft', { title: 'Line one\n  line two', description: 'd' })
+  assert.equal(sent().commitMessage, 'fix: Line one line two')
+  await r.call('pipeline', 'mr_open_draft', { title: 'A'.repeat(200), description: 'd', commit_message: '  ' })
+  assert.equal(sent().commitMessage.length, 100)
+  assert.match(sent().commitMessage, /^fix: A+$/)
+  // the key: in the title or the description already -> description unchanged
+  await r.call('pipeline', 'mr_open_draft', { title: 'DEMO-1 Fix', description: 'd' })
+  assert.equal(sent().description, 'd')
+  await r.call('pipeline', 'mr_open_draft', { title: 'Fix', description: 'Fixes demo-1? no: DEMO-1 done' })
+  assert.equal(sent().description, 'Fixes demo-1? no: DEMO-1 done')
 })
 
 test('mr_get reads the state of the MR of this branch', async () => {
