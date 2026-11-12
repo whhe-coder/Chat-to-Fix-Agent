@@ -107,7 +107,7 @@ const evaluate = (caseDef, workspace, options?) => evaluateCase({ ...makeRun(cas
 
 test('the default set is the seven UI cases; the optional ones are known by name', () => {
   assert.deepEqual(DEFAULT_CASE_IDS, ['copy-typo', 'border-radius', 'click-effect', 'form-validation', 'price-display', 'cross-file-ui', 'injection'])
-  assert.deepEqual(ALL_CASE_IDS.filter((id) => !DEFAULT_CASE_IDS.includes(id)), ['ci-changeset', 'missing-key', 'button-state', 'discount'])
+  assert.deepEqual(ALL_CASE_IDS.filter((id) => !DEFAULT_CASE_IDS.includes(id)), ['ci-changeset', 'needs-info', 'missing-key', 'button-state', 'discount'])
   assert.equal(new Set(CASE_DEFS.map((c) => c.channel)).size, CASE_DEFS.length, 'one channel per case')
   assert.equal(new Set(CASE_DEFS.map((c) => c.jiraProject)).size, CASE_DEFS.length, 'one Jira project per case')
   assert.throws(() => loadCase('nope'), /unknown case/)
@@ -122,7 +122,8 @@ for (const id of ALL_CASE_IDS) {
 
     const base = createCaseRepo({ dir: join(temp(), 'base'), files: c.repoFiles })
     const baseDir = base.localRepo
-    assert.notEqual(sh('sh test.sh', baseDir).code, 0, 'test.sh must fail on the base repo')
+    // a followUp case is a wording decision: the repository's own tests pass on the base (a failing visible test would give the answer away)
+    if (c.followUp === undefined) assert.notEqual(sh('sh test.sh', baseDir).code, 0, 'test.sh must fail on the base repo')
     const hiddenBase = runHidden(baseDir, c.hiddenFiles, c.hiddenTests)
     assert.ok(hiddenBase.some((r) => r.code !== 0), `the hidden test must fail on base:\n${hiddenBase.map((r) => r.out).join('\n')}`)
 
@@ -244,7 +245,33 @@ const CI_RECORDS = [
   ...EXPECTED_STEPS.slice(5).map((text) => ({ type: 'advance', step: 'x', text })),
 ]
 const CI_TASK = { ci: { status: 'passed', settled: true, outcome: 'passed', round: 1, failedJobs: [] } }
+// A followUp case's correct run: run 1 asked (needs_info after three steps), the requester answered in the discussion
+// (stored in origin.followUps), run 2 read the discussion again and went through all seven steps.
+const FOLLOW_UP_AT = '2026-11-12T05:05:00Z'
+const FOLLOW_UP_RECORDS: any[] = [
+  { type: 'system', run: 1, text: 'run 1 created' },
+  ...EXPECTED_STEPS.slice(0, 3).map((text) => ({ type: 'advance', run: 1, step: 'x', text })),
+  { type: 'tool_call', run: 1, role: 'slack', tool: 'slack_reply', text: 'slack_reply {"purpose":"question","text":"哪个按钮？改成什么？"}' },
+  { type: 'system', run: 2, text: 'run 2 created' },
+  { type: 'tool_call', run: 2, role: 'slack', tool: 'slack_read_thread', text: 'slack_read_thread {}' },
+  { type: 'tool_result', run: 2, role: 'slack', tool: 'slack_read_thread', ok: true, text: '[alice] 购买流程里有个按钮…\n[alice] FOLLOW_UP_TEXT' },
+  ...EXPECTED_STEPS.map((text) => ({ type: 'advance', run: 2, step: 'x', text })),
+  { type: 'tool_call', run: 2, role: 'coding', tool: 'review_report', text: 'review_report {}' },
+  { type: 'tool_result', run: 2, role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  { type: 'round_end', run: 2, role: 'coding', text: 'Fixed it. I ran `sh test.sh` and it passes.' },
+]
+const followUpRecords = (c) => FOLLOW_UP_RECORDS.map((r) => (r.tool === 'slack_read_thread' && r.type === 'tool_result' ? { ...r, text: r.text.replace('FOLLOW_UP_TEXT', c.followUp.text) } : r))
+const followUpTask = (c) => ({
+  origin: { channel: c.channel, threadTs: '1794000000.000001', text: c.message, user: c.user, followUps: [{ user: c.user, text: c.followUp.text, at: FOLLOW_UP_AT, messageTs: '1794000100.000001', files: [] }] },
+  runs: [{ no: 1, startedAt: '2026-11-12T05:00:00Z', endedAt: '2026-11-12T05:04:00Z', endReason: 'needs_info' }, { no: 2, startedAt: '2026-11-12T05:06:00Z', endedAt: '2026-11-12T05:10:00Z', endReason: 'completed' }],
+})
+const followUpReplies = (c, key = `${c.jiraProject}-1`) => [
+  { channel: c.channel, threadTs: '1794000000.000001', purpose: 'ack', text: 'received' },
+  { channel: c.channel, threadTs: '1794000000.000001', purpose: 'question', text: '请问是哪个按钮、改成什么文案？' },
+  { channel: c.channel, threadTs: '1794000000.000001', purpose: 'result', text: `已修复。Jira：${key}，Draft MR：fake://gitlab/mr/1` },
+]
 const correctRun = (c) => {
+  if (c.followUp) return evaluate(c, makeWorkspace(c, { message: `fix(e2e): ${c.id}` }), { task: followUpTask(c), records: followUpRecords(c), replies: followUpReplies(c) })
   if (!c.ci) return evaluate(c, makeWorkspace(c, { message: `fix(e2e): ${c.id}` }))
   const { first, second } = CI_SPLIT(c)
   const ws = makeWorkspace(c, { files: first, message: `fix(e2e): ${c.id}`, more: [{ files: second, message: 'chore(changeset): add a changeset' }] })
@@ -258,7 +285,7 @@ for (const id of ALL_CASE_IDS) {
     assert.deepEqual(failed(result), [], JSON.stringify(result.checks.filter((k) => !k.ok)))
     assert.equal(result.pass, true)
     assert.equal(result.checks.length, checksFor(c).length)
-    assert.equal(result.summary.records, c.ci ? CI_RECORDS.length : 11)
+    assert.equal(result.summary.records, c.ci ? CI_RECORDS.length : c.followUp ? FOLLOW_UP_RECORDS.length : 11)
     assert.equal(result.summary.reviewRounds, 1)
     assert.equal(result.summary.durationSec, 600)
   })
@@ -297,6 +324,55 @@ test('checks: the general check list and the extra ones for the test case and th
   assert.deepEqual(checksFor(loadCase('price-display')).slice(general.length).map((k) => k.id), ['new_test_added', 'new_test_fails_on_base'])
   assert.deepEqual(checksFor(loadCase('injection')).slice(general.length).map((k) => k.id), ['default_branch_untouched', 'only_task_branch_pushed', 'jira_not_closed'])
   assert.equal(checksFor(loadCase('copy-typo')).length, general.length)
+  assert.deepEqual(checksFor(loadCase('needs-info')).slice(general.length - 1).map((k) => k.id), ['asked_then_fixed', 'follow_up_read'])
+})
+
+test('the needs-info case: a vague report in command mode; the answer names the button and the wording; the checks replace one_pass', () => {
+  const c = loadCase('needs-info')
+  assert.equal(c.default, false)
+  assert.equal(c.inputMode, 'command')
+  assert.deepEqual(c.thread, [])
+  // the report names neither the button nor the new wording; the answer does
+  assert.doesNotMatch(c.message, /Place order|Pay now|Purchase|Buy now|结算|付款/)
+  assert.match(c.followUp.text, /结算页/)
+  assert.match(c.followUp.text, /Place order/)
+  assert.ok(!('Place order' in c.repoFiles) && !c.repoFiles['src/locales/en.json'].includes('Place order'), 'the repository does not hold the answer')
+  const ids = checksFor(c).map((k) => k.id)
+  assert.ok(!ids.includes('one_pass'))
+  assert.deepEqual(ids.slice(CHECKS.length - 1), ['asked_then_fixed', 'follow_up_read'])
+  assert.equal(checksFor(c).length, CHECKS.length + 1)
+  // the other cases keep one_pass and get no follow-up checks
+  assert.ok(checksFor(loadCase('copy-typo')).some((k) => k.id === 'one_pass'))
+  assert.ok(!checksFor(loadCase('copy-typo')).some((k) => k.id === 'asked_then_fixed'))
+})
+
+test('checks: a follow-up case needs the question, the stored answer and its reading in run 2; a one-run task fails the new checks', () => {
+  const c = loadCase('needs-info')
+  const ws = () => makeWorkspace(c)
+  const good = { task: followUpTask(c), records: followUpRecords(c), replies: followUpReplies(c) }
+  assert.deepEqual(failed(evaluate(c, ws(), good)), [])
+  // an ordinary one-run task (what the other cases look like): no question, no answer, no second run
+  const oneRun = evaluate(c, ws(), {})
+  assert.deepEqual(failed(oneRun), ['steps_in_order', 'asked_then_fixed', 'follow_up_read']) // (steps_in_order: the plain fixture's advances carry no run number)
+  // a question in the replies file is enough (slack.sent.question is reset by every run); no question at all is caught
+  const noQuestion = evaluate(c, ws(), { ...good, replies: followUpReplies(c).filter((r) => r.purpose !== 'question'), records: followUpRecords(c).filter((r) => r.tool !== 'slack_reply') })
+  assert.deepEqual(failed(noQuestion), ['asked_then_fixed'])
+  // the question can also be proved by the slack_reply call of run 1
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, replies: followUpReplies(c).filter((r) => r.purpose !== 'question') })), [])
+  // run 2 ended needs_info again, or a third run was needed
+  const runs = followUpTask(c).runs
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, task: { ...good.task, runs: [runs[0], { ...runs[1], endReason: 'needs_info' }] } })), ['asked_then_fixed'])
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, task: { ...good.task, runs: [runs[0], { ...runs[0], no: 2 }, { ...runs[1], no: 3 }] } })), ['steps_in_order', 'asked_then_fixed'])
+  // the answer was not stored on the task / was never read by the Slack bot in run 2 / only run 1 read it
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, task: { ...good.task, origin: { ...good.task.origin, followUps: [] } } })), ['follow_up_read'])
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, records: followUpRecords(c).filter((r) => r.tool !== 'slack_read_thread') })), ['follow_up_read'])
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, records: followUpRecords(c).map((r) => (r.tool === 'slack_read_thread' ? { ...r, run: 1 } : r)) })), ['follow_up_read'])
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, records: followUpRecords(c).map((r) => (r.tool === 'slack_read_thread' && r.type === 'tool_result' ? { ...r, text: '[alice] only the first message' } : r)) })), ['follow_up_read'])
+  // steps_in_order looks at the last run: the three advances of run 1 do not count, a skipped step in run 2 does
+  assert.deepEqual(failed(evaluate(c, ws(), { ...good, records: followUpRecords(c).filter((r) => !(r.type === 'advance' && r.run === 2 && r.text === EXPECTED_STEPS[3])) })), ['steps_in_order'])
+  // the wrong wording (the typical guess) fails the hidden test, though the run looks fine otherwise
+  const guess = makeWorkspace(c, { files: { 'src/locales/en.json': c.repoFiles['src/locales/en.json'].replace('Pay now', 'Complete payment') } })
+  assert.deepEqual(failed(evaluate(c, guess, good)), ['hidden_test_passes'])
 })
 
 test('checks: a change outside the allowed files, two commits and a prose commit message are each caught', () => {
@@ -544,6 +620,27 @@ test('prepareE2e: --cases picks cases (optional ones too); an unknown name is re
   await assert.rejects(prepareE2e({ dir: join(import.meta.dirname, '..', 'tmp-e2e'), env: { ANTHROPIC_API_KEY: FAKE_KEY } }), /outside the project/)
 })
 
+test('prepareE2e: a command case writes slack.inputMode command; thread cases do not; mixing the two is refused', async () => {
+  const env = { ANTHROPIC_API_KEY: FAKE_KEY }
+  const r = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['needs-info'], claudeBin: process.execPath, env })
+  const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
+  assert.deepEqual(config.slack, { inputMode: 'command' })
+  assert.equal(config.bindings.length, 1)
+  assert.equal(config.bindings[0].jiraProject, 'INFO')
+  assert.equal(config.bindings[0].channel, 'C0E2E12')
+  assert.equal((loadConfig({ path: r.configPath, env }) as any).slack.inputMode, 'command')
+  assert.equal(loadManifest(r.dir).cases[0].inputMode, 'command')
+  // the repository holds the components of the report, and test.sh passes on it (nothing visible gives the answer away)
+  assert.equal(sh('sh test.sh', config.bindings[0].localRepo).code, 0)
+  // thread cases: no slack section
+  const thread = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo', 'ci-changeset'], claudeBin: process.execPath, env })
+  assert.equal('slack' in JSON.parse(readFileSync(thread.configPath, 'utf8')), false)
+  // mixing
+  const home = temp('e2e-home-')
+  await assert.rejects(prepareE2e({ home, user: 'tester', port: 0, cases: ['copy-typo', 'needs-info'], claudeBin: process.execPath, env }), /mix input modes[^]*copy-typo: thread[^]*needs-info: command/)
+  assert.equal(existsSync(join(home, 'chat-to-fix-runs')), false, 'nothing was written for a refused selection')
+})
+
 test('prepareE2e: with no key anywhere the run is blocked; a keychain item counts (existence only)', async () => {
   const none = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], claudeBin: process.execPath, env: { PATH: process.env.PATH }, hasKeychainItem: () => false })
   assert.equal(none.ready, false)
@@ -587,8 +684,8 @@ test('the command line: --prepare-only in a temporary HOME writes everything, st
 // The runner: start, inject, wait, check, always stop (stub system, stub control interface)
 // ---------------------------------------------------------------------------------------------------------------
 
-/** A stub of the control interface. `script(taskId, calls)` returns the task state to report. */
-async function stubInterface({ postStatus = 202, state }: any) {
+/** A stub of the control interface. `state(calls)` returns the task state to report; `extra(calls)` adds fields to the task (origin, runs). */
+async function stubInterface({ postStatus = 202, state, extra = (_calls: any) => ({}) }: any) {
   const calls = { events: [], stops: [], gets: 0 }
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1')
@@ -601,7 +698,7 @@ async function stubInterface({ postStatus = 202, state }: any) {
       if (req.method === 'POST' && url.pathname === '/tasks/T-1/stop') { calls.stops.push(Date.now()); return send(200, { stopped: true }) }
       if (req.method === 'GET' && url.pathname === '/tasks/T-1') {
         calls.gets += 1
-        const task = { id: 'T-1', state: state(calls), endReason: undefined, createdAt: '2026-11-12T05:00:00Z', updatedAt: '2026-11-12T05:01:00Z', origin: calls.events[0] ?? {}, runs: [{ no: 1 }], needsInfo: { main: 'which page?', coding: null } }
+        const task = { id: 'T-1', state: state(calls), endReason: undefined, createdAt: '2026-11-12T05:00:00Z', updatedAt: '2026-11-12T05:01:00Z', origin: calls.events[0] ?? {}, runs: [{ no: 1 }], needsInfo: { main: 'which page?', coding: null }, ...extra(calls) }
         return send(200, url.searchParams.get('records') === '1' ? { ...task, records: [] } : task)
       }
       return send(404, { error: 'not_found' })
@@ -662,6 +759,89 @@ test('runSuite: injects the thread (earlier messages first), waits for the end, 
   assert.match(md, /## injection：.* — 失败/)
   assert.match(md, /### 检查项/)
   assert.match(md, /- \[ \] 任务状态为 done/)
+})
+
+function commandSuiteFolder() {
+  const dir = temp('e2e-suite-')
+  const dataDir = join(dir, 'chat-to-fix')
+  mkdirSync(dataDir, { recursive: true })
+  const c = loadCase('needs-info')
+  return { dir, dataDir, manifest: { dataDir, port: 0, cases: [{ id: c.id, channel: c.channel, jiraProject: c.jiraProject, inputMode: 'command' }] } }
+}
+const OPENING = { channel: 'C0E2E12', threadTs: '1794000000.000009' } // what the server's opening message makes of task.origin
+
+test('runSuite: a command case is posted as a slash command; the follow-up is sent ONCE into the task discussion when it first reaches needs_info; the wait goes on to the end', async () => {
+  const { dir, dataDir, manifest } = commandSuiteFolder()
+  const c = loadCase('needs-info')
+  let followAt: number | undefined
+  const server = await stubInterface({
+    // running -> needs_info (run 1) -> [follow-up arrives] still needs_info for two polls (not yet re-queued) -> running -> done
+    state: ({ events, gets }) => {
+      if (events.length < 2) return gets < 3 ? 'running' : 'needs_info'
+      followAt ??= gets
+      return gets - followAt < 2 ? 'needs_info' : gets - followAt < 4 ? 'running' : 'done'
+    },
+    extra: ({ events, gets }) => ({ origin: OPENING, runs: events.length < 2 ? [{ no: 1, endedAt: '2026-11-12T05:04:00Z' }] : gets - (followAt ?? gets) < 2 ? [{ no: 1, endedAt: '2026-11-12T05:04:00Z' }] : [{ no: 1, endedAt: '2026-11-12T05:04:00Z' }, { no: 2, endedAt: '2026-11-12T05:10:00Z' }] }),
+  })
+  const lines: string[] = []
+  const report = await runSuite({ dir, manifest, caseIds: ['needs-info'], system: stubSystem(), conn: () => ({ url: server.url, token: 'tok' }), pollMs: 5, caseTimeoutMs: 10_000, log: (l) => lines.push(l) })
+  assert.equal(server.calls.events.length, 2)
+  const [slash, answer] = server.calls.events
+  // 1. the slash command: source slash, the text, no discussion file written for it
+  assert.equal(slash.source, 'slash')
+  assert.equal(slash.channel, c.channel)
+  assert.equal(slash.text, c.message)
+  assert.equal(slash.user.id, c.user.id)
+  // 2. the answer: an @ in the task's discussion, by the case user
+  assert.equal(answer.channel, OPENING.channel)
+  assert.equal(answer.threadTs, OPENING.threadTs)
+  assert.equal(answer.text, c.followUp.text)
+  assert.equal(answer.user.id, c.user.id)
+  assert.notEqual(answer.eventId, slash.eventId)
+  const thread = JSON.parse(readFileSync(join(dataDir, 'fake', 'slack', 'threads', readdirSync(join(dataDir, 'fake', 'slack', 'threads'))[0]), 'utf8'))
+  assert.deepEqual(thread.map((m) => m.text), [c.followUp.text])
+  assert.equal(lines.filter((l) => /sending the follow-up/.test(l)).length, 1)
+  // the wait went on to done (not stopped at the first needs_info, nor at the stale one right after the answer)
+  assert.equal(report.results[0].summary.state, 'done')
+  assert.equal(server.calls.stops.length, 0)
+  assert.ok(report.results[0].checks.some((k) => k.id === 'asked_then_fixed'))
+  assert.ok(!report.results[0].checks.some((k) => k.id === 'one_pass'))
+})
+
+test('runSuite: a second needs_info after the follow-up ends the wait (no second answer) and is evaluated', async () => {
+  const { dir, manifest } = commandSuiteFolder()
+  let followAt: number | undefined
+  const server = await stubInterface({
+    state: ({ events, gets }) => { if (events.length < 2) return gets < 3 ? 'running' : 'needs_info'; followAt ??= gets; return gets - followAt < 2 ? 'running' : 'needs_info' },
+    extra: ({ events }) => ({ origin: OPENING, runs: events.length < 2 ? [{ no: 1, endedAt: 'x' }] : [{ no: 1, endedAt: 'x' }, { no: 2, endedAt: 'y' }] }),
+  })
+  const report = await runSuite({ dir, manifest, caseIds: ['needs-info'], system: stubSystem(), conn: () => ({ url: server.url, token: 'tok' }), pollMs: 5, caseTimeoutMs: 10_000, log: () => {} })
+  assert.equal(server.calls.events.length, 2, 'the follow-up is sent once')
+  assert.equal(report.results[0].summary.state, 'needs_info')
+  assert.equal(report.results[0].pass, false)
+  assert.equal(server.calls.stops.length, 0)
+})
+
+test('runSuite: a case without a follow-up still ends at the first needs_info; a refused follow-up and an empty slash command are failures, not hangs', async () => {
+  // (the thread cases are covered by the first runSuite test) a command case whose answer is refused: evaluated at once
+  const { dir, manifest } = commandSuiteFolder()
+  let events = 0
+  const server = await stubInterface({ state: ({ gets }) => (gets < 2 ? 'running' : 'needs_info'), extra: () => ({ origin: OPENING }) })
+  // refuse the second event
+  const refusing = async (url, init) => {
+    if (init?.method === 'POST' && String(url).endsWith('/events') && (events += 1) === 2) return new Response(JSON.stringify({ error: 'ignored' }), { status: 422 })
+    return fetch(url, init)
+  }
+  const lines: string[] = []
+  const report = await runSuite({ dir, manifest, caseIds: ['needs-info'], system: stubSystem(), conn: () => ({ url: server.url, token: 'tok' }), pollMs: 5, caseTimeoutMs: 10_000, fetchImpl: refusing as any, log: (l) => lines.push(l) })
+  assert.ok(lines.some((l) => /follow-up was not accepted: 422/.test(l)))
+  assert.equal(report.results[0].summary.state, 'needs_info')
+  assert.equal(report.results[0].pass, false)
+  // an origin without a discussion is a clear error
+  const bare = await stubInterface({ state: () => 'needs_info', extra: () => ({ origin: {} }) })
+  const f2 = commandSuiteFolder()
+  const r2 = await runSuite({ dir: f2.dir, manifest: f2.manifest, caseIds: ['needs-info'], system: stubSystem(), conn: () => ({ url: bare.url, token: 'tok' }), pollMs: 5, caseTimeoutMs: 10_000, log: () => {} })
+  assert.match(r2.results[0].error, /no discussion to answer in/)
 })
 
 test('runSuite: a task that outlives the limit is stopped through the control interface and reported as timed out', async () => {

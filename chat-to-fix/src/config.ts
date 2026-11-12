@@ -170,7 +170,8 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   const given = isObject(raw.adapters) ? raw.adapters : {}
   for (const name of ADAPTER_NAMES) {
     const kind = given[name] ?? 'fake'
-    if (kind !== 'fake' && kind !== 'real') problems.push(`adapters.${name} must be "fake" or "real"`)
+    // slack alone also takes "outbox": the company Slack Bot is connected to Slack, this service keeps no token (spec slackbot.md 4.3).
+    if (kind !== 'fake' && kind !== 'real' && !(name === 'slack' && kind === 'outbox')) problems.push(`adapters.${name} must be "fake" or "real"${name === 'slack' ? ' or "outbox"' : ''}`)
     else if (kind === 'real' && secret(env, ADAPTER_TOKEN[name]) === undefined) problems.push(`adapters.${name} is "real" but ${ADAPTER_TOKEN[name]} is not set`)
     adapters[name] = kind
   }

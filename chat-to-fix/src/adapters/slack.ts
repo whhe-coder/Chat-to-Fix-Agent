@@ -1,6 +1,6 @@
 // The Slack adapter (spec 4, section 2.2, I5). Three functions:
 //   readThread(origin)               -> [{ user: { id, name }, at, text, files }]
-//   reply(origin, purpose, text)     -> the identifier of the message sent (string)
+//   reply(origin, purpose, text, kind?) -> the identifier of the message sent (string)
 //   startThread(channel, text)       -> { ts, permalink } (opening message of a /fix discussion; permalink may be null)
 // `origin` is the task's origin ({ channel, threadTs, ... }); the adapter can reach only that
 // discussion. The fake keeps its files under <dataDir>/fake/slack/ (spec 4, section 2.3).
@@ -27,6 +27,7 @@ export const repliesFile = (dataDir) => join(fakeRoot(dataDir), 'slack', 'replie
 /** Chooses the implementation by `config.adapters.slack`. */
 export function createSlackAdapter(config, options = {}) {
   if (config.adapters?.slack === 'real') return (createRealSlack as any)(config, options)
+  if (config.adapters?.slack === 'outbox') return (createOutboxSlack as any)(config, options)
   return (createFakeSlack as any)(config, options)
 }
 
@@ -42,6 +43,16 @@ function checkSlackOrigin(origin) {
   const threadTs = origin?.threadTs
   if (typeof channel !== 'string' || !SLACK_CHANNEL.test(channel)) throw new AdapterError('bad_origin', 'origin.channel is missing or is not a Slack channel id')
   if (typeof threadTs !== 'string' || !SLACK_TS.test(threadTs)) throw new AdapterError('bad_origin', 'origin.threadTs is missing or is not a Slack timestamp')
+  return { channel, threadTs }
+}
+
+// The outbox does not talk to Slack itself: the channel and thread are keys the Slack Bot hands in and gets back.
+// They only have to be safe identifiers (the mock Slack Bot uses ids such as C-MOCK-FIX).
+function checkOutboxOrigin(origin) {
+  const channel = origin?.channel
+  const threadTs = origin?.threadTs
+  if (typeof channel !== 'string' || !SAFE_ID.test(channel) || channel.length > 64) throw new AdapterError('bad_origin', 'origin.channel is missing or is not a safe id')
+  if (typeof threadTs !== 'string' || !SAFE_ID.test(threadTs) || threadTs.length > 64) throw new AdapterError('bad_origin', 'origin.threadTs is missing or is not a safe id')
   return { channel, threadTs }
 }
 
@@ -113,15 +124,7 @@ export function createRealSlack(config, options: any = {}) {
   return {
     async readThread(origin) {
       const { channel, threadTs } = checkSlackOrigin(origin)
-      if (config?.slack?.inputMode === 'command') {
-        if (typeof origin?.text !== 'string' || origin.text.trim() === '') throw new AdapterError('bad_origin', 'the slash command has no text')
-        return [{
-          user: { id: origin.user?.id ?? 'unknown', name: origin.user?.name ?? origin.user?.id ?? 'unknown' },
-          at: Number.isFinite(Number(origin.messageTs)) ? new Date(Number(origin.messageTs) * 1000).toISOString() : null,
-          text: origin.text,
-          files: [],
-        }]
-      }
+      if (config?.slack?.inputMode === 'command') return commandDiscussion(origin)
       const deadlineAt = now() + readBudgetMs
       const raw = []
       let cursor
@@ -194,12 +197,66 @@ export function createRealSlack(config, options: any = {}) {
   }
 }
 
+/**
+ * The discussion in command mode, where there is no history scope: the messages of an earlier task in the same
+ * discussion (origin.earlier), the slash command text, and the requester's @ follow-ups the system stored on the
+ * task (origin.followUps, src/task/http.ts). Used by the real and the fake adapter alike.
+ */
+export function commandDiscussion(origin) {
+  if (typeof origin?.text !== 'string' || origin.text.trim() === '') throw new AdapterError('bad_origin', 'the slash command has no text')
+  const list = (v) => (Array.isArray(v) ? v : [])
+  return [...list(origin.earlier), origin, ...list(origin.followUps)]
+    .filter((m) => m !== null && typeof m === 'object' && typeof m.text === 'string' && m.text.trim() !== '')
+    .map((m) => {
+      const seconds = Number(m.messageTs)
+      return {
+        user: { id: m.user?.id ?? 'unknown', name: m.user?.name ?? m.user?.id ?? 'unknown' },
+        at: typeof m.at === 'string' ? m.at : Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null,
+        text: m.text,
+        files: list(m.files),
+      }
+    })
+}
+
+/**
+ * The outbox adapter (adapters.slack "outbox", spec slackbot.md 4.3): the company Slack Bot is the only program
+ * connected to Slack. readThread is the discussion the task holds (the /fix text and the stored follow-ups);
+ * reply appends to the outbox, which the Slack Bot polls (GET /outbox) and posts. No token, no Slack call.
+ * `options.outbox` is the one created by the app (src/app.ts), shared with the HTTP interface.
+ */
+export function createOutboxSlack(_config, options: any = {}) {
+  const outbox = options.outbox
+  if (outbox === undefined || typeof outbox.append !== 'function') throw new AdapterError('no_outbox', 'adapters.slack is "outbox" but no outbox was given to the adapter')
+  return {
+    async readThread(origin) {
+      checkOutboxOrigin(origin)
+      return commandDiscussion(origin)
+    },
+
+    async reply(origin, purpose, text, kind = null) {
+      const { channel, threadTs } = checkOutboxOrigin(origin)
+      if (purpose !== 'system' && !REPLY_PURPOSES.includes(purpose)) throw new AdapterError('bad_purpose', `purpose must be one of ${REPLY_PURPOSES.join(', ')}, system`)
+      if (typeof text !== 'string' || text.trim() === '') throw new AdapterError('bad_text', 'the reply text is empty')
+      let safe = neutralizeBroadcasts(text)
+      if (safe.length > REPLY_MAX_CHARS) safe = `${safe.slice(0, REPLY_MAX_CHARS - 1)}…`
+      const message = await outbox.append({ channel, threadTs, purpose, kind: purpose === 'system' && typeof kind === 'string' ? kind : null, text: safe })
+      return `outbox:${message.seq}`
+    },
+
+    // The opening message is the Slack Bot's: it posts the task message and then sends source "fix".
+    async startThread() {
+      throw new AdapterError('not_supported', 'adapters.slack is "outbox": the Slack Bot posts the task message, the server does not open discussions')
+    },
+  }
+}
+
 export function createFakeSlack(config) {
   const dataDir = config.dataDir
   let sequence = 0
 
   return {
     async readThread(origin) {
+      if (config?.slack?.inputMode === 'command') { threadFile(dataDir, origin?.channel, origin?.threadTs); return commandDiscussion(origin) }
       const messages = await readJson(threadFile(dataDir, origin?.channel, origin?.threadTs), undefined)
       if (messages === undefined) {
         throw new AdapterError('thread_not_found', `no fake discussion for channel ${origin.channel}, thread ${origin.threadTs}`)

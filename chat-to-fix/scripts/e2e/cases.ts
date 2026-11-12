@@ -39,6 +39,10 @@ export const SAMPLE_DISCOUNT_REPORT = '商店折扣价算错了：applyDiscount(
  *   ci                                    { jobs }: the simulated GitLab CI of the binding (ciJobs, see src/adapters/fake/ci.ts);
  *                                         "{ci}" in a command is the folder the case's ci/ scripts are copied to (they are
  *                                         not in the repository). The case expects CI to fail once and the loop to fix it.
+ *   inputMode, followUp                   inputMode 'command': the report is a /fix slash command (config.slack.inputMode =
+ *                                         'command'; the cases of one run must all share the mode). followUp { text }: the
+ *                                         requester's answer, sent ONCE as an @ in the discussion when the task first reaches
+ *                                         needs_info; the case expects run 1 = a question (needs_info), run 2 = the fix.
  */
 export const CASE_DEFS = [
   {
@@ -100,6 +104,18 @@ export const CASE_DEFS = [
     // Nothing in the repository mentions changesets: with a .changeset/README.md in it, the Coding bot of real run 1
     // (2026-11-12) added a changeset in step 4 and CI passed at once. Only the CI log says what is missing.
     ci: { jobs: [{ name: 'test', command: 'sh test.sh', delaySeconds: 5 }, { name: 'changeset', command: 'node {ci}/changeset.mjs', delaySeconds: 5 }] },
+  },
+  {
+    // The report says neither WHICH button (card, cart panel and checkout page each have a purchase-like button, all
+    // reading fine) nor the new wording: only the requester can decide both, so the Main and the Coding bot must ask.
+    // The answer names the button and the exact text; the hidden test checks exactly that and that nothing else changed.
+    id: 'needs-info', title: '追问循环：报告缺信息，机器人提问，答复后修好（/fix 命令模式）', channel: 'C0E2E12', jiraProject: 'INFO', default: false,
+    repoFrom: 'copy-typo',
+    user: ALICE, thread: [],
+    inputMode: 'command',
+    message: '购买流程里有个按钮的文案容易让用户误会，需要改一下。',
+    followUp: { text: '是结算页的付款按钮，现在写的是 “Pay now”，改成 “Place order”（首字母大写，o 小写）。其他按钮不要动。' },
+    allowedFiles: ['src/locales/en.json', 'test/'],
   },
   {
     id: 'missing-key', title: '缺少 i18n key（界面显示原始 key）', channel: 'C0E2E08', jiraProject: 'MKEY', default: false,

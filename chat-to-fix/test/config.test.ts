@@ -96,6 +96,13 @@ test('a real adapter needs its token; the message names the variable only', () =
   assert.equal(c.adapters.slack, 'real')
 })
 
+test('adapters.slack "outbox" needs no Slack token; the other adapters do not take it', () => {
+  const c: any = load({ ...base(), adapters: { slack: 'outbox' } }, {})
+  assert.deepEqual(c.adapters, { slack: 'outbox', jira: 'fake', gitlab: 'fake' })
+  assert.throws(() => load({ ...base(), adapters: { jira: 'outbox' } }, {}), /adapters\.jira must be "fake" or "real"/)
+  assert.throws(() => load({ ...base(), adapters: { slack: 'bogus' } }, {}), /adapters\.slack must be "fake" or "real" or "outbox"/)
+})
+
 test('engineAuth apiKey needs ANTHROPIC_API_KEY', () => {
   const cfg = { ...base(), engineAuth: 'apiKey' }
   assert.throws(() => load(cfg, {}), /ANTHROPIC_API_KEY/)

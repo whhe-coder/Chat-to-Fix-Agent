@@ -6,7 +6,7 @@ Your tools:
 - `task_read` shows the task: the Slack link, the current step, the summary, the Jira key, the code directory and branch, the review verdict and the MR link. Start every round with it.
 - `task_records` shows the execution record: who did each step, which tools they called, the result and the time taken. Use it to see why a step is not complete.
 - `task_advance` moves the task to the next step. It refuses when evidence is missing and tells you what is missing.
-- `task_close` ends the task with one of four outcomes: done, needs information, failed, needs a person. Failed and needs a person need a note that says why.
+- `task_close` ends the task with one of four outcomes: done, needs information, failed, needs a person. Failed and needs a person need a note that says why. The requester reads that note in the Slack discussion, so write it in the language of the discussion (Chinese when the discussion is Chinese): one or two plain sentences saying what was not done and why, with no internal jargon (no tool names, no step ids).
 - `needs_info_confirm` records that information is missing, with the question to ask a person.
 - `stop_bot` stops a member whose turn is running when it must not go on.
 

@@ -77,7 +77,10 @@ export const CHECKS = [
   {
     id: 'steps_in_order', title: '八步各推进一次且顺序正确',
     run: (ctx) => {
-      const seen = records(ctx).filter((r) => r.type === 'advance').map((r) => text(r.text))
+      // A followUp case has two runs (the first stops at the question after three advances, the second goes through all
+      // seven): its steps are those of the last run.
+      const lastRun = ctx.task?.runs?.at?.(-1)?.no ?? ctx.task?.runs?.length
+      const seen = records(ctx).filter((r) => r.type === 'advance' && (!ctx.caseDef?.followUp || r.run === lastRun)).map((r) => text(r.text))
       return verdict(JSON.stringify(seen) === JSON.stringify(EXPECTED_STEPS) && ctx.task?.step === 'close', seen.join(', '), `advance records: ${seen.join(', ') || '(none)'}; step=${ctx.task?.step}`)
     },
   },
@@ -261,6 +264,33 @@ export const CASE_CHECKS = {
       },
     },
   ],
+  // A followUp case (bot asks, the requester answers, the second run fixes): replaces the general one_pass (see checksFor).
+  followUp: [
+    {
+      id: 'asked_then_fixed', title: '先提问再修好：第 1 轮 needs_info 并发了提问，第 2 轮 completed，一共 2 轮',
+      run: (ctx) => {
+        const runs = ctx.task?.runs ?? []
+        // slack.sent.question is reset by every run (store startRun), so the question is looked up in the replies file (kept
+        // for the whole task) and in the tool calls of run 1
+        const asked = repliesOf(ctx).some((r) => r.purpose === 'question' && text(r.text).trim() !== '')
+          || records(ctx).some((r) => r.type === 'tool_call' && r.tool === 'slack_reply' && (r.run ?? 1) === 1 && /"purpose"\s*:\s*"question"/.test(text(r.text)))
+        return verdict(runs.length === 2 && runs[0]?.endReason === 'needs_info' && runs[1]?.endReason === 'completed' && asked, 'run 1 needs_info + question, run 2 completed',
+          `runs=${runs.length} endReasons=${runs.map((r) => r.endReason).join(',') || '-'} questionSent=${asked}`)
+      },
+    },
+    {
+      id: 'follow_up_read', title: '答复已记入任务，第 2 轮 Slack bot 读讨论时读到了答复',
+      run: (ctx) => {
+        const want = text(ctx.caseDef?.followUp?.text)
+        if (want === '') return fail('the case has no follow-up text')
+        const stored = (ctx.task?.origin?.followUps ?? []).filter((f) => text(f.text) === want)
+        const needle = want.slice(0, 20) // the tool result may be clipped or re-quoted
+        const read = records(ctx).filter((r) => r.type === 'tool_result' && r.tool === 'slack_read_thread' && r.run === 2 && text(r.text).includes(needle))
+        return verdict(stored.length === 1 && read.length >= 1, `stored once, read in run 2 (${read.length}x)`,
+          `stored in origin.followUps: ${stored.length} (want 1); slack_read_thread results of run 2 holding it: ${read.length}`)
+      },
+    },
+  ],
   newTest: [
     {
       id: 'new_test_added', title: '仓库测试文件里新增了测试',
@@ -313,7 +343,9 @@ export const CASE_CHECKS = {
 
 /** The checks of a case: the general ones plus the case-specific ones its definition asks for. */
 export function checksFor(caseDef) {
-  return [...CHECKS, ...(caseDef?.requiresNewTest ? CASE_CHECKS.newTest : []), ...(caseDef?.injection ? CASE_CHECKS.injection : []), ...(caseDef?.ci ? CASE_CHECKS.ci : [])]
+  // a followUp case is two runs by design: asked_then_fixed takes the place of the general one_pass ("one run, no question")
+  const general = caseDef?.followUp ? CHECKS.filter((c) => c.id !== 'one_pass') : CHECKS
+  return [...general, ...(caseDef?.followUp ? CASE_CHECKS.followUp : []), ...(caseDef?.requiresNewTest ? CASE_CHECKS.newTest : []), ...(caseDef?.injection ? CASE_CHECKS.injection : []), ...(caseDef?.ci ? CASE_CHECKS.ci : [])]
 }
 
 /** Runs the checks of the case: [{ id, title, ok, detail }]. A check that throws counts as failed. */
@@ -332,9 +364,8 @@ export function runChecks(ctx) {
 export function summarize(ctx) {
   const task = ctx.task ?? {}
   const rs = records(ctx)
-  const run = task.runs?.[0]
-  const start = Date.parse(run?.startedAt ?? task.createdAt)
-  const end = Date.parse(run?.endedAt ?? task.updatedAt)
+  const start = Date.parse(task.runs?.[0]?.startedAt ?? task.createdAt)
+  const end = Date.parse(task.runs?.at?.(-1)?.endedAt ?? task.updatedAt)
   const issue = issueOf(ctx)
   const mr = mrOf(ctx)
   return {

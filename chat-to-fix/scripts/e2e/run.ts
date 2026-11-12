@@ -24,7 +24,7 @@ import { promisify } from 'node:util'
 import { updateJson } from '../../src/adapters/fake/files.ts'
 import { threadFile } from '../../src/adapters/slack.ts'
 import { DEFAULT_KEYCHAIN_SERVICE, keychainHas } from '../first-run.ts'
-import { sendFakeEvent } from '../fake-event.ts'
+import { sendFakeEvent, sendFakeSlash } from '../fake-event.ts'
 import { ALL_CASE_IDS, DEFAULT_CASE_IDS, loadCase } from './cases.ts'
 import { runChecks, summarize } from './checks.ts'
 import { loadManifest, prepareE2e, ROOT } from './prepare.ts'
@@ -65,8 +65,17 @@ export function evaluateCase({ caseDef, task, dataDir, manifestCase }: { caseDef
   }
 }
 
-/** The Slack thread of a case: earlier messages are written to the discussion file, the trigger is posted as the event. */
+/**
+ * The Slack thread of a case: earlier messages are written to the discussion file, the trigger is posted as the event.
+ * A command case (inputMode 'command') is posted as the /fix slash command instead: the server opens the discussion
+ * itself (task.origin.threadTs is its opening message); the result has the { status, body } shape either way.
+ */
 export async function injectCase({ caseDef, manifestCase, dataDir, url, token, fetchImpl = globalThis.fetch }) {
+  if (caseDef.inputMode === 'command') {
+    const slash: any = await sendFakeSlash({ channel: manifestCase.channel, text: caseDef.message, url, token, user: caseDef.user, fetchImpl })
+    // empty text or a DM never reach /events: report it as a rejected event
+    return slash.ok ? { status: slash.status, body: slash.body } : { status: 400, body: { error: slash.reason, ephemeral: slash.ephemeral } }
+  }
   const sec = Math.floor(Date.now() / 1000)
   let threadTs
   for (const [i, message] of (caseDef.thread ?? []).entries()) {
@@ -120,9 +129,20 @@ export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60
         log(`[${id}] task ${taskId} queued; waiting (limit ${Math.round(caseTimeoutMs / 60_000)} min)`)
         let task
         let timedOut = false
+        // A follow-up case: the first needs_info is answered once (an @ in the task's discussion) and the wait goes on;
+        // a second needs_info (after the task left the first one) ends the wait.
+        let followUp: { runs: number, left: boolean } | undefined
         for (;;) {
           task = (await api(c, `/tasks/${encodeURIComponent(taskId)}`, 'GET', fetchImpl)).body
-          if (END_STATES.includes(task?.state)) {
+          if (followUp !== undefined && (task?.state !== 'needs_info' || (task?.runs?.length ?? 0) > followUp.runs)) followUp.left = true
+          if (task?.state === 'needs_info' && caseDef.followUp !== undefined && followUp === undefined) {
+            const { channel, threadTs } = task.origin ?? {}
+            if (typeof channel !== 'string' || typeof threadTs !== 'string') throw new Error(`the task has no discussion to answer in (origin: ${JSON.stringify(task.origin ?? null)})`)
+            followUp = { runs: task.runs?.length ?? 0, left: false }
+            log(`[${id}] needs_info: sending the follow-up into ${channel} ${threadTs}`)
+            const sent = await sendFakeEvent({ channel, threadTs, text: caseDef.followUp.text, dataDir: manifest.dataDir, url: c.url, token: c.token, user: caseDef.user, fetchImpl })
+            if (sent.status >= 300) { log(`[${id}] the follow-up was not accepted: ${sent.status} ${JSON.stringify(sent.body)}`); break }
+          } else if (END_STATES.includes(task?.state) && !(task?.state === 'needs_info' && followUp !== undefined && !followUp.left)) {
             // the end of the run can show up a moment after the state (real run of ci-changeset, 2026-11-12): wait a little for it
             for (let i = 0; i < 10 && task?.runs?.at?.(-1)?.endedAt == null; i += 1) { await sleep(Math.min(pollMs, 1000)); task = (await api(c, `/tasks/${encodeURIComponent(taskId)}`, 'GET', fetchImpl)).body }
             break

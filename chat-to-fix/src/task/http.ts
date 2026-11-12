@@ -6,6 +6,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { TASK_STATES } from './contracts.ts'
 import { bindingOf, DEFAULT_SLASH_COMMAND } from '../config.ts'
 import { neutralizeBroadcasts } from '../adapters/slack-http.ts'
+import { OUTBOX_DEFAULT_LIMIT, OUTBOX_MAX_LIMIT } from './outbox.ts'
 
 const MAX_BODY = 1_000_000
 
@@ -50,7 +51,24 @@ function readBody(request) {
 
 const short = (t) => ({ id: t.id, state: t.state, step: t.step ?? null, jiraKey: t.jira?.key ?? null, mrUrl: t.mr?.url ?? null, totalUsd: t.usage?.totalUsd ?? 0, unpriced: t.usage?.unpriced === true })
 
-export function createHttp({ config, token, store, queue, runner, notify, startThread }: any) {
+/** One message of a discussion as the task keeps it (origin.followUps, origin.earlier). */
+export function followUpOf(body) {
+  const seconds = Number(body?.messageTs)
+  return {
+    user: { ...(body?.user ?? {}) }, text: String(body?.text ?? ''), messageTs: body?.messageTs ?? null,
+    at: Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : new Date().toISOString(),
+    files: Array.isArray(body?.files) ? body.files : [],
+  }
+}
+
+/** The messages a task's origin holds, oldest first: earlier ones, the trigger, the follow-ups. */
+export function discussionOf(origin) {
+  if (origin === null || typeof origin !== 'object') return []
+  const trigger = isText(origin.text) ? [followUpOf({ user: origin.user, text: origin.text, messageTs: origin.messageTs, files: origin.files })] : []
+  return [...(Array.isArray(origin.earlier) ? origin.earlier : []), ...trigger, ...(Array.isArray(origin.followUps) ? origin.followUps : [])]
+}
+
+export function createHttp({ config, token, store, outbox, queue, runner, notify, startThread }: any) {
   if (!isText(token)) throw new Error('createHttp: the token is required')
 
   // /fix events being handled right now, by eventId: a retry that arrives meanwhile waits for the first
@@ -113,6 +131,24 @@ export function createHttp({ config, token, store, queue, runner, notify, startT
       throw new HttpError(400, 'invalid_json')
     }
     if (body?.source === 'slash') return slashEvent(body)
+    if (body?.source !== undefined && body.source !== 'fix' && body.source !== 'mention') return [400, { error: 'invalid_source' }]
+    // A retry that arrives while the first copy is still being handled waits for it (no second task).
+    if (!isText(body?.eventId)) return threadEvent(body)
+    const running = inFlight.get(body.eventId)
+    if (running !== undefined) {
+      const [status, payload] = await running
+      return status === 202 || status === 200 ? [200, { ...payload, duplicate: true }] : [status, payload]
+    }
+    const work = threadEvent(body)
+    inFlight.set(body.eventId, work)
+    try { return await work } finally { inFlight.delete(body.eventId) }
+  }
+
+  // An event whose discussion already exists. `source` 'fix' (a new request: the Slack Bot posted the task
+  // message, threadTs is its ts), 'mention' (a requester's @ in the discussion: only supplements a live task)
+  // or none (the older format: an @ may also start a task, tests and the fake e2e suite use it).
+  async function threadEvent(body) {
+    const source = body?.source
     // 1. required fields
     const missing = ['eventId', 'channel', 'threadTs', 'messageTs', 'text'].filter((k) => !isText(body?.[k]))
     if (!isText(body?.user?.id)) missing.push('user.id')
@@ -129,26 +165,61 @@ export function createHttp({ config, token, store, queue, runner, notify, startT
       await notify({ id: null, origin: body }, 'channel_not_bound')
       return [422, { error: 'channel_not_bound' }]
     }
-    const existing = await store.findByThread(body.channel, body.threadTs)
-    // 4. a task of this discussion is queued or running
-    if (existing !== undefined && (existing.state === 'queued' || existing.state === 'running')) {
-      await notify(existing, 'in_progress')
-      return [200, { taskId: existing.id, state: existing.state, inProgress: true }]
+    if (source !== 'fix') {
+      const existing = await store.findByThread(body.channel, body.threadTs)
+      // An @ in the discussion of a live task is kept on the task (origin.followUps): in command mode the bots
+      // cannot read the discussion history, so this is how a requester's answer reaches them.
+      const live = existing !== undefined && ['queued', 'running', 'needs_info'].includes(existing.state)
+      if (live) await store.addFollowUp(existing.id, body.eventId, followUpOf(body))
+      // 4. a task of this discussion is queued or running
+      if (live && (existing.state === 'queued' || existing.state === 'running')) {
+        await notify(existing, 'in_progress')
+        return [200, { taskId: existing.id, state: existing.state, inProgress: true }]
+      }
+      // 5. needs_info: queue the original task again (the rerun reads the discussion again, the answer included)
+      if (live && existing.state === 'needs_info') {
+        const { position } = await queue.enqueue(existing.id)
+        await notify(existing, 'resumed')
+        return [202, { taskId: existing.id, state: 'queued', position, rerun: true }]
+      }
+      // A mention starts nothing: no task, or an ended one, means the requester is pointed to /fix.
+      if (source === 'mention') {
+        await notify({ id: null, origin: body }, 'no_open_task')
+        return [409, { error: 'no_open_task' }]
+      }
+      // 6. queue full
+      if (await queue.full()) {
+        await notify({ id: null, origin: body }, 'queue_full')
+        return [429, { error: 'queue_full' }]
+      }
+      // 7. new task (older format only); in the discussion of an ended task it carries that task's messages
+      //    (origin.earlier), so in command mode the new task still knows what the discussion was about
+      const task = await store.createTask(existing === undefined ? body : { ...body, earlier: discussionOf(existing.origin) }, binding)
+      const { position } = await queue.enqueue(task.id)
+      return [202, { taskId: task.id, state: 'queued', position }]
     }
-    // 5. needs_info: queue the original task again
-    if (existing !== undefined && existing.state === 'needs_info') {
-      const { position } = await queue.enqueue(existing.id)
-      return [202, { taskId: existing.id, state: 'queued', position, rerun: true }]
-    }
-    // 6. queue full
+    // source 'fix': 6. queue full, 7. new task
     if (await queue.full()) {
       await notify({ id: null, origin: body }, 'queue_full')
       return [429, { error: 'queue_full' }]
     }
-    // 7. new task
     const task = await store.createTask(body, binding)
     const { position } = await queue.enqueue(task.id)
     return [202, { taskId: task.id, state: 'queued', position }]
+  }
+
+  async function readOutbox(url) {
+    if (outbox === undefined) return [404, { error: 'not_found' }]
+    const num = (name, fallback, min) => {
+      const raw = url.searchParams.get(name)
+      if (raw === null) return fallback
+      return /^\d+$/.test(raw) && Number(raw) >= min ? Number(raw) : null
+    }
+    const after = num('after', 0, 0)
+    const limit = num('limit', OUTBOX_DEFAULT_LIMIT, 1)
+    if (after === null) return [400, { error: 'invalid_after' }]
+    if (limit === null) return [400, { error: 'invalid_limit' }]
+    return [200, await outbox.read(after, Math.min(limit, OUTBOX_MAX_LIMIT))]
   }
 
   async function getTask(id, url) {
@@ -192,6 +263,7 @@ export function createHttp({ config, token, store, queue, runner, notify, startT
     const m = request.method
     if (m === 'POST' && url.pathname === '/events') return postEvent(request)
     if (m === 'GET' && url.pathname === '/health') return health()
+    if (m === 'GET' && url.pathname === '/outbox') return readOutbox(url)
     if (m === 'GET' && url.pathname === '/tasks') return listTasks(url)
     if (m === 'GET' && parts[0] === 'tasks' && parts.length === 2) return getTask(decodeURIComponent(parts[1]), url)
     if (m === 'POST' && parts[0] === 'tasks' && parts.length === 3 && parts[2] === 'stop') return stopTask(decodeURIComponent(parts[1]))

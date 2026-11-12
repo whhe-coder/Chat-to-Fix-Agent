@@ -10,7 +10,7 @@ const LIMITS = {
 const MIN = 60_000
 const T0 = Date.parse('2026-11-12T02:00:00Z')
 
-function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false } = {}) {
+function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false, language = undefined } = {}) {
   const clock = { t: T0 }
   const iso = (agoMin) => new Date(T0 - agoMin * MIN).toISOString()
   const tasks = new Map([['T-1', {
@@ -40,9 +40,9 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
   }
   const warnings = []
   const monitor = createMonitor({
-    store, botlayer, limits: LIMITS, now: () => clock.t, warn: (...a) => warnings.push(a),
+    store, botlayer, limits: LIMITS, language, now: () => clock.t, warn: (...a) => warnings.push(a),
     end: async (id, st, reason) => { calls.ended.push([id, st, reason]); tasks.get(id).state = st },
-    send: withSend ? async (origin, text) => { if (sendFails) throw new Error('slack down'); calls.sent.push({ origin, text }) } : undefined,
+    send: withSend ? async (origin, text, kind) => { if (sendFails) throw new Error('slack down'); calls.sent.push({ origin, text, kind }) } : undefined,
   })
   const settle = () => new Promise((r) => setImmediate(r))
   const advance = (min) => { clock.t += min * MIN }
@@ -213,14 +213,15 @@ test('a failing task does not stop the pass over the others', async () => {
   assert.ok(s.warnings.length > 0)
 })
 
-test('notify: the seven notice kinds carry the task id, Jira key and branch', async () => {
+test('notify: the notice kinds carry the task id, Jira key and branch', async () => {
   const s = setup()
   const task = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' } }
-  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'expired', 'failed', 'in_progress', 'queue_full', 'stopped', 'timed_out'])
+  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'expired', 'failed', 'in_progress', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
   for (const kind of ['in_progress', 'timed_out', 'failed', 'expired', 'stopped']) {
     s.calls.sent.length = 0
     await s.monitor.notify(task, kind)
     assert.equal(s.calls.sent.length, 1, kind)
+    assert.equal(s.calls.sent[0].kind, kind) // the kind goes on to the adapter (the outbox keeps it)
     assert.match(s.calls.sent[0].text, /T-1/, kind)
     assert.match(s.calls.sent[0].text, /DEMO-7/, kind)
     assert.match(s.calls.sent[0].text, /ai\/DEMO-7/, kind)
@@ -233,6 +234,37 @@ test('notify: the seven notice kinds carry the task id, Jira key and branch', as
     assert.deepEqual(s.calls.sent[0].origin, { channel: 'C9' })
   }
   assert.equal(s.records.filter((r) => r.type === 'system').length, 5)
+})
+
+test('notify in English: failed and resumed texts are the fixed templates', async () => {
+  const s = setup({ language: 'en' })
+  await s.monitor.notify({ id: 'T-1', origin: {}, jira: { key: 'DEMO-7' }, repo: null, state: 'failed', endReason: 'repo is gone', closeNote: 'repo is gone' }, 'failed')
+  assert.equal(s.calls.sent[0].text, 'Task T-1 could not be completed (repo is gone). Jira: DEMO-7.')
+  await s.monitor.notify({ id: 'T-1', origin: {}, jira: null, repo: null }, 'resumed')
+  assert.equal(s.calls.sent[1].text, 'Got the extra information; task T-1 is queued again.')
+})
+
+test('notify in Chinese (language zh): failed with note, needs_person with note and MR, resumed, the rest', async () => {
+  const s = setup({ language: 'zh' })
+  const base = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' } }
+  const sent = async (task, kind) => { s.calls.sent.length = 0; await s.monitor.notify(task, kind); return s.calls.sent[0].text }
+  assert.equal(
+    await sent({ ...base, state: 'failed', endReason: '评审没通过', closeNote: '评审没通过' }, 'failed'),
+    '任务 T-1 没能自动修好：评审没通过。Jira：DEMO-7，分支：ai/DEMO-7。补充信息后可以用 /fix 重新提交。',
+  )
+  const person = await sent({ ...base, state: 'failed', endReason: 'needs_person', closeNote: '改动太大，不适合自动提交。', mr: { url: 'https://gl/mr/1' } }, 'failed')
+  assert.equal(person, '任务 T-1 需要人来处理：改动太大，不适合自动提交。Jira：DEMO-7，分支：ai/DEMO-7，Draft MR：https://gl/mr/1。')
+  assert.doesNotMatch(person, /@ 我/)
+  assert.equal(s.calls.sent[0].kind, 'needs_person', 'the Slack side gets "needs a person" as its own kind')
+  assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null, state: 'failed', endReason: 'needs_person' }, 'failed'), '任务 T-1 需要人来处理。')
+  assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'resumed'), '收到补充信息，任务 T-1 重新开始处理。')
+  assert.equal(await sent({ ...base, endReason: 'task_timeout' }, 'timed_out'), '任务 T-1 超时了（任务总时长超限），已结束。Jira：DEMO-7，分支：ai/DEMO-7。')
+  assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'stopped'), '任务 T-1 已停止。')
+  assert.match(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'expired'), /^任务 T-1 在队列里等太久，已过期。想继续的话，请用 \/fix 重新提交。/)
+  assert.equal(await sent({ id: null, origin: {} }, 'no_open_task'), '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。')
+  assert.match(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'in_progress'), /^任务 T-1 已经在处理这个讨论了。/)
+  assert.equal(await sent({ id: null, origin: {} }, 'queue_full'), '修复队列已满，这次请求没有接收，请稍后再试。')
+  assert.equal(await sent({ id: null, origin: {} }, 'channel_not_bound'), '这个频道还没有接入 Chat-to-Fix，这次请求没有接收。')
 })
 
 test('notify without a Jira key leaves it out; without send only the record is written; a failing send does not throw', async () => {

@@ -2,7 +2,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createRealSlack, createSlackAdapter } from '../src/adapters/slack.ts'
+import { createOutboxSlack, createRealSlack, createSlackAdapter, commandDiscussion } from '../src/adapters/slack.ts'
 import { neutralizeBroadcasts, retryAfterMs } from '../src/adapters/slack-http.ts'
 
 const TOKEN = 'xoxb-test-secret-token-123'
@@ -321,4 +321,56 @@ test('startThread rejects a bad channel or empty text before any request', async
   for (const channel of [undefined, '', '../x', 'C1/..', 'C 1']) await assert.rejects(slack.startThread(channel, 'x'), (e: any) => e.code === 'bad_origin')
   for (const text of [undefined, '', '   ']) await assert.rejects(slack.startThread('C1', text), (e: any) => e.code === 'bad_text')
   assert.equal(requests.length, 0)
+})
+
+// ---- the outbox adapter (adapters.slack "outbox") ----
+
+const outboxRig = () => {
+  const appended = []
+  const outbox = { append: async (m) => { appended.push(m); return { ...m, seq: appended.length } } }
+  return { appended, slack: createOutboxSlack({}, { outbox }) as any }
+}
+
+test('outbox adapter: createSlackAdapter picks it, needs the shared outbox and no token', () => {
+  const { appended } = outboxRig()
+  const given = createSlackAdapter({ adapters: { slack: 'outbox' } }, { env: {}, outbox: { append: async () => ({ seq: 1 }) } } as any)
+  assert.deepEqual(Object.keys(given).sort(), ['readThread', 'reply', 'startThread'])
+  assert.throws(() => createSlackAdapter({ adapters: { slack: 'outbox' } }, { env: {} } as any), (e: any) => e.name === 'AdapterError' && e.code === 'no_outbox')
+  assert.equal(appended.length, 0)
+})
+
+test('outbox adapter: readThread is the discussion the task holds (earlier, the /fix text, follow-ups)', async () => {
+  const { slack } = outboxRig()
+  const origin = {
+    ...ORIGIN, text: 'button typo', user: { id: 'U1', name: 'alice' },
+    followUps: [{ user: { id: 'U1' }, text: 'it says Add to crat', messageTs: '1731377500.000200', files: [] }],
+  }
+  const thread = await slack.readThread(origin)
+  assert.deepEqual(thread.map((m) => m.text), ['button typo', 'it says Add to crat'])
+  assert.equal(thread[0].user.name, 'alice')
+  assert.deepEqual(thread, commandDiscussion(origin))
+  for (const threadTs of ['../x', 'a b', '', undefined]) await assert.rejects(slack.readThread({ ...origin, threadTs }), (e: any) => e.code === 'bad_origin')
+  // the outbox does not call Slack: any safe id is a key (the mock Slack Bot uses C-MOCK-FIX)
+  assert.equal((await slack.readThread({ ...origin, channel: 'C-MOCK-FIX' })).length, 2)
+})
+
+test('outbox adapter: reply appends to the outbox with purpose and kind, neutralises broadcasts, cuts at 4000', async () => {
+  const { slack, appended } = outboxRig()
+  const id = await slack.reply(ORIGIN, 'system', 'hello <!channel> and @here', 'resumed')
+  assert.equal(id, 'outbox:1')
+  assert.deepEqual(appended[0], { channel: ORIGIN.channel, threadTs: ORIGIN.threadTs, purpose: 'system', kind: 'resumed', text: neutralizeBroadcasts('hello <!channel> and @here') })
+  assert.doesNotMatch(appended[0].text, /<!channel>|@here/)
+  await slack.reply(ORIGIN, 'result', 'x'.repeat(5000), 'ignored for a non-system purpose')
+  assert.equal(appended[1].text.length, 4000); assert.equal(appended[1].kind, null); assert.equal(appended[1].purpose, 'result')
+  await slack.reply(ORIGIN, 'system', 'no kind given')
+  assert.equal(appended[2].kind, null)
+  await assert.rejects(slack.reply(ORIGIN, 'bogus', 'x'), (e: any) => e.code === 'bad_purpose')
+  await assert.rejects(slack.reply(ORIGIN, 'ack', '  '), (e: any) => e.code === 'bad_text')
+  await assert.rejects(slack.reply({ channel: 'C1' }, 'ack', 'x'), (e: any) => e.code === 'bad_origin')
+  assert.equal(appended.length, 3)
+})
+
+test('outbox adapter: startThread is not supported (the Slack Bot posts the task message)', async () => {
+  const { slack } = outboxRig()
+  await assert.rejects(slack.startThread('C0123ABC', 'x'), (e: any) => e.name === 'AdapterError' && e.code === 'not_supported')
 })

@@ -397,6 +397,7 @@ async function listener() {
     async createTask(origin, b) { const t = { id: `T-${tasks.size + 1}`, state: 'queued', origin, binding: b }; tasks.set(t.id, t); events.set(origin.eventId, t.id); threads.set(`${origin.channel}/${origin.threadTs}`, t.id); return t },
     async getTask(id) { return tasks.get(id) },
     async findByThread(c, t) { return tasks.get(threads.get(`${c}/${t}`)) },
+    async addFollowUp(id, eventId, message) { const t = tasks.get(id); t.origin = { ...t.origin, followUps: [...(t.origin.followUps ?? []), message] }; events.set(eventId, id); return t },
     async patchTask() {}, async listTasks() { return [] }, async readRecords() { return [] },
   }
   const queue = { enqueue: async () => ({ position: 1 }), full: async () => false }
@@ -424,6 +425,7 @@ test('fake-event: writes the discussion file and posts the event (function and c
     assert.equal(more.threadTs, sent.threadTs)
     assert.notEqual(more.messageTs, sent.messageTs)
     assert.equal(more.body.inProgress, true)
+    assert.equal(l.tasks.get(sent.body.taskId).origin.followUps[0].text, 'It is the login page') // the follow-up is kept on the task
     assert.equal((await a.slack.readThread({ channel: 'C1', threadTs: sent.threadTs })).map((m) => m.text).join('|'), 'The button does nothing|It is the login page')
 
     // Wrong token and unbound channel are reported, not hidden.
