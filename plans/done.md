@@ -26,12 +26,14 @@
 ## Jira 接入准备（不代表 M2 验收通过）
 
 - [x] 确认目标为 Jira Cloud 的 `F2PGBA` board，核对读取单个 board 的官方 API 和所需 scopes。
-- [x] 在 [`src/jira/`](../src/jira/) 实现独立只读连接函数与检查命令。模拟服务账号 Bearer、个人账号 Basic、钥匙串读取、错误脱敏的本地测试通过；当前完整本地测试为 19 项。
+- [x] 在 [`src/jira/`](../src/jira/) 实现独立只读连接函数与检查命令。模拟服务账号 Bearer、个人账号 Basic、钥匙串读取和错误脱敏的本地测试通过。
 - [x] 在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token；应用仅选 Jira，权限仅选 `read:board-scope:jira-software` 和 `read:issue-details:jira`，到期日为 2027-02-09。token 已保存到本机钥匙串。
-- [x] 用该 token 通过目标 board 的真实只读 API 验证。返回名称为 `F2PGBA board`；响应未给出项目 key。工单创建和评论尚未验证。
+- [x] 用旧只读 token 通过目标 board 的真实只读 API 验证。返回名称为 `F2PGBA board`；响应未给出项目 key。
 - [x] 在本地 Node.js 服务增加 `GET /jira/board`、`POST /jira/issues`、`POST /jira/issues/:key/comments`、`PUT /jira/issues/:key/comments/:id`。工单固定在 `F2PGBA` 项目；评论路径仅接受该项目的工单 key。
-- [x] Jira 连接函数新增工单创建、评论新增和评论修改方法。普通文本转为 ADF；工单类型必须显式提供。本地模拟测试和服务路由测试通过；完整测试共 27 项通过。真实 Jira 写入和 board 展示仍待验证。
-- [x] 根据 Atlassian 官方 OpenAPI 核对三个写入端点的 granular OAuth scope 并集。文档已记录 12 项 scopes；scoped API token 管理页面的实际选项及目标账号项目权限仍待核对。
+- [x] Jira 连接函数新增工单创建、评论新增和评论修改方法。普通文本转为 ADF；工单类型必须显式提供。本地模拟测试和服务路由测试通过。
+- [x] 根据 Atlassian 官方 OpenAPI 核对三个写入端点的 granular OAuth scope 并集，并在 scoped API token 创建确认页核对所选权限。
 - [x] 在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token。创建前确认页列出原有 2 项 board scopes 和 12 项写入 API scopes，到期日为 2027-02-09。用户已将新值保存到本机钥匙串。
-- [x] 本机使用新 token 成功读取目标 board；缺字段的创建请求返回 `400`，未创建工单。刷新后的 Atlassian 列表显示新 token 近期访问、旧 token 未显示本次访问。真实工单和评论写入仍未验证。
+- [x] 本机使用新 token 成功读取目标 board；缺字段的创建请求返回 `400`，未创建工单。刷新后的 Atlassian 列表显示新 token 近期访问、旧 token 未显示本次访问。
 - [x] 用户确认后，撤销旧 `Chat-to-Fix-Board-Read` token。Atlassian 显示撤销成功；刷新列表后旧 token 不再出现，新的 `Chat-to-Fix-Jira-Issues-Comments` 仍在。
+- [x] 确认 `F2PGBA` 创建 `Task` 工单时 `Work type` 为必填单选字段；Jira 连接函数新增 `workType` 输入和 `JIRA_WORK_TYPE_FIELD_ID` 配置。实际字段 ID 不写入仓库。
+- [x] 用新 token 经本地服务真实创建一张验证工单，新增并修改该账号自己的评论。创建和新增返回 `201`，修改返回 `200`；新 token 回读到修改后的评论，并通过目标 board 查询到该工单。完整本地测试 28 项通过。

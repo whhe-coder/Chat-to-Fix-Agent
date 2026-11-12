@@ -45,7 +45,7 @@ test('本地服务提供 board 检查、创建工单、添加和更新评论', a
     assert.deepEqual(await board.json(), { ok: true, id: 42, name: 'F2PGBA board', projectKey: null });
 
     const created = await fetch(`${base}/jira/issues`, jsonRequest('POST', {
-      summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug',
+      summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug', workType: 'Tech Research',
     }));
     assert.equal(created.status, 201);
     assert.deepEqual(await created.json(), { ok: true, id: '901', key: 'F2PGBA-12' });
@@ -59,7 +59,7 @@ test('本地服务提供 board 检查、创建工单、添加和更新评论', a
     assert.deepEqual(await updated.json(), { ok: true, issue: 'F2PGBA-12', id: '55' });
   });
   assert.deepEqual(calls, [
-    ['create', { summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug' }],
+    ['create', { summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug', workType: 'Tech Research' }],
     ['add', { issue: 'F2PGBA-12', body: 'Started' }],
     ['update', { issue: 'F2PGBA-12', id: '55', body: 'Done' }],
   ]);
@@ -110,6 +110,7 @@ test('写入缺少 issue type 返回 400，Jira 拒绝时不泄露上游正文',
   const jiraConnection = createJiraConnection({
     token: 'test-token',
     cloudId: '00000000-0000-0000-0000-000000000001',
+    workTypeFieldId: 'customfield_12345',
     fetchImpl: async () => {
       jiraRequests += 1;
       return new Response('secret test-token', { status: 403 });
@@ -123,7 +124,7 @@ test('写入缺少 issue type 返回 400，Jira 拒绝时不泄露上游正文',
     assert.equal(jiraRequests, 0);
 
     const rejected = await fetch(`${base}/jira/issues`, jsonRequest('POST', {
-      summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug',
+      summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug', workType: 'Tech Research',
     }));
     assert.equal(rejected.status, 502);
     const payload = await rejected.text();

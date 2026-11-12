@@ -96,7 +96,7 @@ test('Jira 失败响应不输出凭据或上游正文', async () => {
 test('创建工单固定到 F2PGBA，并把多行描述转为 ADF', async () => {
   let request;
   const connection = createJiraConnection({
-    token: 'test-token', cloudId, boardId: 42,
+    token: 'test-token', cloudId, boardId: 42, workTypeFieldId: 'customfield_12345',
     fetchImpl: async (url, options) => {
       request = { url, ...options };
       return new Response(JSON.stringify({ id: '901', key: 'F2PGBA-12' }), { status: 201 });
@@ -105,6 +105,7 @@ test('创建工单固定到 F2PGBA，并把多行描述转为 ADF', async () => 
 
   const result = await connection.createIssue({
     summary: 'Fix checkout', description: 'First line\nSecond line', issueTypeName: 'Bug',
+    workType: 'Tech Research',
   });
   assert.equal(request.url, `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue`);
   assert.equal(request.method, 'POST');
@@ -113,6 +114,7 @@ test('创建工单固定到 F2PGBA，并把多行描述转为 ADF', async () => 
       project: { key: 'F2PGBA' },
       issuetype: { name: 'Bug' },
       summary: 'Fix checkout',
+      customfield_12345: { value: 'Tech Research' },
       description: {
         type: 'doc', version: 1,
         content: [
@@ -129,7 +131,7 @@ test('创建工单固定到 F2PGBA，并把多行描述转为 ADF', async () => 
 test('创建工单要求显式 issue type，且不依赖 board ID', async () => {
   let writes = 0;
   const connection = createJiraConnection({
-    token: 'test-token', cloudId,
+    token: 'test-token', cloudId, workTypeFieldId: 'customfield_12345',
     fetchImpl: async () => {
       writes += 1;
       return new Response(JSON.stringify({ id: '901', key: 'F2PGBA-12' }), { status: 201 });
@@ -139,8 +141,24 @@ test('创建工单要求显式 issue type，且不依赖 board ID', async () => 
     /Issue type 必须/);
   assert.equal(writes, 0);
   assert.deepEqual(await connection.createIssue({
-    summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug',
+    summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug', workType: 'Tech Research',
   }), { id: '901', key: 'F2PGBA-12' });
+});
+
+test('创建工单要求有效的 Work type 配置和输入', async () => {
+  let writes = 0;
+  const fetchImpl = async () => {
+    writes += 1;
+    return new Response(JSON.stringify({ id: '901', key: 'F2PGBA-12' }), { status: 201 });
+  };
+  const input = { summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug', workType: 'Tech Research' };
+  await assert.rejects(createJiraConnection({ token: 'test-token', cloudId, fetchImpl }).createIssue(input),
+    /JIRA_WORK_TYPE_FIELD_ID/);
+  await assert.rejects(createJiraConnection({ token: 'test-token', cloudId, workTypeFieldId: 'bad', fetchImpl }).createIssue(input),
+    /JIRA_WORK_TYPE_FIELD_ID/);
+  await assert.rejects(createJiraConnection({ token: 'test-token', cloudId, workTypeFieldId: 'customfield_12345', fetchImpl })
+    .createIssue({ ...input, workType: '' }), /Work type 必须/);
+  assert.equal(writes, 0);
 });
 
 test('新增和更新评论只操作 F2PGBA 工单', async () => {
@@ -174,10 +192,12 @@ test('新增和更新评论只操作 F2PGBA 工单', async () => {
 
 test('写入失败时不回传 Jira 错误正文', async () => {
   const connection = createJiraConnection({
-    token: 'test-token', cloudId, boardId: 42,
+    token: 'test-token', cloudId, boardId: 42, workTypeFieldId: 'customfield_12345',
     fetchImpl: async () => new Response('secret test-token', { status: 403 }),
   });
-  await assert.rejects(connection.createIssue({ summary: 'Test', description: 'Body', issueTypeName: 'Bug' }), (error) => {
+  await assert.rejects(connection.createIssue({
+    summary: 'Test', description: 'Body', issueTypeName: 'Bug', workType: 'Tech Research',
+  }), (error) => {
     assert.ok(error instanceof JiraApiError);
     assert.equal(error.status, 403);
     assert.equal(error.message, 'Jira 返回 403');

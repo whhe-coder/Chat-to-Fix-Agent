@@ -67,6 +67,7 @@ export function createJiraConnection({
   cloudId = process.env.JIRA_CLOUD_ID,
   boardId = process.env.JIRA_BOARD_ID,
   email = process.env.JIRA_EMAIL,
+  workTypeFieldId = process.env.JIRA_WORK_TYPE_FIELD_ID,
   fetchImpl = fetch,
 } = {}) {
   if (typeof cloudId !== 'string' || !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(cloudId)) {
@@ -105,12 +106,16 @@ export function createJiraConnection({
     return { id, name: data.name, projectKey: data.location?.projectKeyId || null };
   }
 
-  async function createIssue({ summary, description, issueTypeName }) {
+  async function createIssue({ summary, description, issueTypeName, workType }) {
+    if (typeof workTypeFieldId !== 'string' || !/^customfield_[1-9]\d*$/.test(workTypeFieldId)) {
+      throw new Error('JIRA_WORK_TYPE_FIELD_ID 必须是有效的 customfield ID');
+    }
     const fields = {
       project: { key: PROJECT_KEY },
       issuetype: { name: requiredText(issueTypeName, 'Issue type', 100) },
       summary: requiredText(summary, 'Summary', 255),
       description: toAdf(requiredText(description, 'Description', 20000)),
+      [workTypeFieldId]: { value: requiredText(workType, 'Work type', 100) },
     };
     const data = await request('POST', '/rest/api/3/issue', { fields });
     if (typeof data?.id !== 'string' || typeof data?.key !== 'string' || !/^F2PGBA-[1-9]\d*$/.test(data.key)) {

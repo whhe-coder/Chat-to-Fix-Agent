@@ -29,7 +29,7 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 | --- | --- | --- |
 | M0 Slack 私信入口 | 进行中 | Slack 应用只订阅 `message.im`，Bot 权限只有 `im:history` 和 `chat:write`；完成工作区安装与 token 配置；测试私信只被处理一次，并在原 thread 收到确认。 |
 | M1 Bot 与本地 agent 对接 | 未开始 | Bot 将问题正文、发送者、频道和 thread 标识交给 agent；异步任务状态可追踪；Slack 重试不会重复启动任务。 |
-| M2 Jira 工单 | 接入准备中 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
+| M2 Jira 工单 | 写入能力已验证，任务联动未开始 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
 | M3 代码修改与 Draft MR | 未开始 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
 | M4 CI 观察与修复 | 未开始 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
 | M5 端到端验收 | 未开始 | 从测试私信到 Jira、Draft MR、CI 结果、Slack/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
@@ -55,7 +55,7 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 - 本地 agent 的调用方式：进程、HTTP 服务或任务队列。
 - 长任务状态与去重记录的存储位置。
-- M2 前确定正式 Jira 服务身份，并核对该身份在 `F2PGBA` 的项目权限。官方三个写入 API 的 granular scope 清单已核对；个人账号的新 token 已保存到本机钥匙串，board 读取及无效创建请求检查通过，旧只读 token 已撤销。Jira 工单及评论 HTTP 接口已通过本地模拟测试。还需确认可用 issue type、必填字段和 board 筛选规则，完成真实创建与评论修改，并接入 Slack 任务去重及工单链接回报。见 [Jira 接入记录](../config/jira/README.md)。
+- M2 的 Jira 接口已用个人账号的新 token 验证：真实创建 `Task` 工单、新增并修改自身评论、回读评论，以及在目标 board 查到工单。`Work type` 必填，启动服务时需配置其字段 ID，任务输入需提供合适的值。M2 还需接入 Slack 任务去重、创建失败处理和工单链接回报。正式服务身份仍待确定；单个工单和字段元数据读取接口目前返回 `401 scope does not match`，若任务链路需要这些能力，先查明授权差异。见 [Jira 接入记录](../config/jira/README.md)。
 - GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
 - M3 的本地 agent 直接复用独立的 `createGitlabConnection()`；还需验证 agent 到 GitLab 的调用链。当前 HTTP 服务不是写入入口。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
