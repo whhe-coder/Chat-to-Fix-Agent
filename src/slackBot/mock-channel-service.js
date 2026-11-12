@@ -98,7 +98,7 @@ export async function startMockService(env = process.env) {
     }
     rmSync(s.pidFile);
   }
-  if (await portOpen(s.port)) throw new Error(`模拟 Slack 端口 ${s.port} 已被占用；不会接管该进程`);
+  if (await portOpen(s.port)) throw new Error(`模拟 Slack 端口 ${s.port} 已被占用；不会接管该进程。如已有模拟页面，可检查 http://127.0.0.1:${s.port}/`);
 
   const id = randomUUID();
   const fd = openSync(s.logFile, 'a', 0o600);

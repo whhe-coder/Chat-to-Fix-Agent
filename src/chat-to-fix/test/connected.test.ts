@@ -2,9 +2,32 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { bridgeEnv, connectedConfig, prepareAgentRepo, saveConfig } from '../scripts/connected.ts'
+import { agentAlreadyRunning, bridgeEnv, connectedConfig, prepareAgentRepo, saveConfig } from '../scripts/connected.ts'
+
+test('已运行 Agent 的有效 token 和健康接口可避免重复启动', async () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), 'chat-to-fix-running-'))
+  writeFileSync(join(dataRoot, 'http-token'), 'local-token\n', { mode: 0o600 })
+  const server = createServer((request, response) => {
+    const authorized = request.headers['x-chat-to-fix-token'] === 'local-token'
+    response.writeHead(authorized ? 200 : 401, { 'content-type': 'application/json' })
+    response.end(authorized ? '{"up":true}' : '{"error":"unauthorized"}')
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const port = (server.address() as any).port
+  try {
+    assert.equal(await agentAlreadyRunning({ env: {}, dataRoot, port }), true)
+    assert.equal(await agentAlreadyRunning({ env: { CHAT_TO_FIX_HTTP_TOKEN: 'wrong' }, dataRoot, port }), false)
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((done) => server.close(() => done()))
+    rmSync(dataRoot, { recursive: true, force: true })
+  }
+})
 
 test('existing tokens reach real adapters without entering the saved configuration', () => {
   const env = {

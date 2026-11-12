@@ -108,7 +108,11 @@ test('其他程序占用端口时明确报错，Agent 保持运行', async (t) =
   occupied.listen(Number(env.MOCK_SLACK_PORT), '127.0.0.1');
   await once(occupied, 'listening');
   t.after(() => occupied.close());
-  await assert.rejects(startMockService(env), /端口 .* 已被占用/);
+  await assert.rejects(startMockService(env), (error) => {
+    assert.match(error.message, /端口 .* 已被占用/);
+    assert.match(error.message, new RegExp(`http://127\\.0\\.0\\.1:${env.MOCK_SLACK_PORT}/`));
+    return true;
+  });
   assert.equal(existsSync(pidFile), false);
   assert.equal((await fetch(`http://127.0.0.1:${agentPort}/tasks`, { headers: { 'x-chat-to-fix-token': 'test-token' } })).status, 200);
 });

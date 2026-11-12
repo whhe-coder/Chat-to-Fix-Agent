@@ -1,6 +1,6 @@
 // Connect the imported agent to this repository's existing local credentials and service checks.
 // Generated configuration contains addresses and IDs only. Tokens stay in the child environment.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn, execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -113,6 +113,21 @@ export function saveConfig(config: any, env: any, dataRoot = join(ROOT, '.data',
   return path
 }
 
+export async function agentAlreadyRunning({ env, dataRoot, port = 3090, fetchImpl = globalThis.fetch }: any) {
+  let token = env.CHAT_TO_FIX_HTTP_TOKEN
+  if (!text(token)) {
+    try { token = readFileSync(join(resolve(dataRoot), 'http-token'), 'utf8').trim() }
+    catch { return false }
+  }
+  if (!text(token)) return false
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/health`, {
+      headers: { 'x-chat-to-fix-token': token }, signal: AbortSignal.timeout(2000),
+    })
+    return response.ok && (await response.json()).up === true
+  } catch { return false }
+}
+
 function argsOf(argv) {
   const out: any = { action: 'prepare' }
   for (let i = 0; i < argv.length; i++) {
@@ -140,6 +155,10 @@ async function main() {
   const channel = text(configuredChannel) ? configuredChannel : args.action === 'start' ? 'CLOCAL' : configuredChannel
   if (channel === 'CLOCAL' && !text(configuredChannel)) {
     console.log('Slack Bot 尚未接入；Agent 暂用本机频道 CLOCAL。')
+  }
+  if (args.action === 'start' && await agentAlreadyRunning({ env, dataRoot })) {
+    console.log('Agent 已在 http://127.0.0.1:3090 运行；继续启动模拟 Slack 页面。')
+    return
   }
   const jiraSite = args.jiraSite ?? await discoverJiraSite(env)
   const config = connectedConfig({ env, channel, localRepo: args.localRepo ?? env.CHAT_TO_FIX_LOCAL_REPO, jiraSite, dataRoot })
