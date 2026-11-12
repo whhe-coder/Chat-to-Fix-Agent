@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "sh -c '. src/chat-to-fix/scripts/dev-env.sh && node src/chat-to-fix/scripts/connected.ts --start && node src/slackBot/mock-channel-service.js start'",
-    "start:dev": "npm start && npm run logs:agent",
+    "start:dev": "sh -c '. src/chat-to-fix/scripts/dev-env.sh && node src/chat-to-fix/scripts/connected.ts --start && node src/slackBot/mock-channel-service.js start && exec sh src/chat-to-fix/scripts/logs-chat-to-fix.sh'",
     "stop": "sh -c '. src/chat-to-fix/scripts/dev-env.sh; node src/slackBot/mock-channel-service.js stop; mock_status=$?; sh src/chat-to-fix/scripts/stop-chat-to-fix.sh; agent_status=$?; test $mock_status -eq 0 && test $agent_status -eq 0'",
     "start:slack": "node src/slackBot/slack-bot.js",
     "start:mock-slack": "node src/slackBot/start-mock-channel.js",
