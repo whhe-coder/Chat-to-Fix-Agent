@@ -105,7 +105,7 @@
   disabled: true
 
 # 6. Read-only agent preset `readonly` (new), used by the four bots that run on the API
-#    (src/task/runner.js presetOf). A row of @deepseek-ai/dsh-agent-preset (config id, name,
+#    (src/task/runner.ts presetOf). A row of @deepseek-ai/dsh-agent-preset (config id, name,
 #    description, order, plugins), registered with the web-app's agent-preset-registry. The file
 #    tool keeps read and readImage and loses write, edit and apply_patch; the search tool is
 #    read-only; no bash, pwsh, jobs, web, subagent or plan tools are listed, so the preset has none.
@@ -149,7 +149,7 @@
 # 6b. STOP-GAP: the shipped `standard` preset (web-app row `preset-standard`) gets the same
 #     read-only plugin list. Reason, observed in the smoke run: the bot layer creates each bot's
 #     own session with the preset the task layer names (`readonly` for the four API bots), but the
-#     sessions it creates later name no preset and so get `standard` (bot/src/host/roster.js
+#     sessions it creates later name no preset and so get `standard` (bot/src/host/roster.ts
 #     botPreset default): a bot's session inside the task group (groups.js:293), the group's own
 #     session (roster.js:510) and the next part after a handoff (parts.js:1056). The Main bot's turn
 #     in the group ran with bash, write and edit. The only bot meant to use `standard` is the
@@ -164,7 +164,7 @@
     order: 1
     plugins: *readonly-plugins
 
-# 7. This project's plugin (src/plugin.js): the bot layer and the task layer. The profile links
+# 7. This project's plugin (src/plugin.ts): the bot layer and the task layer. The profile links
 #    the project as the package `chat-to-fix` (node_modules/chat-to-fix -> project root, made by the start
 #    script); the package has no `main`/`exports`, so the row names the entry file by subpath.
 #    The row config reaches the bot layer as rt.config: `claudeCommand` is the Claude Code CLI
@@ -173,6 +173,6 @@
 #    `claude-code` route and a task fails at start ("Model claude-code/default is not available").
 - insert:
     - id: chat-to-fix
-      name: chat-to-fix/src/plugin.js
+      name: chat-to-fix/src/plugin.ts
       config:
         claudeCommand: !!js process.env.CLAUDE_BIN || undefined

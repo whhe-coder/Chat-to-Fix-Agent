@@ -3,8 +3,8 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { install } from '../src/host/time-context.js'
-import { historyEntry } from '../src/host/parts.js'
+import { install } from '../src/host/time-context.ts'
+import { historyEntry } from '../src/host/parts.ts'
 import { fakeContext } from './fake-ctx.js'
 
 const NOW = Date.UTC(2026, 9, 12, 4, 30)

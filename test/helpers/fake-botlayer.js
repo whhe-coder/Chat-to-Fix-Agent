@@ -1,4 +1,4 @@
-// In-memory implementation of the I1 bot-layer facade (src/task/contracts.js, spec 5 section 3).
+// In-memory implementation of the I1 bot-layer facade (src/task/contracts.ts, spec 5 section 3).
 // Other tests reuse it, so it follows the contract: every I1 function exists with the same
 // arguments and result, and unknown ids are refused the way the real facade refuses them.
 //

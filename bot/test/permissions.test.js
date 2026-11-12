@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { install } from '../src/host/permissions.js'
+import { install } from '../src/host/permissions.ts'
 
 const PRESETS = { 'workspace-write': {}, 'danger-full-access': {} }
 const SESSION_ONLY = ['auto']

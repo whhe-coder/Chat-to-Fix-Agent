@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clip, createClock, escapeRegExp, estimateTokens, excerpt, isColor, normalize, splitRef, textOf, unquote } from '../src/host/text.js'
+import { clip, createClock, escapeRegExp, estimateTokens, excerpt, isColor, normalize, splitRef, textOf, unquote } from '../src/host/text.ts'
 
 test('textOf joins the text blocks only', () => {
   assert.equal(textOf([{ type: 'text', text: ' a ' }, { type: 'image' }, { type: 'text', text: 'b' }, { type: 'text', text: 3 }]), 'a \nb')

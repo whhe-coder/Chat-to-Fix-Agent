@@ -128,7 +128,7 @@ CHAT_TO_FIX_HTTP_TOKEN ${CHAT_TO_FIX_PASS_ENV:-}"
   : > "$_FB_LOG"
   chmod 600 "$_FB_LOG"
   echo "start-chat-to-fix: $(date -u +%Y-%m-%dT%H:%M:%SZ) dsh $*" >> "$_FB_LOG"
-  exec "$_FB_NODE" "$_FB_ROOT/scripts/lib/launch-detached.mjs" "$_FB_PIDFILE" "$_FB_LOG" "$_FB_DATA/work" -- "$_FB_NODE" "$_FB_DSH_BIN" "$@"
+  exec "$_FB_NODE" "$_FB_ROOT/scripts/lib/launch-detached.ts" "$_FB_PIDFILE" "$_FB_LOG" "$_FB_DATA/work" -- "$_FB_NODE" "$_FB_DSH_BIN" "$@"
 )
 
 # Ready when the plugin prints its control-interface line; failed when the process group is gone.

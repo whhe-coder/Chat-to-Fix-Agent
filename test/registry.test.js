@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allBotDefs, botDef, toolsOfRole, validateRegistry } from '../src/registry/bots.js'
-import { STEPS, stepDef, nextStep, stepOfWriteTool, validateFlow } from '../src/flow/steps.js'
-import { ROLES, STEP_IDS } from '../src/task/contracts.js'
+import { allBotDefs, botDef, toolsOfRole, validateRegistry } from '../src/registry/bots.ts'
+import { STEPS, stepDef, nextStep, stepOfWriteTool, validateFlow } from '../src/flow/steps.ts'
+import { ROLES, STEP_IDS } from '../src/task/contracts.ts'
 
 test('five bots with the spec fields', () => {
   const defs = allBotDefs()

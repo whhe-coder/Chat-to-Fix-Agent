@@ -1,14 +1,14 @@
 // The Claude Code driver on the real bot layer: the Coding bot's CLI is started with the
 // settled arguments, and its turns reach the bot's reply and the session events. The CLI is
-// the fake of test/fixtures/fake-claude.mjs; the task layer is src/app.js on the fake DSH
+// the fake of test/fixtures/fake-claude.mjs; the task layer is src/app.ts on the fake DSH
 // context of host.js; the loop is DSH's own (test/bot/loop.js).
 //
 // Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/claude-driver.test.js
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { loadPrompt } from '../../src/prompts/index.js'
-import { CODING_TOOLS } from '../../src/engine/args.js'
+import { loadPrompt } from '../../src/prompts/index.ts'
+import { CODING_TOOLS } from '../../src/engine/args.ts'
 import { startApp } from './host.js'
 import { answerOf, endOf, mountLoop, reasoningOf, send, waitForIdle } from './loop.js'
 

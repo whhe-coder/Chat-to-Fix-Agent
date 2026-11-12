@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, bindingOf, secret } from '../src/config.js'
+import { loadConfig, bindingOf, secret } from '../src/config.ts'
 
 const base = () => ({
   dataDir: '/d', worktreesDir: '/d/w', httpPort: 3090, apiModel: 'anthropic/x',

@@ -13,6 +13,11 @@
     "test:layer": "node --import ./bot/test/harness-resolve.mjs --test --test-force-exit \"test/bot/*.test.js\"",
     "start": "sh scripts/start-chat-to-fix.sh",
     "stop": "sh scripts/stop-chat-to-fix.sh",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
   }
 }

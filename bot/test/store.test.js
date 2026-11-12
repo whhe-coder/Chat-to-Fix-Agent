@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { install } from '../src/host/store.js'
+import { install } from '../src/host/store.ts'
 
 function patch(method, replace) {
   const original = fsp[method]

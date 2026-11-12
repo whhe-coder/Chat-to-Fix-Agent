@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHttp } from '../src/task/http.js'
-import { createQueue } from '../src/task/queue.js'
+import { createHttp } from '../src/task/http.ts'
+import { createQueue } from '../src/task/queue.ts'
 
 const TOKEN = 'test-token'
 const binding = { channel: 'C1', repo: 'g/p', jiraProject: 'DEMO', issueType: 'Bug', labels: [], defaultBranch: 'master' }

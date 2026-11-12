@@ -6,11 +6,11 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createAdapters } from '../src/adapters/index.js'
-import { runGit } from '../src/adapters/git.js'
-import { createHttp } from '../src/task/http.js'
-import { createTestRepo } from '../scripts/make-test-repo.mjs'
-import { sendFakeEvent } from '../scripts/fake-event.mjs'
+import { createAdapters } from '../src/adapters/index.ts'
+import { runGit } from '../src/adapters/git.ts'
+import { createHttp } from '../src/task/http.ts'
+import { createTestRepo } from '../scripts/make-test-repo.ts'
+import { sendFakeEvent } from '../scripts/fake-event.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 let tmp, cfg, adapters, repoInfo, binding, counter = 0
@@ -124,7 +124,7 @@ test('make-test-repo: the sample repository fails its test because of the bug', 
   assert.match(failing.stdout, /FAIL applyDiscount\(100, 10\): expected 90, got 110/)
   assert.equal((await git(['rev-parse', 'master'], made.remote)).trim(), made.commit)
   // The script prints the two paths for a binding.
-  const printed = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/make-test-repo.mjs'), join(dir, 'viaScript')], (e, out) => (e ? reject(e) : resolve(out))))
+  const printed = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/make-test-repo.ts'), join(dir, 'viaScript')], (e, out) => (e ? reject(e) : resolve(out))))
   assert.match(printed, /"localRepo": ".*viaScript\/project"/)
   assert.match(printed, /"remote": ".*viaScript\/project\.git"/)
 })
@@ -368,7 +368,7 @@ test('fake-event: writes the discussion file and posts the event (function and c
     await assert.rejects(sendFakeEvent({ channel: 'C1', dataDir: config.dataDir, url: l.url, token: 'tok' }), /missing: text/)
 
     // The command line, with URL and token from the environment.
-    const out = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/fake-event.mjs'), '--channel', 'C1', '--text', 'From the command line', '--data-dir', config.dataDir], { env: { PATH: process.env.PATH, CHAT_TO_FIX_URL: l.url, CHAT_TO_FIX_HTTP_TOKEN: 'tok' } }, (e, stdout) => (e ? reject(e) : resolve(stdout))))
+    const out = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/fake-event.ts'), '--channel', 'C1', '--text', 'From the command line', '--data-dir', config.dataDir], { env: { PATH: process.env.PATH, CHAT_TO_FIX_URL: l.url, CHAT_TO_FIX_HTTP_TOKEN: 'tok' } }, (e, stdout) => (e ? reject(e) : resolve(stdout))))
     const printed = JSON.parse(out)
     assert.equal(printed.status, 202)
     assert.equal(printed.response.state, 'queued')

@@ -1,6 +1,6 @@
 # config/
 
-`cordis.patch.yml` is chat-to-fix's DSH profile patch. `scripts/start-chat-to-fix.sh` loads it as a `--patch` overlay over the profile `chat-to-fix` (bundles `@deepseek-ai/dsh-base`, then `@deepseek-ai/dsh-web-app`). It has been loaded by the real runtime (DSH 0.2.2-rc.1 in `runtime/`), and `scripts/smoke.mjs` checks what it does.
+`cordis.patch.yml` is chat-to-fix's DSH profile patch. `scripts/start-chat-to-fix.sh` loads it as a `--patch` overlay over the profile `chat-to-fix` (bundles `@deepseek-ai/dsh-base`, then `@deepseek-ai/dsh-web-app`). It has been loaded by the real runtime (DSH 0.2.2-rc.1 in `runtime/`), and `scripts/smoke.ts` checks what it does.
 
 ## The bundled runtime
 
@@ -12,7 +12,7 @@
 
 ## What the start script sets, and why
 
-The command is `node runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.mjs`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
+The command is `node runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.ts`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
 
 The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_* TERM`, the proxy variables, `ANTHROPIC_API_KEY CHAT_TO_FIX_*_TOKEN CLAUDE_BIN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
 
@@ -37,7 +37,7 @@ The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_* TE
 | 5 headless: web-startup, webserver, web-runtime, modules, client-hmr, session-log-download, ui-deliverables, directory-picker, open-in-app, office-to-pdf, harness-dev-context and workspace-changes disabled; `connection` restated without `inject: [webStartup]` | no web server, browser or desktop integration | yes: every row activated, and the only listener is the control interface on 127.0.0.1 |
 | 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly` |
 | 6b `preset-standard` made read-only (stop-gap) | sessions the bot layer creates without a preset (group member, group, next part) get no write/shell tools | yes: before this row, the Main bot's group turn had bash/write/edit; after it, 18 tools, none of them writes or runs shell commands |
-| 7 plugin row `chat-to-fix/src/plugin.js`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
+| 7 plugin row `chat-to-fix/src/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
 
 Loader rules confirmed against the real runtime:
 
@@ -49,7 +49,7 @@ Loader rules confirmed against the real runtime:
 
 ## Known leaks and what remains open
 
-- **npm debug log.** The bot layer (`bot/src/host/local-agents/discover.js`) runs `npm prefix --global`, which writes `~/.npm/_logs/<time>-debug-0.log`. With a sentinel HOME, this was the only file the process wrote under HOME. Fix: skip `refreshSearchDirs()` when `claudeCommand` is an absolute path, or give that call `npm_config_logs_max=0`.
+- **npm debug log.** The bot layer (`bot/src/host/local-agents/discover.ts`) runs `npm prefix --global`, which writes `~/.npm/_logs/<time>-debug-0.log`. With a sentinel HOME, this was the only file the process wrote under HOME. Fix: skip `refreshSearchDirs()` when `claudeCommand` is an absolute path, or give that call `npm_config_logs_max=0`.
 - **Login shell.** The same file runs `$SHELL -l -c`, which reads `~/.zprofile` and `~/.zshenv`. These are reads only; that no file is written was shown with the sentinel HOME.
 - **Claude Code.** In real runs, Claude Code writes under `~/.claude` (projects, settings). This is known and accepted.
 - **Node binary.** Node comes from `~/Documents/mywork/ds-bot/.toolchain` (`dev-env.sh`). It is executed only, never written.

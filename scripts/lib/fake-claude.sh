@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stand-in for the Claude Code CLI in the smoke run (scripts/smoke.mjs sets the plugin row's
+# Stand-in for the Claude Code CLI in the smoke run (scripts/smoke.ts sets the plugin row's
 # claudeCommand to this file). It makes the `claude-code` route exist without a real CLI, so the
 # Coding bot can be created, and guarantees that no real model call can happen: `--version`
 # answers, anything else is logged to $TMPDIR/fake-claude.log and fails.

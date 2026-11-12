@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { install } from '../src/host/prompt.js'
+import { install } from '../src/host/prompt.ts'
 import { fakeContext } from './fake-ctx.js'
 
 function start() {

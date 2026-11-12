@@ -1,4 +1,4 @@
-// End to end through the whole task layer (src/app.js) with the fake bot layer:
+// End to end through the whole task layer (src/app.ts) with the fake bot layer:
 // listener -> queue -> runner (five bots, one group) -> tools -> step checks -> recorder -> monitor -> end.
 // The Slack, Jira and GitLab tools are not built yet, so the test writes to the task what those
 // tools will write; everything else is the real code.
@@ -7,9 +7,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '../src/config.js'
-import { createApp } from '../src/app.js'
-import { ROLES } from '../src/task/contracts.js'
+import { loadConfig } from '../src/config.ts'
+import { createApp } from '../src/app.ts'
+import { ROLES } from '../src/task/contracts.ts'
 import { createFakeBotLayer } from './helpers/fake-botlayer.js'
 
 async function rig() {

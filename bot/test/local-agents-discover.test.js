@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
-import { findExecutable, refreshSearchDirs } from '../src/host/local-agents/discover.js'
+import { findExecutable, refreshSearchDirs } from '../src/host/local-agents/discover.ts'
 
 // A slow npm on PATH stands for the real one: it takes seconds to start, and the
 // host must not wait for it on the way to a Session.

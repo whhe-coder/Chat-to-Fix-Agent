@@ -10,10 +10,10 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { ClaudeEngine } from '../src/host/local-agents/claude-engine.js'
-import { launchFor } from '../src/host/local-agents/launch.js'
-import { output } from '../src/host/tools.js'
+import { LocalAgentAdapter } from '../src/host/local-agents/adapter.ts'
+import { ClaudeEngine } from '../src/host/local-agents/claude-engine.ts'
+import { launchFor } from '../src/host/local-agents/launch.ts'
+import { output } from '../src/host/tools.ts'
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']

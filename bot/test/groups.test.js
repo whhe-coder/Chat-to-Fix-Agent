@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isPass, mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.js'
-import { attachReference } from '../src/host/turns.js'
+import { isPass, mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.ts'
+import { attachReference } from '../src/host/turns.ts'
 
 const members = [{ name: 'M' }, { name: 'Mx' }, { name: 'K' }, { name: 'Writer' }]
 const names = ({ all, found }) => ({ all, found: found.map(member => member.name) })

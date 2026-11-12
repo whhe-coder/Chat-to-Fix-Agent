@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { claudeArgs, cliMode, codingArgs, CODING_TOOLS } from '../src/engine/args.js'
-import { authEnv, childEnv } from '../src/engine/env.js'
-import { ClaudeSession } from '../src/engine/claude.js'
+import { claudeArgs, cliMode, codingArgs, CODING_TOOLS } from '../src/engine/args.ts'
+import { authEnv, childEnv } from '../src/engine/env.ts'
+import { ClaudeSession } from '../src/engine/claude.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 const BASE = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompt-tool', 'stdio']

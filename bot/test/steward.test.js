@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CHECKPOINT_PROMPT, DEFAULT_WINDOW, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from '../src/host/steward.js'
+import { CHECKPOINT_PROMPT, DEFAULT_WINDOW, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from '../src/host/steward.ts'
 
 test('the lines follow the model: its window less the room for its reply', () => {
   assert.deepEqual(linesFor({ window: 500_000, reserve: 0, checkRatio: 0.8 }), { window: 500_000, usable: 500_000, hard: 475_000, check: 400_000 })
