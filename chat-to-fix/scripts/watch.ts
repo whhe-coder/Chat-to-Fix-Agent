@@ -7,7 +7,7 @@
 // It only sends GET requests to the control interface (GET /tasks, GET /tasks/:id?records=1) every 2 s.
 // The token is read from the file, goes only into the request header, and is never printed.
 //
-// Screen: header (task, state, channel/repo, Jira, MR, elapsed), the seven steps, the five bots, then
+// Screen: header (task, state, channel/repo, Jira, MR, elapsed), the eight steps, the five bots, then
 // the newest execution records. Keys: q quit, up/down or k/j scroll, PageUp/PageDown, End or G back to
 // the newest, Home or g oldest, t next task. Without a TTY it appends plain lines instead.
 // Plain ANSI escape codes, Node built-ins only. The rendering is in exported pure functions.
@@ -21,8 +21,8 @@ import { STEPS } from '../src/flow/steps.ts'
 const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
 export const HEAD_ROWS = 7
 
-export const STEP_LABELS = Object.freeze({ fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', writeback: '回写', close: '结束' })
-export const ROLE_LABELS = Object.freeze({ main: '主控', slack: 'Slack', jira: 'Jira', pipeline: '流水线', coding: '写代码' })
+export const STEP_LABELS = Object.freeze({ fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', ci: 'CI', writeback: '回写', close: '结束' })
+export const ROLE_LABELS = Object.freeze({ main: '主控', slack: 'Slack', jira: 'Jira', pipeline: 'Git Pipeline', coding: '写代码' })
 export const STATE_LABELS = Object.freeze({ queued: '排队中', running: '运行中', done: '已完成', needs_info: '需要补充信息', failed: '失败', timed_out: '超时', stopped: '已停止', expired: '已过期' })
 const ROLE_STYLE = Object.freeze({ main: 'magenta', slack: 'cyan', jira: 'blue', pipeline: 'yellow', coding: 'green' })
 const STATE_STYLE = Object.freeze({ queued: 'yellow', running: 'cyan', done: 'green', needs_info: 'yellow', failed: 'red', timed_out: 'red', stopped: 'yellow', expired: 'yellow' })
@@ -127,7 +127,7 @@ export function elapsedMs(task, now = Date.now()) {
   return end - start
 }
 
-/** The seven steps with a mark: done, current, failed (the task ended on this step), pending. */
+/** The eight steps with a mark: done, current, failed (the task ended on this step), pending. */
 export function stepStates(task) {
   const current = STEP_IDS.indexOf(task?.step)
   return STEP_IDS.map((id, index) => {

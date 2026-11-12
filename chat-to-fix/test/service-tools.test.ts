@@ -37,7 +37,7 @@ function fakeAdapters() {
       diff: log('repo.diff', async () => state.diff),
       readFile: log('repo.readFile', async () => state.file),
       log: log('repo.log', async () => state.commits),
-      openDraftMR: log('repo.openDraftMR', async () => ({ url: 'fake://gitlab/group/project/mr/1' })),
+      openDraftMR: log('repo.openDraftMR', async () => ({ url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: 'sha-mr-1' })),
       getMR: log('repo.getMR', async () => state.mr),
       cleanup: log('repo.cleanup', async () => undefined),
     },
@@ -401,11 +401,25 @@ test('mr_open_draft opens the MR, writes mr.url, and a repeat updates and return
   assert.equal(args[0].repo, 'group/project')
   // The Jira key is added to the description when neither title nor description names it; the commit message is derived.
   assert.deepEqual(args.slice(1), ['/work/T-1', 'ai/DEMO-1', { title: 'Fix', description: 'Fixes it\n\nJira: DEMO-1', jiraKey: 'DEMO-1', commitMessage: 'fix: Fix' }])
-  assert.equal((await r.now()).mr.url, 'fake://gitlab/group/project/mr/1')
+  // Spec 7, 4.3: iid and sha of the MR are stored for the CI step; ci itself is started by the monitor in step ci.
+  assert.deepEqual((await r.now()).mr, { url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: 'sha-mr-1' })
+  assert.equal((await r.now()).ci, null)
   assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'Fix 2', description: 'Better' }), /already had a Draft MR; it was updated: fake:\/\/gitlab\/group\/project\/mr\/1/)
   assert.equal(r.fake.named('repo.openDraftMR').length, 2, 'the adapter is called to update; it keeps one MR per branch')
   assert.equal(r.fake.named('repo.openDraftMR')[1].args[3].title, 'Fix 2')
   assert.equal((await r.now()).mr.url, 'fake://gitlab/group/project/mr/1')
+})
+
+test('mr_open_draft: a rejected push (someone else pushed to the branch) fails with a plain explanation and writes no mr', async () => {
+  const r = await rig()
+  await prepared(r)
+  r.fake.state.diff = { files: [{ path: 'a', added: 1, removed: 0 }], patch: '+a', totalFiles: 1, totalLines: 1 }
+  await r.store.patchTask(r.task.id, { review: { verdict: 'pass', comments: 'ok', rounds: 1, at: 't' } })
+  await r.step('mr')
+  r.fake.adapters.repo.openDraftMR = async () => { throw Object.assign(new Error('rejected'), { code: 'push_rejected', retryable: false }) }
+  const text = await r.call('pipeline', 'mr_open_draft', { title: 'Fix', description: 'd' })
+  assert.match(text, /^tool failed: the push to ai\/DEMO-1 was rejected: .*someone else pushed.*needs_person.* \[push_rejected\]$/)
+  assert.equal((await r.now()).mr, null)
 })
 
 test('mr_open_draft: commit_message is one Conventional Commit line; the default is "fix: <title>"; the Jira key is in the MR', async () => {
@@ -452,7 +466,7 @@ test('mr_get reads the state of the MR of this branch', async () => {
 
 test('request_code asks the Pipeline bot of the current run in step code, and only then', async () => {
   const r = await rig()
-  assert.match(await r.call('coding', 'request_code', { what: 'src/a.js on branch release' }), /^tool failed: request_code can be used only in step code, the task is in step fetch/)
+  assert.match(await r.call('coding', 'request_code', { what: 'src/a.js on branch release' }), /^tool failed: request_code can be used only in step code or step ci, the task is in step fetch/)
   assert.deepEqual(r.botlayer.asked, [])
   await r.step('code')
   assert.match(await r.call('coding', 'request_code', { what: '  ' }), /what must not be empty/)
@@ -460,6 +474,16 @@ test('request_code asks the Pipeline bot of the current run in step code, and on
   // The request is sent in the name of the calling session (the registry passes its id in ctx).
   assert.deepEqual(r.botlayer.asked, [{ fromSessionId: 'S-coding', toBotId: 'bot-pipeline', text: 'src/a.js on branch release' }])
   assert.match(await r.call('slack', 'request_code', { what: 'x' }), /not available to the slack bot/)
+})
+
+test('request_code is also allowed in step ci, and refused in the other steps (spec 7, 4.6)', async () => {
+  const r = await rig()
+  await r.step('ci')
+  assert.equal(await r.call('coding', 'request_code', { what: 'the same job on the default branch' }), 'Sent to the Pipeline bot; the answer will arrive as a new message')
+  assert.equal(r.botlayer.asked.length, 1)
+  await r.step('mr')
+  assert.match(await r.call('coding', 'request_code', { what: 'x' }), /only in step code or step ci, the task is in step mr/)
+  assert.equal(r.botlayer.asked.length, 1)
 })
 
 test('request_code uses ctx.sessionId when the registry provides it', async () => {

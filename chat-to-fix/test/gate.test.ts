@@ -89,6 +89,11 @@ test('advance through every step with the evidence of each', async () => {
   store.task.review = { verdict: 'pass' }
   await gate.advance('T-1', 'mr')
   store.task.mr = { url: 'http://mr' }
+  await gate.advance('T-1', 'ci')
+  assert.deepEqual((await gate.advance('T-1', 'writeback')).missing, ['ci.settled'])
+  store.task.ci = { status: 'pending', settled: false }
+  assert.deepEqual((await gate.advance('T-1', 'writeback')).missing, ['ci.settled'])
+  store.task.ci = { status: 'passed', settled: true, outcome: 'passed' }
   await gate.advance('T-1', 'writeback')
   assert.deepEqual((await gate.advance('T-1', 'close')).missing, ['jira.commentedMr', 'slack.sent.result'])
   store.task.jira.commentedMr = true
@@ -158,6 +163,104 @@ test('allow: mr_open_draft refused in fetch; refused in mr without a pass; refus
 
   const fine = setup({ ...base, step: 'mr', review: { verdict: 'pass' } }, { files: [], totalFiles: 10, totalLines: 300 })
   assert.deepEqual(await fine.gate.allow('T-1', 'mr_open_draft'), ok)
+})
+
+// ---------- spec 7: step ci, a tool in several steps, the end reason by ci.outcome ----------
+
+test('allow: a write tool in several steps is allowed in each of them and refused elsewhere (review_report: code and ci)', async () => {
+  for (const step of ['code', 'ci']) {
+    const { gate } = setup({ step })
+    assert.deepEqual(await gate.allow('T-1', 'review_report'), ok, step)
+  }
+  for (const step of ['fetch', 'mr', 'writeback', 'close']) {
+    const { gate, store } = setup({ step })
+    const r = await gate.allow('T-1', 'review_report')
+    assert.equal(r.ok, false, step)
+    assert.match(r.reason, /review_report belongs to step code or ci, the task is in step /)
+    assert.equal(store.records.at(-1).type, 'refused')
+  }
+})
+
+test('allow: single-step tools are unchanged; mr_push_fix and ci_stop belong to step ci only', async () => {
+  const { gate } = setup({ step: 'ci', repo: { dir: '/d', branch: 'b', base: 'abc' }, review: { verdict: 'pass' } })
+  assert.deepEqual(await gate.allow('T-1', 'mr_push_fix'), ok)
+  assert.deepEqual(await gate.allow('T-1', 'ci_stop'), ok)
+  // mr_open_draft belongs to step mr only: in step ci it is refused, so no amend can happen there (spec 7, 4.5).
+  const draft = await gate.allow('T-1', 'mr_open_draft')
+  assert.equal(draft.ok, false)
+  assert.match(draft.reason, /mr_open_draft belongs to step mr, the task is in step ci/)
+  for (const step of ['code', 'mr', 'writeback']) {
+    const other = setup({ step, repo: { dir: '/d', branch: 'b', base: 'abc' }, review: { verdict: 'pass' } })
+    assert.match((await other.gate.allow('T-1', 'mr_push_fix')).reason, /mr_push_fix belongs to step ci, the task is in step /, step)
+    assert.match((await other.gate.allow('T-1', 'ci_stop')).reason, /ci_stop belongs to step ci/, step)
+  }
+})
+
+test('allow: mr_push_fix needs this round\'s passed review and a change within the size limit', async () => {
+  const base = { step: 'ci', repo: { dir: '/d', branch: 'b', base: 'abc' } }
+  const noReview = setup({ ...base })
+  assert.match((await noReview.gate.allow('T-1', 'mr_push_fix')).reason, /mr_push_fix refused: the review has not passed/)
+  // cannot_fix and fail are not a pass.
+  for (const verdict of ['fail', 'cannot_fix']) {
+    const r = setup({ ...base, review: { verdict } })
+    assert.match((await r.gate.allow('T-1', 'mr_push_fix')).reason, /the review has not passed/, verdict)
+  }
+  const tooBig = setup({ ...base, review: { verdict: 'pass' } }, { files: [], totalFiles: 11, totalLines: 5 })
+  assert.match((await tooBig.gate.allow('T-1', 'mr_push_fix')).reason, /mr_push_fix refused: the change exceeds the size limit/)
+  const fine = setup({ ...base, review: { verdict: 'pass' } }, { files: [], totalFiles: 10, totalLines: 300 })
+  assert.deepEqual(await fine.gate.allow('T-1', 'mr_push_fix'), ok)
+  assert.deepEqual(fine.diffCalls, [['/d', 'abc']])
+})
+
+test('allow: a tool listed by two steps of a modified flow is allowed in both (the flow is data)', async () => {
+  const steps = structuredClone(STEPS)
+  steps[1] = { ...steps[1], writeTools: [...steps[1].writeTools, 'repo_prepare'] } // issue also lists repo_prepare
+  const flow = createFlow(steps, UNBOUND_WRITE_TOOLS)
+  assert.deepEqual(flow.stepsOfWriteTool('repo_prepare'), ['issue', 'prepare'])
+  for (const step of ['issue', 'prepare']) assert.deepEqual(await setup({ step }, undefined, { flow }).gate.allow('T-1', 'repo_prepare'), ok, step)
+  assert.match((await setup({ step: 'code' }, undefined, { flow }).gate.allow('T-1', 'repo_prepare')).reason, /belongs to step issue or prepare/)
+})
+
+test('close done: the end reason follows task.ci.outcome (spec 7, 4.8); the state is always done', async () => {
+  const cases = [
+    [undefined, 'completed'],
+    ['passed', 'completed'],
+    ['rounds_exhausted', 'completed_ci_failed'],
+    ['not_locatable', 'completed_ci_stopped'],
+    ['out_of_scope', 'completed_ci_stopped'],
+    ['not_fixable', 'completed_ci_stopped'],
+    ['branch_changed', 'completed_ci_stopped'],
+    ['no_pipeline', 'completed_no_ci'],
+  ]
+  for (const [outcome, endReason] of cases) {
+    const { gate, store, closed } = setup({ step: 'close', ci: outcome === undefined ? null : { status: 'failed', settled: true, outcome } })
+    assert.deepEqual(await gate.close('T-1', 'done'), ok, String(outcome))
+    assert.equal(store.task.state, 'done')
+    assert.equal(store.task.endReason, endReason, String(outcome))
+    assert.deepEqual(closed, [['T-1', 'done', endReason]])
+    assert.match(store.records.at(-1).text, new RegExp(`end reason ${endReason}`))
+  }
+  // The other outcomes keep their literal / note reasons.
+  const failed = setup({ step: 'close', ci: { outcome: 'rounds_exhausted' } })
+  assert.deepEqual(await failed.gate.close('T-1', 'failed', 'repo is gone'), ok)
+  assert.equal(failed.store.task.endReason, 'repo is gone')
+  const person = setup({ ci: { outcome: 'no_pipeline' } })
+  assert.deepEqual(await person.gate.close('T-1', 'needs_person', 'x'), ok)
+  assert.equal(person.store.task.endReason, 'needs_person')
+  // An outcome outside the map falls back to the plain reason.
+  const odd = setup({ step: 'close', ci: { outcome: 'something_else' } })
+  assert.deepEqual(await odd.gate.close('T-1', 'done'), ok)
+  assert.equal(odd.store.task.endReason, 'completed')
+})
+
+test('advance from ci needs ci.settled; every settled outcome lets it go to writeback', async () => {
+  for (const outcome of ['passed', 'rounds_exhausted', 'not_fixable', 'branch_changed', 'no_pipeline']) {
+    const { gate, store } = setup({ step: 'ci', ci: { status: 'failed', settled: false, outcome: null } })
+    assert.deepEqual((await gate.advance('T-1', 'writeback')).missing, ['ci.settled'])
+    store.task.ci = { status: 'failed', settled: true, outcome }
+    assert.deepEqual(await gate.advance('T-1', 'writeback'), ok, outcome)
+    assert.equal(store.task.step, 'writeback')
+  }
 })
 
 test('allow: slack_reply question needs both confirmations; works in any step', async () => {

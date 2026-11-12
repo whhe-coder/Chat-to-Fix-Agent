@@ -10,13 +10,13 @@ export function requestCodeTools() {
       name: 'request_code',
       roles: ['coding'],
       write: false,
-      description: 'Ask the Pipeline bot for something from the repository that you cannot reach yourself, for example a file on another branch or a piece of history. Only in step code. The request is private; the answer arrives as a new message.',
+      description: 'Ask the Pipeline bot for something from the repository that you cannot reach yourself, for example a file on another branch or a piece of history. Only in step code or step ci. The request is private; the answer arrives as a new message.',
       parameters: {
         what: { type: 'string', required: true, description: 'What you want, with the path, branch or commit if you know them' },
       },
       async run(ctx, args) {
         const { task } = ctx
-        if (task.step !== 'code') throw new Error(`request_code can be used only in step code, the task is in step ${task.step}`)
+        if (task.step !== 'code' && task.step !== 'ci') throw new Error(`request_code can be used only in step code or step ci, the task is in step ${task.step}`)
         const what = typeof args.what === 'string' ? args.what.trim() : ''
         if (what === '') throw new Error('what must not be empty')
         const toBotId = currentRun(task)?.bots?.pipeline

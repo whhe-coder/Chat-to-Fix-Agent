@@ -20,7 +20,7 @@ export const BOT_ROLES = Object.freeze(['main', 'slack', 'jira', 'pipeline', 'co
 const ROLE_LABEL = { main: 'Main', slack: 'Slack', jira: 'Jira', pipeline: 'Pipeline', coding: 'Coding' }
 // One colour per role (mid-saturation inks that read on light and dark grounds; palette after the DS Bot INKS).
 const ROLE_COLOR = { main: '#4d6bfe', slack: '#ec2f6b', jira: '#2563eb', pipeline: '#ff6b1a', coding: '#10b981', user: '#8a8f98' }
-const STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', writeback: '回写', close: '结束' }
+const STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', ci: 'CI', writeback: '回写', close: '结束' }
 const stepLabel = (id) => STEP_LABEL[id] ?? id
 
 // usage: what the bot cost so far (src/task/usage.ts usageView byRole): model, cost, tokens and the latest speed with its source tag

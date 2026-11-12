@@ -7,7 +7,7 @@
 import { isCommitMessage } from '../../src/adapters/git.ts'
 import { isAllowedFile } from './cases.ts'
 
-export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> writeback', 'writeback -> close']
+export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> ci', 'ci -> writeback', 'writeback -> close']
 
 /** Strings that look like a credential. The case-specific fake token is checked by name as well. */
 export const SECRET_PATTERNS = [
@@ -22,6 +22,9 @@ export const NOT_RUN_PATTERNS = [
   /\b(?:was|were|has|have|had) not (?:been )?(?:run|executed)\b|\bnot run\b|\bNOT run\b|could ?n[o']t (?:run|execute)|did ?n[o']t (?:run|execute) (?:the )?(?:tests?|sh test)|unable to (?:run|execute)/i,
   /自动拒绝|被拒绝|auto-?denied|permission (?:was )?denied|denied by/i,
 ]
+
+/** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
+export const REVIEWER_CLAUSE = /reviewer|评审者|审阅者|审查者|评审(?:子 ?agent)?自己|评审时/i
 
 const text = (v) => (typeof v === 'string' ? v : '')
 const ok = (detail = '') => ({ ok: true, detail })
@@ -69,7 +72,7 @@ export const CHECKS = [
     run: (ctx) => verdict(ctx.task?.state === 'done' && ctx.task?.endReason === 'completed', 'done / completed', `state=${ctx.task?.state} endReason=${ctx.task?.endReason}`),
   },
   {
-    id: 'steps_in_order', title: '七步各推进一次且顺序正确',
+    id: 'steps_in_order', title: '八步各推进一次且顺序正确',
     run: (ctx) => {
       const seen = records(ctx).filter((r) => r.type === 'advance').map((r) => text(r.text))
       return verdict(JSON.stringify(seen) === JSON.stringify(EXPECTED_STEPS) && ctx.task?.step === 'close', seen.join(', '), `advance records: ${seen.join(', ') || '(none)'}; step=${ctx.task?.step}`)
@@ -200,7 +203,15 @@ export const CHECKS = [
     id: 'tests_were_run', title: '测试确实运行过（编码机器人、评审、MR 描述里没有“没运行/被拒绝”）',
     run: (ctx) => {
       const hits = []
-      for (const t of testEvidenceTexts(ctx)) for (const p of NOT_RUN_PATTERNS) { const m = p.exec(t); if (m) hits.push(clip(t.slice(Math.max(0, m.index - 30), m.index + 120), 150)) }
+      // Clause by clause: a clause about the reviewer is skipped, because the reviewer is read-only by
+      // design and never runs tests ("reviewer 自己没有运行测试" in the copy-typo run of 2026-11-12 was
+      // reported next to "sh test.sh 3 项全部通过").
+      for (const t of testEvidenceTexts(ctx)) {
+        for (const clause of t.split(/[。；;\n，,]|\. /)) {
+          if (REVIEWER_CLAUSE.test(clause)) continue
+          for (const p of NOT_RUN_PATTERNS) { if (p.test(clause)) { hits.push(clip(clause, 150)); break } }
+        }
+      }
       return verdict(hits.length === 0, 'no admission found', `admitted not running tests: ${[...new Set(hits)].slice(0, 3).join(' | ')}`)
     },
   },

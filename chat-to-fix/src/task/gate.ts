@@ -2,7 +2,7 @@
 // order of steps, evidence, allowed tools and close rules all come from src/flow/steps.ts, and
 // one evaluator (evaluate) turns an evidence string into met / not met.
 
-import { createFlow, OUTCOME_RULES, TOOL_EXTRA_EVIDENCE } from '../flow/steps.ts'
+import { closeEndReason, createFlow, OUTCOME_RULES, TOOL_EXTRA_EVIDENCE } from '../flow/steps.ts'
 
 const OTHER = { main: 'coding', coding: 'main' }
 const ENDED_STATES = new Set(['done', 'needs_info', 'failed', 'timed_out', 'stopped', 'expired'])
@@ -97,7 +97,10 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
   async function allow(taskId, toolName, purpose) {
     const task = await load(taskId)
     const label = purpose ? `${toolName}(${purpose})` : toolName
-    const stepId = flow.stepOfWriteTool(toolName, purpose)
+    // A write tool may belong to several steps (spec 7, 4.2): it is allowed when the current step is one of them.
+    const stepIds = flow.stepsOfWriteTool(toolName, purpose)
+    // No step lists it: null = unbound (any step), undefined = no known write tool.
+    const stepId = stepIds.length > 0 ? stepIds[0] : flow.stepOfWriteTool(toolName, purpose)
     if (stepId === undefined) {
       const reason = `${label} is not a known write tool`
       return { ok: false, reason: await refuse(task, reason, { tool: toolName }) }
@@ -112,8 +115,8 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
       }
       return { ok: true }
     }
-    if (stepId !== task.step) {
-      const reason = `${label} belongs to step ${stepId}, the task is in step ${task.step}`
+    if (!stepIds.includes(task.step)) {
+      const reason = `${label} belongs to step ${stepIds.join(' or ')}, the task is in step ${task.step}`
       return { ok: false, reason: await refuse(task, reason, { tool: toolName }) }
     }
     for (const extra of TOOL_EXTRA_EVIDENCE[toolName] ?? []) {
@@ -146,7 +149,8 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
     const trimmed = typeof note === 'string' ? note.trim() : ''
     const missing = await missingOf(rule.requires, task, { note: trimmed })
     if (missing.length > 0) return refused(`${rule.reason} (missing ${missing.join(', ')})`)
-    const endReason = rule.endReason === '$note' ? trimmed : rule.endReason
+    // Spec 7, 4.8: outcome done takes its end reason from task.ci.outcome.
+    const endReason = closeEndReason(outcome, task, trimmed)
     await store.patchTask(taskId, { state: rule.state, endReason })
     await record(task, { type: 'system', tool: 'task_close', ok: true, text: `closed: ${outcome}, state ${rule.state}, end reason ${endReason}` })
     await onClosed?.(taskId, rule.state, endReason)

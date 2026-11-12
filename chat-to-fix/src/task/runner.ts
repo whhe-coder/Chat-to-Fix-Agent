@@ -3,6 +3,7 @@
 // releasing the slot) and re-attaches to running tasks after a restart. It talks to the bot
 // layer only through the I1 facade and to everything else through injected functions.
 import { CONFIG_DEFAULTS, CONFIG_KEYS, allBotDefs } from '../registry/bots.ts'
+import { DONE_END_REASONS } from './contracts.ts'
 
 const DAY_MS = 86_400_000
 const MATERIAL_BEGIN = '-----BEGIN MATERIAL-----'
@@ -154,7 +155,8 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
       let task = await attempt('endRun', taskId, () => store.endRun(taskId, state, endReason))
       await attempt('record', taskId, async () => record(taskId, task ?? await store.getTask(taskId), `run ended: ${state} (${endReason})`))
       // 6. a system notice, except where the Slack bot has already replied inside the flow
-      if (endReason !== 'completed' && endReason !== 'needs_info') {
+      //    (every end reason of state done, spec 7 4.8, and needs_info)
+      if (endReason !== 'needs_info' && !DONE_END_REASONS.includes(endReason)) {
         await attempt('notify', taskId, async () => notify(task ?? await store.getTask(taskId), noticeKind(state, endReason)))
       }
       // 7. give the slot back, then let the queue take the next task

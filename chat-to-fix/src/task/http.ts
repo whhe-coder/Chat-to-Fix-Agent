@@ -4,7 +4,8 @@
 import { createServer } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import { TASK_STATES } from './contracts.ts'
-import { bindingOf } from '../config.ts'
+import { bindingOf, DEFAULT_SLASH_COMMAND } from '../config.ts'
+import { neutralizeBroadcasts } from '../adapters/slack-http.ts'
 
 const MAX_BODY = 1_000_000
 
@@ -15,6 +16,17 @@ class HttpError extends Error {
 }
 
 const isText = (v) => typeof v === 'string' && v.trim() !== ''
+
+const SLASH_USER_ID = /^[A-Za-z0-9._-]{1,64}$/
+const SLASH_QUOTE_MAX = 2000 // the quoted request in the opening message; the adapter cuts at 4000 in all
+
+/** The opening message of a /fix discussion (Chinese, like the other notices): mentions the requester, quotes the request. */
+export function openingMessage(command, userId, text) {
+  let quoted = neutralizeBroadcasts(String(text).trim())
+  if (quoted.length > SLASH_QUOTE_MAX) quoted = `${quoted.slice(0, SLASH_QUOTE_MAX - 1)}…`
+  const lines = quoted.split(/\r?\n/).map((line) => `> ${line}`).join('\n')
+  return `<@${userId}> 用 ${command} 提了一个修复请求：\n${lines}\n进度会回在这条消息的讨论串里。`
+}
 
 function tokenOk(given, expected) {
   if (typeof given !== 'string') return false
@@ -38,8 +50,61 @@ function readBody(request) {
 
 const short = (t) => ({ id: t.id, state: t.state, step: t.step ?? null, jiraKey: t.jira?.key ?? null, mrUrl: t.mr?.url ?? null, totalUsd: t.usage?.totalUsd ?? 0, unpriced: t.usage?.unpriced === true })
 
-export function createHttp({ config, token, store, queue, runner, notify }) {
+export function createHttp({ config, token, store, queue, runner, notify, startThread }: any) {
   if (!isText(token)) throw new Error('createHttp: the token is required')
+
+  // /fix events being handled right now, by eventId: a retry that arrives meanwhile waits for the first
+  // one instead of posting a second opening message (research note fix-slash-entry, 4.1 step 1).
+  const inFlight = new Map<string, Promise<any>>()
+
+  // A /fix command (source 'slash'): the discussion does not exist yet, the server opens it (4.1 steps 1 to 5).
+  async function slashEvent(body) {
+    const missing = ['eventId', 'channel', 'text'].filter((k) => !isText(body?.[k]))
+    if (!isText(body?.user?.id)) missing.push('user.id')
+    if (missing.length > 0) return [400, { error: `missing_fields: ${missing.join(', ')}` }]
+    if (!SLASH_USER_ID.test(body.user.id)) return [400, { error: 'invalid_user' }]
+    // No await between the check and the set below: two requests at once cannot both pass.
+    const running = inFlight.get(body.eventId)
+    if (running !== undefined) {
+      const [status, payload] = await running
+      return status === 202 || status === 200 ? [200, { ...payload, duplicate: true }] : [status, payload]
+    }
+    const work = slashNew(body)
+    inFlight.set(body.eventId, work)
+    try { return await work } finally { inFlight.delete(body.eventId) }
+  }
+
+  async function slashNew(body) {
+    // 1. duplicate event (a finished earlier request)
+    const known = await store.knownEvent(body.eventId)
+    if (known !== undefined) {
+      const task = await store.getTask(known)
+      return [200, { taskId: known, state: task?.state ?? null, permalink: task?.origin?.permalink ?? null, duplicate: true }]
+    }
+    // 2. and 3. refusals post nothing to the channel: the forwarder tells the requester through response_url
+    const binding = bindingOf(config, body.channel)
+    if (binding === undefined) return [422, { error: 'channel_not_bound' }]
+    if (await queue.full()) return [429, { error: 'queue_full' }]
+    // 4. the opening message is the discussion; sent once (the adapter never repeats a post)
+    if (typeof startThread !== 'function') return [502, { error: 'no_adapter' }]
+    let opened
+    try {
+      opened = await startThread(body.channel, openingMessage(config.slack?.slashCommand ?? DEFAULT_SLASH_COMMAND, body.user.id, body.text))
+    } catch (error: any) {
+      return [502, { error: isText(error?.code) ? error.code : 'slack_error' }]
+    }
+    if (!isText(opened?.ts)) return [502, { error: 'slack_bad_response' }]
+    // 5. the task lives in the new discussion: threadTs = messageTs = the opening message
+    const permalink = isText(opened.permalink) ? opened.permalink : null
+    const origin: any = {
+      eventId: body.eventId, channel: body.channel, threadTs: opened.ts, messageTs: opened.ts,
+      user: { id: body.user.id, ...(isText(body.user.name) ? { name: body.user.name } : {}) }, text: body.text,
+    }
+    if (permalink !== null) origin.permalink = permalink
+    const task = await store.createTask(origin, binding)
+    await queue.enqueue(task.id)
+    return [202, { taskId: task.id, permalink }]
+  }
 
   async function postEvent(request) {
     let body
@@ -47,6 +112,7 @@ export function createHttp({ config, token, store, queue, runner, notify }) {
       if (error instanceof HttpError) throw error
       throw new HttpError(400, 'invalid_json')
     }
+    if (body?.source === 'slash') return slashEvent(body)
     // 1. required fields
     const missing = ['eventId', 'channel', 'threadTs', 'messageTs', 'text'].filter((k) => !isText(body?.[k]))
     if (!isText(body?.user?.id)) missing.push('user.id')
