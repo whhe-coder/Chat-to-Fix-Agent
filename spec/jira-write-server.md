@@ -1,6 +1,6 @@
 # Jira 工单和评论接口规格
 
-状态：本地 Node.js 服务和 Jira 连接函数已实现。模拟请求测试通过。现有 Jira token 仅获 board 读取授权；真实工单和评论写入尚未验证。
+状态：本地 Node.js 服务和 Jira 连接函数已实现。模拟请求测试通过。新的 Jira scoped token 已用于 board 读取和无效创建请求检查；真实工单和评论写入尚未验证。
 
 ## 接口
 
@@ -25,9 +25,9 @@ Jira 连接从 `JIRA_TOKEN` 环境变量或本机钥匙串 `Chat-to-Fix-Agent/JI
 
 ## 验证边界
 
-本地测试覆盖工单 payload、ADF 转换、评论路径、输入限制、跨项目拒绝、跨站拒绝和错误脱敏。真实 Jira 写入需要新的授权，并验证账号在 `F2PGBA` 项目具备 Browse projects、Create issues、Add comments，以及修改自身评论所需的 Edit own comments 权限。只有要修改其他人的评论时才需要 Edit all comments；当前目标是修改 agent 自己发布的评论。
+本地测试覆盖工单 payload、ADF 转换、评论路径、输入限制、跨项目拒绝、跨站拒绝和错误脱敏。新的 Jira token 已配置 14 项 granular scopes；还需验证账号在 `F2PGBA` 项目具备 Browse projects、Create issues、Add comments，以及修改自身评论所需的 Edit own comments 权限。只有要修改其他人的评论时才需要 Edit all comments；当前目标是修改 agent 自己发布的评论。
 
-现有只读 token 不具备写入能力。本规格不表示 M2 已通过验收；还需真实创建工单和评论、确认 board 展示、接入 Slack 消息与任务去重。
+创建接口对缺少必填字段的请求返回 `400`，没有生成工单；这不是成功创建的证明。本规格不表示 M2 已通过验收；还需真实创建工单和评论、确认 board 展示、接入 Slack 消息与任务去重。
 
 ## 参考
 

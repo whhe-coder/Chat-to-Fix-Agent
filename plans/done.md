@@ -32,4 +32,5 @@
 - [x] 在本地 Node.js 服务增加 `GET /jira/board`、`POST /jira/issues`、`POST /jira/issues/:key/comments`、`PUT /jira/issues/:key/comments/:id`。工单固定在 `F2PGBA` 项目；评论路径仅接受该项目的工单 key。
 - [x] Jira 连接函数新增工单创建、评论新增和评论修改方法。普通文本转为 ADF；工单类型必须显式提供。本地模拟测试和服务路由测试通过；完整测试共 27 项通过。真实 Jira 写入和 board 展示仍待验证。
 - [x] 根据 Atlassian 官方 OpenAPI 核对三个写入端点的 granular OAuth scope 并集。文档已记录 12 项 scopes；scoped API token 管理页面的实际选项及目标账号项目权限仍待核对。
-- [x] 在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token。创建前确认页列出原有 2 项 board scopes 和 12 项写入 API scopes，到期日为 2027-02-09。尚未确认保存或 API 验证；旧只读 token 仍有效。
+- [x] 在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token。创建前确认页列出原有 2 项 board scopes 和 12 项写入 API scopes，到期日为 2027-02-09。用户已将新值保存到本机钥匙串。
+- [x] 本机使用新 token 成功读取目标 board；缺字段的创建请求返回 `400`，未创建工单。刷新后的 Atlassian 列表显示新 token 近期访问、旧 token 未显示本次访问。真实工单和评论写入仍未验证。

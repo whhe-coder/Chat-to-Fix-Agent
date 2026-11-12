@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并
 
 ## 当前状态
 
-截至 2026-11-12，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。Jira 写入接口已通过本地模拟测试，尚未取得写入权限或做真实写入验证。个人账号的现有 Jira token 只验证了 board 读取。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。服务尚未接入 Slack Bot 或本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
+截至 2026-11-12，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。新的 Jira scoped token 已保存到本机钥匙串；真实 board 读取和无效创建请求的授权检查已通过，但尚未创建真实工单或修改真实评论。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。服务尚未接入 Slack Bot 或本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
 
 ## 目标流程
 

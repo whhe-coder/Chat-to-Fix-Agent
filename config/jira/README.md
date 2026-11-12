@@ -37,11 +37,11 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 
 这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。新 token 还包含原有的 `read:board-scope:jira-software` 和 `read:issue-details:jira`，共 14 项 scopes。
 
-2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。新值仍停留在一次性复制页面，尚未确认保存到本机钥匙串或通过 API 验证。旧 `Chat-to-Fix-Board-Read` token 仍有效。用户要求以后使用新 token，并在新 token 保存及验证后撤销旧 token。F2PGBA 的可用 issue type、必填字段和 board 筛选规则仍待核对。
+2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。用户已将新值保存到本机钥匙串；本地 API 检查后，Atlassian 列表显示新 token 被访问，旧 `Chat-to-Fix-Board-Read` 仍有效且等待撤销。F2PGBA 的可用 issue type、必填字段和 board 筛选规则仍待核对。
 
 ## 真实连接验证
 
-2026-11-12 用本机钥匙串 token 执行 `npm run check:jira`。请求成功返回目标 board 的 ID 和名称 `F2PGBA board`。响应没有项目 key，因此连接函数返回 `projectKey: null`。这次检查只验证了 board 读取；没有创建工单或验证写入权限。新增的 HTTP 写入路由只通过本地模拟测试。Cloud ID、board ID 和个人邮箱只在本地执行时提供，仓库不记录其值。
+2026-11-12 用新 token 执行 `npm run check:jira`。请求成功返回目标 board 的 ID 和名称 `F2PGBA board`；响应没有项目 key，连接函数返回 `projectKey: null`。随后向创建工单 API 发送缺少全部必填字段的 `{}`，返回 `400`，没有创建工单。刷新 Atlassian token 列表后，新 token 显示近期访问，旧 token 未显示本次访问。这证明本机已使用新 token，且创建接口没有因 token scope 直接拒绝；不证明 F2PGBA 项目创建权限、真实工单创建或评论修改已通过。新增 HTTP 写入路由仍只通过本地模拟测试。Cloud ID、board ID 和个人邮箱只在本地执行时提供，仓库不记录其值。
 
 复测时，从 `https://<site>.atlassian.net/_edge/tenant_info` 读取 Cloud ID，从目标 board 页面 URL 读取 board ID。个人 token 需要该 Atlassian 账号的邮箱。仓库不记录这些实际值。运行：
 
@@ -53,7 +53,7 @@ env JIRA_CLOUD_ID='<cloud-id>' JIRA_BOARD_ID='<board-id>' JIRA_EMAIL='<account-e
 
 ## 后续授权
 
-优先使用只能访问目标项目的专用服务账号。当前登录的个人账号无法从已访问的组织管理入口管理该组织的服务账号；是否可使用现有 `F2P Jira Fix Agent` 身份仍待核实。用户已选择在专用账号不可用时，先用个人 scoped token 验证只读连接。该 token 的 scopes 不能限制到单一项目；它可读取个人账号有权访问的其他 board 和 issue。此验证不代表最终 agent 身份或写入权限已经配置。
+优先使用只能访问目标项目的专用服务账号。当前登录的个人账号无法从已访问的组织管理入口管理该组织的服务账号；是否可使用现有 `F2P Jira Fix Agent` 身份仍待核实。用户已选择暂用个人 scoped token。该 token 的 scopes 不能限制到单一项目；实际读写范围取决于个人账号在各项目的权限。当前本地服务在代码中把写入目标限制到 `F2PGBA`，但这不限制 token 本身在其他客户端中的用途。服务账号和真实 Jira 写入仍待验证。
 
 ## 参考
 
