@@ -7,7 +7,7 @@ const TOKEN = 'test-token'
 const binding = { channel: 'C1', repo: 'g/p', jiraProject: 'DEMO', issueType: 'Bug', labels: [], defaultBranch: 'master' }
 const event = (o = {}) => ({ eventId: 'Ev1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'n' }, text: 'broken', ...o })
 
-let tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax
+let tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax, opened, startThreadImpl
 
 function fakeStore() {
   return {
@@ -34,7 +34,7 @@ async function start() {
   }
   const limits = { maxConcurrent, queueMax, queueWaitHours: 4 }
   const queue = createQueue({ store, limits, runner, notify: (t, k) => notices.push([t.id, k]), now: () => clock.t })
-  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, queue, runner, notify: (t, k) => notices.push([t.id, k]) })
+  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, queue, runner, notify: (t, k) => notices.push([t.id, k]), startThread: (channel, text) => startThreadImpl(channel, text) })
   await http.listen()
   srv = http
   base = `http://127.0.0.1:${http.port}`
@@ -44,6 +44,8 @@ beforeEach(async () => {
   tasks = new Map(); events = new Map(); threads = new Map(); records = new Map()
   runnerCalls = []; notices = []; n = 0; clock = { t: Date.parse('2026-11-12T00:00:00Z') }
   maxConcurrent = 1; queueMax = 20
+  opened = []
+  startThreadImpl = async (channel, text) => { opened.push({ channel, text }); return { ts: `9${opened.length}.000100`, permalink: `https://slack.test/archives/${channel}/p9${opened.length}` } }
   await start()
 })
 afterEach(() => srv.close())
@@ -220,4 +222,137 @@ test('health', async () => {
 test('unknown route -> 404 JSON with error', async () => {
   const r = await call('GET', '/nope')
   assert.equal(r.status, 404); assert.ok(r.body.error)
+})
+
+// ---- /fix: source "slash" (research note fix-slash-entry, 4.1) ----
+const slash = (o = {}) => ({ source: 'slash', eventId: 'slash:T1', channel: 'C1', user: { id: 'U1', name: 'ann' }, text: 'login page is broken', ...o })
+
+test('slash: opens the thread, creates the task in it, replies 202 { taskId, permalink }', async () => {
+  const r = await post(slash())
+  assert.equal(r.status, 202)
+  assert.deepEqual(r.body, { taskId: 'T-1', permalink: 'https://slack.test/archives/C1/p91' })
+  assert.deepEqual(opened, [{ channel: 'C1', text: '<@U1> 用 /fix 提了一个修复请求：\n> login page is broken\n进度会回在这条消息的讨论串里。' }])
+  const t = tasks.get('T-1')
+  assert.equal(t.origin.threadTs, '91.000100'); assert.equal(t.origin.messageTs, '91.000100')
+  assert.deepEqual(t.origin.user, { id: 'U1', name: 'ann' })
+  assert.equal(t.origin.text, 'login page is broken')
+  assert.equal(t.origin.permalink, 'https://slack.test/archives/C1/p91')
+  assert.equal(t.origin.eventId, 'slash:T1')
+  assert.equal(t.binding.jiraProject, 'DEMO')
+  assert.deepEqual(runnerCalls, [['start', 'T-1']])
+  assert.deepEqual(notices, [])
+})
+
+test('slash: the opening message quotes every line and neutralises broadcasts', async () => {
+  await post(slash({ text: 'ping <!channel> and @here\nsecond line' }))
+  assert.equal(opened.length, 1)
+  assert.equal(opened[0].text, '<@U1> 用 /fix 提了一个修复请求：\n> ping @\u200bchannel and @\u200bhere\n> second line\n进度会回在这条消息的讨论串里。')
+  assert.doesNotMatch(opened[0].text, /<!channel>|@here/)
+  // the task keeps the command text as typed
+  assert.equal(tasks.get('T-1').origin.text, 'ping <!channel> and @here\nsecond line')
+})
+
+test('slash: openingMessage names the command it is given (config.slack.slashCommand, default /fix)', async () => {
+  const text = (await import('../src/task/http.ts')).openingMessage('/repair', 'U9', 'x')
+  assert.match(text, /^<@U9> 用 \/repair 提了/)
+})
+
+test('slash: required fields are checked by source; no threadTs or messageTs needed', async () => {
+  for (const drop of ['eventId', 'channel', 'text']) {
+    const e = slash(); delete e[drop]
+    const r = await post(e)
+    assert.equal(r.status, 400); assert.match(r.body.error, new RegExp(drop))
+  }
+  const e = slash(); delete e.user
+  assert.match((await post(e)).body.error, /user\.id/)
+  assert.equal((await post(slash({ user: { id: 'U1>x' } }))).status, 400)
+  assert.equal((await post(slash({ text: '   ' }))).status, 400)
+  assert.equal(tasks.size, 0); assert.equal(opened.length, 0)
+  // the same body without source "slash" still needs threadTs and messageTs (the @ path is unchanged)
+  const mention = slash({ source: undefined })
+  assert.match((await post(mention)).body.error, /threadTs, messageTs/)
+})
+
+test('slash: a repeated eventId -> 200 duplicate with the permalink, no second opening message, no second task', async () => {
+  await post(slash())
+  const r = await post(slash())
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.body, { taskId: 'T-1', state: 'queued', permalink: 'https://slack.test/archives/C1/p91', duplicate: true })
+  assert.equal(opened.length, 1); assert.equal(tasks.size, 1)
+})
+
+test('slash: two retries at the same moment post one opening message and create one task', async () => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  startThreadImpl = async (channel, text) => { opened.push({ channel, text }); await gate; return { ts: '77.000100', permalink: 'https://slack.test/p77' } }
+  const a = post(slash()); const b = post(slash()); const c = post(slash())
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(opened.length, 1)
+  release()
+  const results = await Promise.all([a, b, c])
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 200, 202])
+  for (const r of results) assert.equal(r.body.taskId, 'T-1')
+  assert.equal(results.filter((r) => r.body.duplicate === true).length, 2)
+  assert.equal(opened.length, 1); assert.equal(tasks.size, 1)
+  assert.deepEqual(runnerCalls, [['start', 'T-1']])
+})
+
+test('slash: channel not bound -> 422, nothing posted, no notice, nothing created', async () => {
+  const r = await post(slash({ channel: 'CX' }))
+  assert.equal(r.status, 422); assert.deepEqual(r.body, { error: 'channel_not_bound' })
+  assert.deepEqual(opened, []); assert.deepEqual(notices, []); assert.equal(tasks.size, 0)
+})
+
+test('slash: queue full -> 429, nothing posted, no notice, nothing created', async () => {
+  queueMax = 1
+  await srv.close(); await start()
+  await post(event({ eventId: 'E1', threadTs: '1' }))
+  tasks.get('T-1').state = 'running'
+  await post(event({ eventId: 'E2', threadTs: '2' }))
+  const r = await post(slash())
+  assert.equal(r.status, 429); assert.deepEqual(r.body, { error: 'queue_full' })
+  assert.deepEqual(opened, []); assert.deepEqual(notices, []); assert.equal(tasks.size, 2)
+})
+
+test('slash: startThread fails -> 502 with the adapter code, nothing queued; a retry can still succeed', async () => {
+  startThreadImpl = async () => { throw Object.assign(new Error('Slack chat.postMessage: not_in_channel: secret detail'), { code: 'not_in_channel' }) }
+  const r = await post(slash())
+  assert.equal(r.status, 502); assert.deepEqual(r.body, { error: 'not_in_channel' })
+  assert.equal(tasks.size, 0); assert.deepEqual(runnerCalls, []); assert.equal(events.has('slash:T1'), false)
+  // an error without a code, and a reply without a ts
+  startThreadImpl = async () => { throw new Error('boom') }
+  assert.deepEqual((await post(slash())).body, { error: 'slack_error' })
+  startThreadImpl = async () => ({ permalink: 'x' })
+  assert.deepEqual((await post(slash())).body, { error: 'slack_bad_response' })
+  // the failed attempts did not leave the event id stuck
+  startThreadImpl = async (channel, text) => { opened.push({ channel, text }); return { ts: '5.000100', permalink: null } }
+  const ok = await post(slash())
+  assert.equal(ok.status, 202); assert.deepEqual(ok.body, { taskId: 'T-1', permalink: null })
+  assert.equal('permalink' in tasks.get('T-1').origin, false)
+})
+
+test('slash: without a startThread function in the wiring -> 502 no_adapter', async () => {
+  const store = fakeStore()
+  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits: {} }, token: TOKEN, store, queue: { full: async () => false, enqueue: async () => ({ position: 1 }) }, runner: {}, notify: async () => {} })
+  await http.listen()
+  try {
+    const res = await fetch(`http://127.0.0.1:${http.port}/events`, { method: 'POST', headers: { 'x-chat-to-fix-token': TOKEN }, body: JSON.stringify(slash()) })
+    assert.equal(res.status, 502); assert.deepEqual(await res.json(), { error: 'no_adapter' })
+  } finally { await http.close() }
+})
+
+test('slash: a later @ in the opening thread finds the task: in progress -> inProgress, needs_info -> rerun', async () => {
+  const first = await post(slash())
+  const ts = tasks.get(first.body.taskId).origin.threadTs
+  assert.equal((await fakeStore().findByThread('C1', ts)).id, 'T-1')
+  const mention = (o = {}) => event({ eventId: 'Ev9', threadTs: ts, messageTs: '99.000200', ...o })
+  const busy = await post(mention())
+  assert.equal(busy.status, 200); assert.equal(busy.body.inProgress, true); assert.equal(busy.body.taskId, 'T-1')
+  tasks.set('T-1', { ...tasks.get('T-1'), state: 'needs_info' })
+  runnerCalls.length = 0
+  const again = await post(mention({ eventId: 'Ev10' }))
+  assert.equal(again.status, 202)
+  assert.deepEqual(again.body, { taskId: 'T-1', state: 'queued', position: 1, rerun: true })
+  assert.deepEqual(runnerCalls, [['start', 'T-1']])
+  assert.equal(tasks.size, 1); assert.equal(opened.length, 1)
 })

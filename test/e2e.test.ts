@@ -550,3 +550,50 @@ test('ci 9: a new @ after missing information reruns the task; opening the MR ag
   assert.equal(Object.values(await r.fake('gitlab/mrs.json')).length, 1, 'still one MR')
   assert.equal((await r.app.store.getTask(s.id)).mr.sha, commits[1].sha)
 })
+
+test('a /fix opens the thread and the task runs: the server posts the opening message, the Slack bot reads it, later @ finds the task', async (t) => {
+  const r = await rig(t)
+  const res = await fetch(`http://127.0.0.1:${r.app.http.port}/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-chat-to-fix-token': 'tok' },
+    body: JSON.stringify({ source: 'slash', eventId: 'slash:trigger-1', channel: 'C1', user: { id: 'U-ANN', name: 'ann' }, text: 'applyDiscount gives the wrong price' }),
+  })
+  const body: any = await res.json()
+  assert.equal(res.status, 202, JSON.stringify(body))
+  assert.deepEqual(Object.keys(body).sort(), ['permalink', 'taskId'])
+  const task = await r.inState(body.taskId, 'running')
+  // The task lives in the new discussion: threadTs = messageTs = the opening message.
+  assert.equal(task.origin.threadTs, task.origin.messageTs)
+  assert.equal(body.permalink, `fake://slack/C1/${task.origin.threadTs}`)
+  assert.equal(task.origin.permalink, body.permalink)
+  assert.equal(task.origin.text, 'applyDiscount gives the wrong price')
+  assert.equal(task.origin.user.id, 'U-ANN')
+  assert.equal((await r.app.store.findByThread('C1', task.origin.threadTs)).id, task.id)
+
+  // Step 1 (fetch): the Slack bot reads the opening message.
+  const run = task.runs.at(-1)
+  r.botlayer.setQuiet(run.groupId, false)
+  const tool = (role, name, args = {}) => r.app.tools.call(name, run.bots[role], args)
+  const thread = ok(await tool('slack', 'slack_read_thread'))
+  assert.match(thread, /<@U-ANN> 用 \/fix 提了一个修复请求/)
+  assert.match(thread, /> applyDiscount gives the wrong price/)
+  // The Main bot got the request text as its material.
+  assert.ok(r.botlayer.posts.some(post => post.text.includes('applyDiscount gives the wrong price')))
+  // The ack goes into that discussion.
+  ok(await tool('slack', 'slack_reply', { purpose: 'ack', text: 'Received. Working on it.' }))
+  const [reply] = await r.replies()
+  assert.equal(reply.threadTs, task.origin.threadTs)
+
+  // A repeated command (same trigger) and an @ in the thread do not start a second task.
+  const again = await fetch(`http://127.0.0.1:${r.app.http.port}/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-chat-to-fix-token': 'tok' },
+    body: JSON.stringify({ source: 'slash', eventId: 'slash:trigger-1', channel: 'C1', user: { id: 'U-ANN' }, text: 'applyDiscount gives the wrong price' }),
+  })
+  assert.equal(again.status, 200)
+  assert.equal(((await again.json()) as any).duplicate, true)
+  const mentioned = await r.mention('It is the discount, 100 and 10.', task.origin.threadTs)
+  assert.equal(mentioned.status, 200)
+  assert.equal(mentioned.body.taskId, task.id)
+  assert.equal(mentioned.body.inProgress, true)
+  assert.equal((await r.app.store.listTasks({})).length, 1)
+  assert.deepEqual(r.warnings, [])
+})

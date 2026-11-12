@@ -5,6 +5,9 @@ import { readFileSync } from 'node:fs'
 import { EFFORT_LEVELS } from './engine/args.ts'
 import { pricingProblems } from './task/pricing.ts'
 
+// The slash command that opens a task (design 2026-11-12); slack.slashCommand overrides it.
+export const DEFAULT_SLASH_COMMAND = '/fix'
+
 export const DEFAULT_LIMITS = Object.freeze({
   taskMinutes: 80,
   stepMinutes: Object.freeze({ fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, ci: 30, writeback: 5 }),
@@ -81,6 +84,10 @@ function adapterSection(raw, name, kind, problems, { email = false, fields = fal
   if (name === 'slack' && given.apiBase !== undefined) {
     if (!isHttpUrl(given.apiBase)) problems.push('slack.apiBase must be an http(s) URL')
     else if (hasCredentialsInUrl(given.apiBase)) problems.push('slack.apiBase must not contain a user name or password')
+  }
+  // slack.slashCommand: optional name of the slash command that opens a task (default /fix); read by the forwarder.
+  if (name === 'slack' && given.slashCommand !== undefined && !(typeof given.slashCommand === 'string' && /^\/[a-z0-9_-]{1,32}$/.test(given.slashCommand))) {
+    problems.push('slack.slashCommand must look like /fix (a slash, then lowercase letters, digits, - or _)')
   }
   if (email && given.email !== undefined && !isText(given.email)) problems.push(`${name}.email must be a non-empty string`)
   if (fields && given.fields !== undefined && !isObject(given.fields)) problems.push(`${name}.fields must be an object`)

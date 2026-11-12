@@ -52,7 +52,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   registerAllTools(tools)
   const undefinedTools = tools.validate()
   if (undefinedTools.length) throw new Error(`chat-to-fix: the tool definitions do not match the bot registry: ${undefinedTools.join('; ')}`)
-  const http = createHttp({ config, token, store, queue, runner, notify: monitor.notify })
+  const http = createHttp({ config, token, store, queue, runner, notify: monitor.notify, startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
 
   return {
     store, gate, queue, runner, monitor, recorder, tools, http,

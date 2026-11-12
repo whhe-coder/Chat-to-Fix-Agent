@@ -32,13 +32,13 @@
 |---|---|
 | 七步主流程（真实模型 + 模拟三方） | 真实跑通多次 |
 | CI 修复循环（spec-7，最小版，Git Pipeline bot 专职负责） | 代码完成，模拟 CI 上 9 个端到端场景全过；**没在真实运行里看过** Git Pipeline bot 叫修复 bot 的交接和 `@Pipeline-N` 路由 |
-| `/fix` 斜杠命令主入口 | **实现中**（本地工作区有未提交改动，两个子 agent 在写）；设计见 `docs/notes/fix-slash-entry.zh.md`。@ 保留为讨论串里的补充信息入口 |
+| `/fix` 斜杠命令主入口 | 已实现，只在本机模拟服务上测过（转发程序处理 `slash_commands`；服务端先开讨论串再建任务；拒绝只回临时消息）。@ 保留为讨论串里的补充信息入口。设计见 `docs/notes/fix-slash-entry.zh.md` |
 | 真实 Slack / Jira / GitLab 适配器 | 代码已写，只在本机模拟服务上测过；等 token 和权限 |
 | 计费 | API bot 用 DSH 自带的 token 和速度统计 × 价目表；修复 bot 用 Claude Code 自报的花费。一次文案用例约 $0.30 |
 | 调试页 | `scripts/flow-page.ts`：左边时序图，右边竖屏群聊，页头花费和速度 |
 | 端到端测试集 | `scripts/e2e/`：7 个前端修复用例，带隐藏测试；CI 失败的真实用例还没加 |
 | 模型 | 全部 Sonnet 5.5，修复 bot 和评审 effort high |
-| 测试基线（提交 `f60d30d`） | `npm test` 601、`test:layer` 43、`test:bot` 505 + 2 跳过、冒烟 24、类型检查 0 错 |
+| 测试基线 | `npm test` 627、`test:layer` 43、`test:bot` 505 + 2 跳过、冒烟 24、类型检查 0 错 |
 
 ## 5. 怎么跑
 
@@ -53,7 +53,7 @@ Anthropic key 存在 macOS 钥匙串（服务名 `chat-to-fix-anthropic`），�
 
 ## 6. 待办
 
-1. 收尾 `/fix`：两路子 agent 的改动验收、本地提交，再推到 PR。
+1. `/fix` 在真 Slack 上联调（要先有我们能用的 Slack 应用和 token，见第 3 条）。
 2. 两个小代码问题：配置检查不接受字符串形式的 `ciJobs[].downstream`；`task.ci.lastPollAt` 只写不读。
 3. Slack 应用：公司那个 Chat-to-Fix 应用被 Logan 缩到只有 `commands`、`chat:write`，事件全关。我们还需要 `app_mentions:read`、`channels:history`、`groups:history` 和 `app_mention` 事件，要赶在安装审批通过前和 Logan、管理员说。同一个应用同一时间只能有一个程序连。
 4. 加一个 CI 失败的真实用例，看 Git Pipeline bot → 修复 bot 的交接和 `@Pipeline-N` 路由。

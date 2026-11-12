@@ -45,6 +45,27 @@ test('selecting a real adapter without its token or setup fails at creation with
   assert.deepEqual(Object.keys(all).sort(), ['jira', 'repo', 'slack'])
 })
 
+test('slack (fake): startThread writes the opening message; readThread finds it; the permalink is a fake link', async () => {
+  const { config, adapters: a } = await setup()
+  const first = await a.slack.startThread('C1', '<@U1> 用 /fix 提了一个修复请求：\n> broken\n进度会回在这条消息的讨论串里。')
+  const second = await a.slack.startThread('C1', 'another')
+  assert.match(first.ts, /^\d+\.\d{6}$/)
+  assert.notEqual(first.ts, second.ts)
+  assert.equal(first.permalink, `fake://slack/C1/${first.ts}`)
+  const messages = await a.slack.readThread({ channel: 'C1', threadTs: first.ts })
+  assert.equal(messages.length, 1)
+  assert.equal(messages[0].text, '<@U1> 用 /fix 提了一个修复请求：\n> broken\n进度会回在这条消息的讨论串里。')
+  assert.equal(messages[0].user.name, 'chat-to-fix')
+  assert.equal(JSON.parse(await readFile(join(config.dataDir, 'fake/slack/threads', `C1-${first.ts}.json`), 'utf8'))[0].ts, first.ts)
+  // replies into the new discussion work like in any other
+  assert.equal(typeof await a.slack.reply({ channel: 'C1', threadTs: first.ts }, 'ack', 'received'), 'string')
+  await assert.rejects(a.slack.startThread('../x', 'x'), (e: any) => e.code === 'bad_origin')
+  await assert.rejects(a.slack.startThread('C1', ' '), (e: any) => e.code === 'bad_text')
+  // many at once: every discussion gets its own file
+  const many = await Promise.all(Array.from({ length: 20 }, (_, i) => a.slack.startThread('C1', `m${i}`)))
+  assert.equal(new Set(many.map((m) => m.ts)).size, 20)
+})
+
 test('slack: readThread and reply', async () => {
   const { config, adapters: a } = await setup()
   const origin = { channel: 'C1', threadTs: '100.1' }
