@@ -24,6 +24,8 @@
 //      [subagent]    Agent tool_use, task_* system messages, child lines with
 //                    parent_tool_use_id, the Agent tool_result, then text
 //      [exit]        exits with code 3
+//      [prompt]      answers `seen:<json>` with this process's pid, session id, argv and the whole prompt it
+//                    got ('[' written as '(' so a later replay of the answer does not trigger a marker)
 //      [mcp:NAME {json}]  calls the tool NAME of the (first) MCP server of --mcp-config over HTTP
 //                    with the JSON arguments (Streamable HTTP, the reply on an SSE stream, as DS Bot's loopback server
 //                    answers); the tool_use is mcp__<server>__NAME. Then reports `tool said: <text>`
@@ -223,7 +225,15 @@ function onPrompt(text) {
     })
     return
   }
-  const mcp = /\[mcp:(\w+)(?: (\{[^\]]*\}))?\]/.exec(text)
+  // [prompt] goes before [mcp:...]: a replay can carry earlier [mcp:...] messages.
+  if (text.includes('[prompt]')) {
+    const seen = `seen:${JSON.stringify({ pid: process.pid, sessionId, argv: process.argv.slice(2), text: text.replaceAll('[', '(') })}`
+    assistant([{ type: 'text', text: seen }])
+    finish(seen)
+    return
+  }
+  // The last marker wins: a replay carries earlier messages (and their markers) before the latest input.
+  const mcp = [...text.matchAll(/\[mcp:(\w+)(?: (\{[^\]]*\}))?\]/g)].at(-1) ?? null
   if (mcp !== null) {
     callMcp(mcp[1], mcp[2] === undefined ? {} : JSON.parse(mcp[2]))
     return

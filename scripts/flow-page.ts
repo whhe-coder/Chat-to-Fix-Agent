@@ -32,14 +32,14 @@ export const LANES = Object.freeze([
   { id: 'main', label: '主 bot' },
   { id: 'slack', label: 'Slack bot' },
   { id: 'jira', label: 'Jira bot' },
-  { id: 'pipeline', label: 'GitLab bot' },
+  { id: 'pipeline', label: 'Git Pipeline bot' },
   { id: 'coding', label: '修复 bot' },
 ])
 const LANE_IDS = LANES.map((l) => l.id)
 
 export const STEP_LIST = Object.freeze([
   { id: 'fetch', label: '取讨论' }, { id: 'issue', label: '建工单' }, { id: 'prepare', label: '准备代码' }, { id: 'code', label: '写代码' },
-  { id: 'mr', label: '开 MR' }, { id: 'writeback', label: '回写' }, { id: 'close', label: '结束' },
+  { id: 'mr', label: '开 MR' }, { id: 'ci', label: 'CI' }, { id: 'writeback', label: '回写' }, { id: 'close', label: '结束' },
 ])
 export const STATE_LABELS = Object.freeze({ queued: '排队中', running: '运行中', done: '已完成', needs_info: '需要补充信息', failed: '失败', timed_out: '超时', stopped: '已停止', expired: '已过期' })
 

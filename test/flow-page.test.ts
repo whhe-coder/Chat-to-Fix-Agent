@@ -121,7 +121,8 @@ test('slack tools go to the Slack lane and the answer comes back dashed; jira/re
 test('advance: the main bot asks the gate, the gate moves on (self-loop "进到第 N 步", already in the new step); close ends the run', () => {
   const arrows = buildDetailed(RECORDS, TASK)
   const moves = arrows.filter((a) => a.recordType === 'advance')
-  assert.deepEqual(moves.map((a) => a.label), ['进到第 2 步', '进到第 3 步', '进到第 4 步', '进到第 5 步', '进到第 6 步', '进到第 7 步'])
+  assert.deepEqual(moves.map((a) => a.label), ['进到第 2 步', '进到第 3 步', '进到第 4 步', '进到第 5 步', '进到第 7 步', '进到第 8 步'])
+  // The recorded run predates step ci, so it jumps from mr to writeback; the numbers follow the step table (writeback is 7).
   assert.deepEqual(moves.map((a) => a.step), ['issue', 'prepare', 'code', 'mr', 'writeback', 'close'])
   const asks = arrows.filter((a) => a.tool === 'task_advance')
   assert.equal(asks.length, 6)
@@ -167,7 +168,7 @@ test('concise view: the real T-1 run is exactly the main flow, with short Chines
     ['coding', 'main', 'reply', '改了什么'],
     ['main', 'pipeline', 'call', '进到第 5 步，@ 核对并开 MR'],
     ['pipeline', 'main', 'reply', 'MR 链接'],
-    ['main', 'jira', 'call', '进到第 6 步，@ 回写'],
+    ['main', 'jira', 'call', '进到第 7 步，@ 回写'],
     ['main', 'slack', 'call', '@ 回复结果'],
     // The records end the Slack bot's work (reply, round end) before the Jira bot's round end, so the arrows follow that order.
     ['slack', 'slackext', 'call', '回复结果'],

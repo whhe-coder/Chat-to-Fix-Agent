@@ -103,7 +103,10 @@ export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, netw
       if (error.killed || error.signal === 'SIGTERM') { reject(new AdapterError('git_timeout', `git ${args[0]} took longer than ${Math.round(timeoutMs / 1000)}s`, { retryable: true })); return }
       const detail = String(stderr || error.message).trim().split('\n').slice(-3).join(' | ')
       // With credentials in the environment the raw error object is not attached, and the text is cleaned.
-      reject(new AdapterError('git_failed', redactSecrets(`git ${args[0]} failed: ${detail}`, secrets), { retryable: network, cause: secrets.length > 0 ? undefined : error }))
+      const failure: any = new AdapterError('git_failed', redactSecrets(`git ${args[0]} failed: ${detail}`, secrets), { retryable: network, cause: secrets.length > 0 ? undefined : error })
+      // The cleaned stderr (the message keeps only its last lines): lets a caller tell a rejected push from other failures.
+      failure.stderr = redactSecrets(String(stderr ?? '').slice(-4000), secrets)
+      reject(failure)
     })
   })
 }
@@ -297,20 +300,18 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
 
   /**
    * Commits everything in the directory (tracked, changed, deleted and new files) with the
-   * configured author. The message is one line and never has a body. `amend` replaces the last
-   * commit instead of adding one. Returns { sha, committed } (`committed` is false when there was
-   * nothing new to commit).
+   * configured author. The message is one line and never has a body. Always a NEW commit (spec 7,
+   * 4.5: the branch only grows; there is no amend). Returns { sha, committed } (`committed` is false
+   * when there was nothing new to commit).
    */
-  async function commitAll(dir, { message, amend = false }: { message: string, amend?: boolean }) {
+  async function commitAll(dir, { message }: { message: string }) {
     const cwd = await codeDir(dir)
     if (!isText(message)) throw new AdapterError('bad_message', 'the commit message is missing')
     if (/[\r\n]/.test(message)) throw new AdapterError('bad_message', 'the commit message must be a single line')
     await run(['add', '-A'], { cwd })
     const dirty = (await out(['status', '--porcelain'], { cwd })).trim() !== ''
     if (dirty) {
-      const args = ['commit', '--quiet', '--no-verify', '-m', message]
-      if (amend) args.push('--amend')
-      await run(args, { cwd })
+      await run(['commit', '--quiet', '--no-verify', '-m', message], { cwd })
     }
     return { sha: (await out(['rev-parse', 'HEAD'], { cwd })).trim(), committed: dirty }
   }
@@ -324,12 +325,51 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
     return Number((await out(['rev-list', '--count', `${ref}..HEAD`], { cwd })).trim())
   }
 
-  /** Pushes the branch (forced: the branch belongs to the bot, and a second MR call may amend). */
+  /**
+   * Pushes the branch normally, never forced (spec 7, 4.5): the branch only grows, and a commit someone
+   * else pushed to it is never overwritten. When the remote refuses because it moved (non-fast-forward,
+   * "fetch first") the error has code `push_rejected` (not retryable; nothing is pulled or forced).
+   */
   async function push(dir, remote, branch) {
     const cwd = await codeDir(dir)
     checkRef(branch, 'branch')
     if (!isText(remote)) throw new AdapterError('no_remote', 'the binding has no remote to push to')
-    await run(['push', '--quiet', '--force', remote, `refs/heads/${branch}:refs/heads/${branch}`], { cwd, network: true, credentials: await credentialsFor(remote, cwd) })
+    try {
+      await run(['push', '--quiet', remote, `refs/heads/${branch}:refs/heads/${branch}`], { cwd, network: true, credentials: await credentialsFor(remote, cwd) })
+    } catch (error) {
+      if (error?.code === 'git_failed' && /\[rejected\]|non-fast-forward|fetch first/.test(String(error.stderr ?? error.message))) {
+        throw new AdapterError('push_rejected', `the remote refused the push of ${branch}: it holds commits this directory does not have (someone else pushed); nothing was pulled or forced`)
+      }
+      throw error
+    }
+  }
+
+  /** The commit the remote's branch points at, or undefined when the branch is not on the remote. */
+  async function remoteHead(dir, remote, branch) {
+    const cwd = await codeDir(dir)
+    checkRef(branch, 'branch')
+    if (!isText(remote)) throw new AdapterError('no_remote', 'the binding has no remote')
+    const listing = await out(['ls-remote', '--heads', remote, `refs/heads/${branch}`], { cwd, network: true, credentials: await credentialsFor(remote, cwd) })
+    const line = listing.split('\n').find((l) => l.trim() !== '')
+    return line === undefined ? undefined : line.split(/\s+/)[0]
+  }
+
+  /** True when `ancestor` is an ancestor of (or equal to) HEAD of the directory; false when unknown to this repository. */
+  async function isAncestorOfHead(dir, ancestor) {
+    const cwd = await codeDir(dir)
+    checkRef(ancestor, 'commit')
+    try { await run(['merge-base', '--is-ancestor', ancestor, 'HEAD'], { cwd }); return true } catch { return false }
+  }
+
+  /**
+   * A fresh, detached checkout of `sha` at `target` (which must not exist), cloned from a local repository
+   * `source` (a path: the main repository or a code directory). Used by the simulated CI.
+   */
+  async function checkoutCommit(source, sha, target) {
+    checkRef(sha, 'commit')
+    if (!isText(source)) throw new AdapterError('bad_dir', 'the source repository is missing')
+    await run(['clone', '--quiet', '--no-checkout', '--', resolve(source), target], {})
+    await run(['checkout', '--quiet', '--detach', sha], { cwd: target })
   }
 
   /** Removes the worktree directory. The branch stays. Does nothing when the directory is gone. */
@@ -346,5 +386,5 @@ export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIME
     await rm(real, { recursive: true, force: true })
   }
 
-  return { prepare, diff, readFile, log, head, commitsAhead, commitAll, push, cleanup, run: (args, options) => out(args, options) }
+  return { prepare, diff, readFile, log, head, commitsAhead, commitAll, push, remoteHead, isAncestorOfHead, checkoutCommit, cleanup, run: (args, options) => out(args, options) }
 }

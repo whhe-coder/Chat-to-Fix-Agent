@@ -200,3 +200,42 @@ test('codingEffort defaults to high and is checked; pricing rows are checked and
   assert.deepEqual(load({ ...base(), pricing }).pricing, pricing)
   assert.throws(() => load({ ...base(), pricing: { x: { input: 'a' } } }), /pricing\.x\.input must be a number/)
 })
+
+test('CI limits: defaults of spec 7, 4.9; partial overrides; stepMinutes.ci', () => {
+  const c = load(base())
+  assert.equal(c.limits.ciPollSeconds, 15)
+  assert.equal(c.limits.ciWaitMinutes, 30)
+  assert.equal(c.limits.ciTotalMinutes, 90)
+  assert.equal(c.limits.ciMaxRounds, 3)
+  assert.equal(c.limits.ciLogMaxChars, 12000)
+  assert.equal(c.limits.stepMinutes.ci, 30)
+  const o = load({ ...base(), limits: { ciPollSeconds: 2, ciMaxRounds: 5, stepMinutes: { ci: 12 } } })
+  assert.equal(o.limits.ciPollSeconds, 2)
+  assert.equal(o.limits.ciMaxRounds, 5)
+  assert.equal(o.limits.ciWaitMinutes, 30)
+  assert.equal(o.limits.stepMinutes.ci, 12)
+  assert.equal(o.limits.stepMinutes.code, 40)
+})
+
+test('CI limits: bad values are named; counts must be whole numbers', () => {
+  assert.throws(() => load({ ...base(), limits: { ciPollSeconds: 0 } }), /limits\.ciPollSeconds/)
+  assert.throws(() => load({ ...base(), limits: { ciWaitMinutes: -1 } }), /limits\.ciWaitMinutes/)
+  assert.throws(() => load({ ...base(), limits: { ciTotalMinutes: 'x' } }), /limits\.ciTotalMinutes/)
+  assert.throws(() => load({ ...base(), limits: { ciMaxRounds: 2.5 } }), /limits\.ciMaxRounds must be a whole number/)
+  assert.throws(() => load({ ...base(), limits: { stepMinutes: { ci: 0 } } }), /limits\.stepMinutes\.ci/)
+})
+
+test('binding ciJobs and ciNone (simulated CI) are validated and passed through', () => {
+  const jobs = [{ name: 'lint', command: 'sh lint.sh', delaySeconds: 1, allowFailure: true, flaky: false }, { name: 'test', command: 'sh test.sh', downstream: true }]
+  const c = load({ ...base(), bindings: [{ ...base().bindings[0], ciJobs: jobs, ciNone: false }] })
+  assert.deepEqual((c.bindings[0] as any).ciJobs, jobs)
+  assert.equal((c.bindings[0] as any).ciNone, false)
+  assert.equal((load(base()).bindings[0] as any).ciJobs, undefined)
+  const bad = (extra) => load({ ...base(), bindings: [{ ...base().bindings[0], ...extra }] })
+  assert.throws(() => bad({ ciJobs: 'x' }), /bindings\[0\]\.ciJobs must be an array/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a' }] }), /ciJobs\[0\]\.command/)
+  assert.throws(() => bad({ ciJobs: [{ command: 'x' }] }), /ciJobs\[0\]\.name/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', delaySeconds: -1 }] }), /ciJobs\[0\]\.delaySeconds/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', flaky: 'yes' }] }), /ciJobs\[0\]\.flaky/)
+  assert.throws(() => bad({ ciNone: 'yes' }), /bindings\[0\]\.ciNone/)
+})

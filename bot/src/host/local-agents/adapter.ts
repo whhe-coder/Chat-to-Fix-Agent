@@ -14,6 +14,11 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 const REPLAY_MESSAGES = 12
 const REPLAY_BYTES = 24 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
+// Injectable: deps.idleCloseMs, else the runtime configuration's idleCloseMs (tests close after a few ms).
+const idleCloseOf = (deps: any) => {
+  const ms = deps?.idleCloseMs ?? deps?.rt?.config?.idleCloseMs
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : IDLE_CLOSE_MS
+}
 const APPROVE_TOOL = 'approve_agent_action'
 
 // A title request never reaches the CLI.
@@ -158,6 +163,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       cwd: record?.cwd,
       model: options.model,
     }
+    // The idle timer counts from the CLI's last output. A turn in flight is not idle: a prompt that
+    // is running (a long silent test run) keeps its process, the timer just starts over. A turn that
+    // waits on a bridged call or a permission answer may be closed: the next request replays it.
+    const arm = () => {
+      clearTimeout(live.idle)
+      live.idle = setTimeout(() => {
+        if (live.state === 'running' && !live.dead) arm()
+        else void this.closeLive(live, { idle: true })
+      }, idleCloseOf(this.deps))
+      live.idle.unref?.()
+    }
     live.push = (event) => {
       // After an abort the CLI still ends the stopped turn with its own done/error; what
       // the stopped turn left behind is dropped up to and including that event.
@@ -165,9 +181,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         if (event.type === 'done' || event.type === 'error') live.skipStale = false
         return
       }
-      clearTimeout(live.idle)
-      live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
-      live.idle.unref?.()
+      arm()
       const waiter = live.waiters.shift()
       if (waiter !== undefined) waiter(event)
       else live.events.push(event)

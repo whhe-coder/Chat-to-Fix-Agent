@@ -130,7 +130,7 @@ test('make-test-repo: the sample repository fails its test because of the bug', 
   assert.match(printed, /"remote": ".*viaScript\/project\.git"/)
 })
 
-test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cleanup keeps the branch', async () => {
+test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice (appends, no amend), cleanup keeps the branch', async () => {
   const { config, adapters: a, binding: b, made } = await setup()
   const prepared = await a.repo.prepare(b, 'DEMO-7', 12)
   assert.equal(prepared.dir, join(config.worktreesDir, 'T-12'))
@@ -175,7 +175,8 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   // openDraftMR
   const mrs = join(config.dataDir, 'fake/gitlab/mrs.json')
   const first = await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'Fix discount', description: 'Subtract it', jiraKey: 'DEMO-7' })
-  assert.deepEqual(first, { url: 'fake://gitlab/group/project/mr/1' })
+  const head1 = (await git(['rev-parse', 'ai/DEMO-7'], made.remote)).trim()
+  assert.deepEqual(first, { url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: head1 })
   const entries = await json(mrs)
   assert.deepEqual(Object.keys(entries), ['ai/DEMO-7'])
   assert.equal(entries['ai/DEMO-7'].title, 'Fix discount')
@@ -186,29 +187,32 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   const commit = await git(['log', '-1', '--format=%an|%ae|%cn|%ce|%s|%b', 'ai/DEMO-7'], made.remote)
   assert.equal(commit, 'chat-to-fix|chat-to-fix@example.com|chat-to-fix|chat-to-fix@example.com|fix: Fix discount|\n')
   assert.match(await git(['show', 'ai/DEMO-7:src/new-file.js'], made.remote), /one = 1/)
+  assert.equal(entries['ai/DEMO-7'].headSha, head1)
   assert.deepEqual(await a.repo.getMR(b, 'ai/DEMO-7'), { state: 'opened', pipeline: 'none', url: first.url, draft: true, title: 'Fix discount' })
   await assert.rejects(a.repo.getMR(b, 'ai/NOPE-1'), (e: any) => e.code === 'mr_not_found')
 
-  // second call with a further change: same url, still one entry, commit amended and pushed
+  // second call with a further change: same url and iid, still one entry, a NEW commit appended (spec 7, 4.5: no amend)
   await writeFile(join(prepared.dir, 'src/more.js'), 'export default 3\n')
   const second = await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'Fix discount (v2)', description: 'More', jiraKey: 'DEMO-7' })
-  assert.deepEqual(second, first)
+  const pushed2 = (await git(['rev-parse', 'ai/DEMO-7'], made.remote)).trim()
+  assert.deepEqual(second, { url: first.url, iid: 1, sha: pushed2 })
   assert.equal(Object.keys(await json(mrs)).length, 1)
   assert.equal((await json(mrs))['ai/DEMO-7'].title, 'Fix discount (v2)')
-  const pushed2 = (await git(['rev-parse', 'ai/DEMO-7'], made.remote)).trim()
   assert.notEqual(pushed2, pushed1)
-  assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '1')
+  assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '2')
+  assert.equal((await git(['rev-parse', 'ai/DEMO-7~1'], made.remote)).trim(), pushed1, 'the first commit is still the parent')
   assert.match(await git(['show', 'ai/DEMO-7:src/more.js'], made.remote), /default 3/)
-  // third call without changes: same url, nothing breaks
-  assert.deepEqual(await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'Fix discount (v2)', jiraKey: 'DEMO-7' }), first)
+  assert.equal((await json(mrs))['ai/DEMO-7'].headSha, pushed2)
+  // third call without changes: same url, nothing is committed, nothing breaks
+  assert.deepEqual(await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'Fix discount (v2)', jiraKey: 'DEMO-7' }), { url: first.url, iid: 1, sha: pushed2 })
   assert.equal((await git(['rev-parse', 'ai/DEMO-7'], made.remote)).trim(), pushed2)
-  // a commit made by someone else in between: an additional commit is pushed, not an amend of theirs
+  // a commit made by someone else in between: an additional commit is pushed on top of it
   await writeFile(join(prepared.dir, 'x.txt'), 'x')
   await git(['add', '-A'], prepared.dir)
   await git(['commit', '-q', '-m', 'manual'], prepared.dir)
   await writeFile(join(prepared.dir, 'y.txt'), 'y')
   await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'again', jiraKey: 'DEMO-7' })
-  assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '3')
+  assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '4')
   // wrong branch
   await assert.rejects(a.repo.openDraftMR(b, prepared.dir, 'ai/OTHER-1', { title: 't' }), (e: any) => e.code === 'wrong_branch')
 
@@ -318,11 +322,12 @@ test('repo.openDraftMR: commitMessage is used as given, derived from the title o
   await writeFile(join(p.dir, 'one.txt'), '1')
   await a.repo.openDraftMR(b, p.dir, p.branch, { title: 'Title\nwith a newline', description: 'Long\n\nbody', jiraKey: 'DEMO-13' })
   assert.equal(await message(), 'fix: Title with a newline')
-  // given: used as it is, and the amend replaces the message
+  // given: used as it is, as a second commit (no amend: the first message stays in the history)
   await writeFile(join(p.dir, 'two.txt'), '2')
   await a.repo.openDraftMR(b, p.dir, p.branch, { title: 'T', description: 'd', commitMessage: 'feat(shop): add two' })
   assert.equal(await message(), 'feat(shop): add two')
-  assert.equal((await git(['rev-list', '--count', 'master..' + p.branch], made.remote)).trim(), '1')
+  assert.equal((await git(['rev-list', '--count', 'master..' + p.branch], made.remote)).trim(), '2')
+  assert.equal((await git(['log', '-1', '--format=%s', p.branch + '~1'], made.remote)).trim(), 'fix: Title with a newline')
   // refused before anything is committed or pushed
   await writeFile(join(p.dir, 'three.txt'), '3')
   const pushed = (await git(['rev-parse', p.branch], made.remote)).trim()

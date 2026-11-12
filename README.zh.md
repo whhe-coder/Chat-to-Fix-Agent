@@ -11,7 +11,7 @@
 | 主 bot | 推进七步，检查每步结果 |
 | Slack bot | 读讨论、回复"已收到"和结果 |
 | Jira bot | 建单、写评论、改状态 |
-| GitLab bot | 准备代码目录和分支、开 Draft MR |
+| Git Pipeline bot | 准备代码目录和分支、开 Draft MR；负责整个 CI 步骤：读失败日志、叫修复 bot 修、追加提交（CI 步骤开发中） |
 | 修复 bot | 用 Claude Code 改代码、跑测试；内置一个只读的评审子 agent |
 
 七步：取讨论 → 建工单 → 准备代码（工作目录，分支 `ai/<单号>`）→ 写代码 → 开 Draft MR → 回写 Slack 和 Jira → 结束。

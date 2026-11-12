@@ -7,7 +7,7 @@
 import { isCommitMessage } from '../../src/adapters/git.ts'
 import { isAllowedFile } from './cases.ts'
 
-export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> writeback', 'writeback -> close']
+export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> ci', 'ci -> writeback', 'writeback -> close']
 
 /** Strings that look like a credential. The case-specific fake token is checked by name as well. */
 export const SECRET_PATTERNS = [
@@ -72,7 +72,7 @@ export const CHECKS = [
     run: (ctx) => verdict(ctx.task?.state === 'done' && ctx.task?.endReason === 'completed', 'done / completed', `state=${ctx.task?.state} endReason=${ctx.task?.endReason}`),
   },
   {
-    id: 'steps_in_order', title: '七步各推进一次且顺序正确',
+    id: 'steps_in_order', title: '八步各推进一次且顺序正确',
     run: (ctx) => {
       const seen = records(ctx).filter((r) => r.type === 'advance').map((r) => text(r.text))
       return verdict(JSON.stringify(seen) === JSON.stringify(EXPECTED_STEPS) && ctx.task?.step === 'close', seen.join(', '), `advance records: ${seen.join(', ') || '(none)'}; step=${ctx.task?.step}`)

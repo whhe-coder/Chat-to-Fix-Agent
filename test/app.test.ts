@@ -60,7 +60,7 @@ async function rig({ binding = {} }: any = {}) {
 const event = (eventId, threadTs) => ({ eventId, channel: 'C1', threadTs, messageTs: threadTs, user: { id: 'U1', name: 'tester' }, text: 'the button does nothing' })
 const at = '2026-11-12T02:00:00Z'
 
-test('a Slack @ becomes a run with five bots and one group, and goes through the seven steps to done', async (t) => {
+test('a Slack @ becomes a run with five bots and one group, and goes through the eight steps to done', async (t) => {
   const r = await rig()
   t.after(() => r.app.stop())
   const { app, botlayer } = r
@@ -110,13 +110,16 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   assert.doesNotMatch(await tool('coding', 'review_report', { verdict: 'pass', comments: 'fine', rounds: 1 }), /tool failed/)
   assert.match(await tool('main', 'task_advance', { to: 'mr' }), /Advanced/)
 
-  // Steps 5 and 6.
+  // Steps 5 and 6. Step ci waits for ci.settled, which the monitor writes (spec 7); the test writes it by hand.
   await app.store.patchTask(id, { mr: { url: 'fake://gitlab/group/project/mr/1' } })
+  assert.match(await tool('main', 'task_advance', { to: 'ci' }), /Advanced/)
+  assert.match(await tool('main', 'task_advance', { to: 'writeback' }), /Cannot advance/)
+  await app.store.patchTask(id, { ci: { status: 'passed', settled: true, outcome: 'passed' } })
   assert.match(await tool('main', 'task_advance', { to: 'writeback' }), /Advanced/)
   await app.store.patchTask(id, { jira: { commentedMr: true }, slack: { sent: { result: true } } })
   assert.match(await tool('main', 'task_advance', { to: 'close' }), /Advanced/)
 
-  // Step 7: closing ends the run: the group is dissolved, the bots are deleted, the slot is free.
+  // Step 8: closing ends the run: the group is dissolved, the bots are deleted, the slot is free.
   assert.match(await tool('main', 'task_close', { outcome: 'done' }), /Task closed/)
   task = await r.inState(id, 'done')
   assert.equal(task.endReason, 'completed')
@@ -126,7 +129,7 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   assert.equal(r.notices.length, 0, 'a completed task sends no system notice')
 
   const records = await app.store.readRecords(id)
-  assert.equal(records.filter(entry => entry.type === 'advance').length, 6)
+  assert.equal(records.filter(entry => entry.type === 'advance').length, 7)
   assert.ok(records.some(entry => entry.type === 'round_end' && entry.role === 'slack'))
   assert.ok(records.some(entry => entry.type === 'system'))
   assert.ok(records.some(entry => entry.type === 'refused'))

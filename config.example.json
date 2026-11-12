@@ -24,14 +24,15 @@
       "labels": ["chat-to-fix"],
       "testCommands": ["sh test.sh"],
       "setupCommands": [],
-      "jiraFields": {}
+      "jiraFields": {},
+      "ciJobs": [{ "name": "test", "command": "sh test.sh" }]
     }
   ],
   "jiraTransitions": ["In Review"],
   "commitAuthor": { "name": "chat-to-fix", "email": "chat-to-fix@example.com" },
   "limits": {
     "taskMinutes": 80,
-    "stepMinutes": { "fetch": 5, "issue": 5, "prepare": 10, "code": 40, "mr": 5, "writeback": 5 },
+    "stepMinutes": { "fetch": 5, "issue": 5, "prepare": 10, "code": 40, "mr": 5, "ci": 30, "writeback": 5 },
     "quietMinutes": 3,
     "quietNudges": 2,
     "engineSilentMinutes": 10,
@@ -45,6 +46,11 @@
     "toolRetries": 2,
     "diffMaxFiles": 20,
     "diffMaxLines": 500,
-    "replyMaxChars": 600
+    "replyMaxChars": 600,
+    "ciPollSeconds": 15,
+    "ciWaitMinutes": 30,
+    "ciTotalMinutes": 90,
+    "ciMaxRounds": 3,
+    "ciLogMaxChars": 12000
   }
 }

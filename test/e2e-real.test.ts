@@ -212,7 +212,7 @@ for (const id of ALL_CASE_IDS) {
     assert.deepEqual(failed(result), [], JSON.stringify(result.checks.filter((k) => !k.ok)))
     assert.equal(result.pass, true)
     assert.equal(result.checks.length, checksFor(c).length)
-    assert.equal(result.summary.records, 10)
+    assert.equal(result.summary.records, 11)
     assert.equal(result.summary.reviewRounds, 1)
     assert.equal(result.summary.durationSec, 600)
   })
@@ -342,7 +342,9 @@ test('checks: a task with no worktree fails the repository checks with a reason,
 function realRun(name: string) {
   const dir = join(FIXTURES, name)
   const task = JSON.parse(readFileSync(join(dir, 'task.json'), 'utf8'))
+  // The recordings predate the ci step (spec 7): split their `mr -> writeback` advance into `mr -> ci`, `ci -> writeback`.
   const records = readFileSync(join(dir, 'records.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    .flatMap((r) => (r.type === 'advance' && r.text === 'mr -> writeback' ? [{ ...r, text: 'mr -> ci' }, { ...r, text: 'ci -> writeback' }] : [r]))
   const files = {}
   const walk = (rel = '') => {
     for (const entry of readdirSync(join(dir, 'worktree', rel), { withFileTypes: true })) {
@@ -363,7 +365,7 @@ test('real run 2 (tests really ran): every check passes for the discount case, i
   const result = evaluateCase({ caseDef: c, task, dataDir: dir })
   assert.deepEqual(failed(result), [], JSON.stringify(result.checks.filter((k) => !k.ok)))
   assert.equal(result.summary.reviewRounds, 1)
-  assert.equal(result.summary.records, 105)
+  assert.equal(result.summary.records, 106)
   assert.equal(result.summary.durationSec, 87)
   assert.equal(result.summary.refusals + result.summary.toolErrors, 0)
   assert.match(result.summary.texts.slack.map((s) => s.purpose).join(), /ack,result/)

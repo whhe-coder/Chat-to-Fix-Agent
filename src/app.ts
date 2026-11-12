@@ -34,7 +34,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   // The monitor ends tasks through the runner and the runner is built after it, so the call is late-bound.
   let runner
   const send = adapters.slack ? (origin, text) => adapters.slack.reply(origin, 'system', text) : undefined
-  const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, now, warn })
+  const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, repo: adapters.repo, language: config.language, now, warn })
   runner = createRunner({ store, botlayer, config, monitor, notify: monitor.notify, loadPrompt, groupNotice, repo: adapters.repo, warn, now })
   const queue = createQueue({ store, limits: config.limits, runner, notify: monitor.notify as any, now })
   runner.bind({ queue })

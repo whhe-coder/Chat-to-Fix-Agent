@@ -7,7 +7,7 @@ import { pricingProblems } from './task/pricing.ts'
 
 export const DEFAULT_LIMITS = Object.freeze({
   taskMinutes: 80,
-  stepMinutes: Object.freeze({ fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, writeback: 5 }),
+  stepMinutes: Object.freeze({ fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, ci: 30, writeback: 5 }),
   quietMinutes: 3,
   quietNudges: 2,
   engineSilentMinutes: 10,
@@ -22,7 +22,16 @@ export const DEFAULT_LIMITS = Object.freeze({
   diffMaxFiles: 20,
   diffMaxLines: 500,
   replyMaxChars: 600,
+  // CI loop (spec 7, 4.9): poll interval, longest wait for one commit and over all rounds, fix commits, log length.
+  ciPollSeconds: 15,
+  ciWaitMinutes: 30,
+  ciTotalMinutes: 90,
+  ciMaxRounds: 3,
+  ciLogMaxChars: 12000,
 })
+
+// Limits that count things: a whole number, not just a positive one.
+const INTEGER_LIMITS = Object.freeze(['ciMaxRounds', 'ciLogMaxChars'])
 
 const DEFAULTS = {
   language: 'zh',
@@ -89,6 +98,27 @@ function textList(value, label, problems, { allowed = (_v) => true, why = '' }: 
     else out.push(item.trim())
   })
   return out
+}
+
+/**
+ * ciJobs and ciNone of a binding (spec 7, 4.9): they only describe the simulated GitLab pipeline.
+ * ciJobs: [{ name, command, delaySeconds?, allowFailure?, flaky?, downstream? }]; ciNone: true = a push makes no pipeline.
+ */
+function ciBindingProblems(b, label, problems) {
+  if (b.ciNone !== undefined && typeof b.ciNone !== 'boolean') problems.push(`${label}.ciNone must be true or false`)
+  if (b.ciJobs === undefined) return
+  if (!Array.isArray(b.ciJobs)) { problems.push(`${label}.ciJobs must be an array of jobs`); return }
+  b.ciJobs.forEach((job, j) => {
+    const at = `${label}.ciJobs[${j}]`
+    if (!isObject(job)) { problems.push(`${at} must be an object`); return }
+    if (!isText(job.name)) problems.push(`${at}.name must be a non-empty string`)
+    if (!isText(job.command)) problems.push(`${at}.command must be a non-empty string`)
+    if (job.delaySeconds !== undefined && !(typeof job.delaySeconds === 'number' && Number.isFinite(job.delaySeconds) && job.delaySeconds >= 0)) problems.push(`${at}.delaySeconds must be a number of 0 or more`)
+    for (const flag of ['allowFailure', 'flaky']) {
+      if (job[flag] !== undefined && typeof job[flag] !== 'boolean') problems.push(`${at}.${flag} must be true or false`)
+    }
+    if (job.downstream !== undefined && typeof job.downstream !== 'boolean' && !isObject(job.downstream)) problems.push(`${at}.downstream must be true, false or an object`)
+  })
 }
 
 /** Gets a credential from the environment variables; undefined when it is not set. */
@@ -167,6 +197,7 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
       const testCommands = textList(b.testCommands, `bindings[${i}].testCommands`, problems, { allowed: (v) => !unusableCommand(v), why: 'must not contain a comma and must not be a bare wildcard' })
       const setupCommands = textList(b.setupCommands, `bindings[${i}].setupCommands`, problems)
       if (b.jiraFields !== undefined && !isObject(b.jiraFields)) problems.push(`bindings[${i}].jiraFields must be an object`)
+      ciBindingProblems(b, `bindings[${i}]`, problems)
       bindings.push({
         ...b, defaultBranch: b.defaultBranch ?? 'master', issueType: b.issueType ?? 'Bug', labels: b.labels ?? [],
         ...(testCommands === undefined ? {} : { testCommands }),
@@ -182,6 +213,7 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     if (key === 'stepMinutes') continue
     if (!(key in DEFAULT_LIMITS)) continue
     if (!isPositive(value)) problems.push(`limits.${key} must be a positive number`)
+    else if (INTEGER_LIMITS.includes(key) && !Number.isInteger(value)) problems.push(`limits.${key} must be a whole number`)
     else limits[key] = value
   }
   if (rawLimits.stepMinutes !== undefined) {
