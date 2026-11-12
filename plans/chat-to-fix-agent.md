@@ -55,7 +55,7 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 - 本地 agent 的调用方式：进程、HTTP 服务或任务队列。
 - 长任务状态与去重记录的存储位置。
-- M2 前确定正式 Jira 服务身份，并核对该身份在 `F2PGBA` 的项目权限。官方三个写入 API 的 granular scope 清单已核对；仍需在 token 管理页面确认可用选项。Jira 工单及评论 HTTP 接口已通过本地模拟测试；当前个人账号 token 仍只验证了 board 读取。还需确认可用 issue type、必填字段和 board 筛选规则，取得写入授权，完成真实创建与评论修改，并接入 Slack 任务去重及工单链接回报。见 [Jira 接入记录](../config/jira/README.md)。
+- M2 前确定正式 Jira 服务身份，并核对该身份在 `F2PGBA` 的项目权限。官方三个写入 API 的 granular scope 清单已核对，个人账号的新 token 已创建；尚需将一次性值保存到本机钥匙串，并验证新 token 的 board 读取和写入能力。验证后撤销旧只读 token。Jira 工单及评论 HTTP 接口已通过本地模拟测试。还需确认可用 issue type、必填字段和 board 筛选规则，完成真实创建与评论修改，并接入 Slack 任务去重及工单链接回报。见 [Jira 接入记录](../config/jira/README.md)。
 - GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
 - M3 的本地 agent 直接复用独立的 `createGitlabConnection()`；还需验证 agent 到 GitLab 的调用链。当前 HTTP 服务不是写入入口。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。

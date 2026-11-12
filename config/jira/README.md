@@ -35,7 +35,9 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 | --- | --- |
 | `write:issue:jira`、`write:comment:jira`、`write:comment.property:jira`、`write:attachment:jira` | `read:issue:jira`、`read:comment:jira`、`read:comment.property:jira`、`read:group:jira`、`read:project:jira`、`read:project-role:jira`、`read:user:jira`、`read:avatar:jira` |
 
-这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。当前未创建写入 token，也未核对 F2PGBA 的可用 issue type、必填字段和 board 筛选规则。
+这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。新 token 还包含原有的 `read:board-scope:jira-software` 和 `read:issue-details:jira`，共 14 项 scopes。
+
+2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。新值仍停留在一次性复制页面，尚未确认保存到本机钥匙串或通过 API 验证。旧 `Chat-to-Fix-Board-Read` token 仍有效。用户要求以后使用新 token，并在新 token 保存及验证后撤销旧 token。F2PGBA 的可用 issue type、必填字段和 board 筛选规则仍待核对。
 
 ## 真实连接验证
 
