@@ -79,7 +79,8 @@ export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = 
       fields: { [env.JIRA_WORK_TYPE_FIELD_ID]: { value: env.CHAT_TO_FIX_WORK_TYPE || 'Tech Research' } },
     },
     gitlab: { baseUrl: gitlab.origin },
-    slack: { inputMode: 'command' },
+    // mentions false: the Slack app has no app_mentions:read yet, so the requester cannot answer in the thread; turn on once it is granted.
+    slack: { inputMode: 'command', mentions: false },
     bindings: [{
       channel, repo: env.GITLAB_PROJECT, localRepo: repo,
       remote: new URL(`${env.GITLAB_PROJECT.replace(/^\/+|\/+$/g, '')}.git`, `${gitlab.origin}/`).href,

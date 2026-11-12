@@ -184,7 +184,13 @@ test('ci 1 / normal: one @ goes through the eight steps with the fake Slack, Jir
   assert.match(r.git(r.made.remote, 'branch', '--list', 'ai/DEMO-1'), /ai\/DEMO-1/, 'the bare repository has the branch')
   assert.match(r.git(r.made.remote, 'log', '-1', '--format=%an %s', 'ai/DEMO-1'), /^chat-to-fix /)
   assert.match(r.git(r.made.remote, 'show', 'ai/DEMO-1:src/price.js'), /return price - \(price \* percent\) \/ 100/)
-  assert.deepEqual((await r.replies()).map(reply => reply.purpose), ['ack', 'system', 'result'])
+  // The system posted the progress facts itself: the Jira key, the MR link, then the CI outcome.
+  assert.deepEqual((await r.replies()).map(reply => reply.purpose), ['ack', 'system', 'system', 'system', 'result'])
+  const progress = await r.notices()
+  assert.match(progress[0], /Jira 单已建好：DEMO-1/)
+  assert.match(progress[1], /Draft MR 已开：fake:\/\/gitlab\/group\/project\/mr\/1/)
+  assert.match(progress[2], /CI 通过/)
+  assert.equal(task.notified.jira_created && task.notified.mr_opened, true)
   assert.equal(task.endReason, 'completed')
   const mrs = await r.fake('gitlab/mrs.json')
   assert.equal(Object.values(mrs).length, 1)
@@ -210,7 +216,7 @@ test('review not passed: the MR is refused, the task ends as failed, the branch 
   assert.match(r.git(r.made.localRepo, 'branch', '--list', 'ai/DEMO-1'), /ai\/DEMO-1/, 'the branch is kept')
   // The system told the person in the original discussion.
   const sent = await r.replies()
-  assert.deepEqual(sent.map(reply => reply.purpose), ['ack', 'system'])
+  assert.deepEqual(sent.map(reply => reply.purpose), ['ack', 'system', 'system']) // the Jira key, then the failure
   assert.match(sent.at(-1).text, new RegExp(s.id))
 })
 
@@ -225,7 +231,7 @@ test('missing information: both confirm, the question is asked, and a new @ in t
   ok(await s.tool('slack', 'slack_reply', { purpose: 'question', text: 'Which function gives the wrong price, and for which input?' }))
   ok(await s.tool('main', 'task_close', { outcome: 'needs_info' }))
   await r.inState(s.id, 'needs_info')
-  assert.deepEqual((await r.replies()).map(reply => reply.purpose), ['ack', 'question'])
+  assert.deepEqual((await r.replies()).map(reply => reply.purpose), ['ack', 'system', 'question']) // the system posted the Jira key; no resubmit notice with mentions on
 
   // The person answers in the same discussion with a new @: a second run of the same task.
   const again = await r.mention('It is applyDiscount, with 100 and 10.', s.threadTs)

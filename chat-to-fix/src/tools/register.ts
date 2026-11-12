@@ -80,7 +80,7 @@ const messageOf = (error) => {
  *   `defineTool` is DSH's `defineTool` from @deepseek-ai/dsh-tools (the bot layer passes it in); the
  *   default is identity, which is what the tests use. `retryDelayMs` is the pause before a retry.
  */
-export function createToolRegistry({ store, gate, adapters, config = {} as any, botlayer, warn = (...args) => console.warn(...args), defineTool = (def) => def, retryDelayMs = 250 }) {
+export function createToolRegistry({ store, gate, adapters, config = {} as any, botlayer, notify = undefined as any, warn = (...args) => console.warn(...args), defineTool = (def) => def, retryDelayMs = 250 }) {
   /** @type {Map<string, import('../task/contracts.ts').RoleTool>} */
   const tools = new Map()
   // sessionId -> { agent, disposers } for the sessions that already hold their tools.
@@ -142,7 +142,7 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
       // 1. The latest task and the context.
       const task = await store.getTask(bound.taskId)
       if (!task) return `tool failed: task ${bound.taskId} not found`
-      const ctx = { task, role: bound.role, botId: bound.botId, sessionId, store, gate, adapters, config, botlayer }
+      const ctx = { task, role: bound.role, botId: bound.botId, sessionId, store, gate, adapters, config, botlayer, notify, warn }
 
       // 2. A write tool must pass the step checks; the refusal reason is the result.
       if (def.write) {

@@ -51,7 +51,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   const recorder = createRecorder({ store, botlayer, pricing: config.pricing, warn })
   // `defineTool` is DSH's own tool constructor (@deepseek-ai/dsh-tools), passed in by the plugin entry;
   // without it the registry registers plain definitions, which is what the tests use.
-  const tools = createToolRegistry({ store, gate, adapters, config, botlayer, warn, ...(defineTool ? { defineTool } : {}) })
+  const tools = createToolRegistry({ store, gate, adapters, config, botlayer, notify: monitor.notify, warn, ...(defineTool ? { defineTool } : {}) })
   registerAllTools(tools)
   const undefinedTools = tools.validate()
   if (undefinedTools.length) throw new Error(`chat-to-fix: the tool definitions do not match the bot registry: ${undefinedTools.join('; ')}`)

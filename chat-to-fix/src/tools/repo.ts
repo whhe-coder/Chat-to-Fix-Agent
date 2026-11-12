@@ -3,7 +3,7 @@
 // tools-and-limits.md section 2. What comes out of the repository is marked as material.
 import { posix } from 'node:path'
 import { COMMIT_MESSAGE_MAX, COMMIT_TYPES, commitMessageFromTitle, isCommitMessage } from '../adapters/git.ts'
-import { currentRun, cutText, material } from './material.ts'
+import { announce, currentRun, cutText, material } from './material.ts'
 
 // No key in the configuration's limits fits these, so they are named constants here.
 export const PATCH_MAX_CHARS = 12000
@@ -188,6 +188,7 @@ export function repoTools() {
         const url = mr?.url ?? task.mr?.url
         // Spec 7, 4.3: iid and sha are what the CI step reads; the monitor starts task.ci (pending) when the task enters step ci.
         await ctx.store.patchTask(task.id, { mr: { url, iid: mr?.iid, sha: mr?.sha } })
+        if (!existed) await announce(ctx, 'mr_opened', { once: true })
         return existed ? `The task already had a Draft MR; it was updated: ${url}` : `Opened the Draft MR: ${url}`
       },
     },

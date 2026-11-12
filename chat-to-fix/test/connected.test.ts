@@ -19,6 +19,7 @@ test('existing tokens reach real adapters without entering the saved configurati
     assert.deepEqual(config.adapters, { slack: 'outbox', jira: 'real', gitlab: 'real' })
     assert.equal(config.jira.apiVersion, '3')
     assert.equal(config.slack.inputMode, 'command')
+    assert.equal(config.slack.mentions, false)
     assert.equal(config.bindings[0].remote, 'https://gitlab.example.com/account-platform/free-to-play-pc.git')
     assert.equal(bridgeEnv(env).CHAT_TO_FIX_SLACK_TOKEN, undefined) // no Slack token is handed to this service
     const path = saveConfig(config, bridgeEnv(env), dataRoot)  // loads without any Slack token

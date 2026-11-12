@@ -216,7 +216,7 @@ test('a failing task does not stop the pass over the others', async () => {
 test('notify: the notice kinds carry the task id, Jira key and branch', async () => {
   const s = setup()
   const task = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' } }
-  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'expired', 'failed', 'in_progress', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
+  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'ci_fix_pushed', 'expired', 'failed', 'in_progress', 'jira_created', 'mr_opened', 'needs_info_resubmit', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
   for (const kind of ['in_progress', 'timed_out', 'failed', 'expired', 'stopped']) {
     s.calls.sent.length = 0
     await s.monitor.notify(task, kind)
@@ -283,4 +283,35 @@ test('stop() drops the subscriptions', async () => {
   assert.equal(s.handlers.session.length, 1)
   s.monitor.stop()
   for (const list of Object.values(s.handlers)) assert.equal(list.length, 0)
+})
+
+test('notify: the progress and resubmit notices, texts in Chinese and English', async () => {
+  const task = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7', url: 'https://j.example.com/browse/DEMO-7' }, repo: { branch: 'ai/DEMO-7' }, mr: { url: 'https://g.example.com/p/-/merge_requests/3', sha: 'abc1234def5678' }, ci: { round: 2 } }
+  const noUrl = { id: 'T-1', origin: {}, jira: { key: 'DEMO-7' }, repo: null, mr: null }
+  const texts = async (language, t, extra = {}) => {
+    const s = setup({ language })
+    const out: any = {}
+    for (const kind of ['jira_created', 'mr_opened', 'ci_fix_pushed', 'needs_info_resubmit']) {
+      s.calls.sent.length = 0
+      await s.monitor.notify({ ...t, ...extra }, kind)
+      assert.equal(s.calls.sent[0].kind, kind)
+      out[kind] = s.calls.sent[0].text
+    }
+    return out
+  }
+  const zh = await texts('zh', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
+  assert.equal(zh.jira_created, '任务 T-1：Jira 单已建好：DEMO-7（https://j.example.com/browse/DEMO-7）。')
+  assert.equal(zh.mr_opened, '任务 T-1：Draft MR 已开：https://g.example.com/p/-/merge_requests/3。')
+  assert.equal(zh.ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234（https://g.example.com/p/-/commit/abc1234def5678）。')
+  assert.equal(zh.needs_info_resubmit, '任务 T-1 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。')
+  const en = await texts('en', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
+  assert.equal(en.jira_created, 'Task T-1: Jira issue DEMO-7 created (https://j.example.com/browse/DEMO-7).')
+  assert.equal(en.mr_opened, 'Task T-1: Draft MR opened: https://g.example.com/p/-/merge_requests/3.')
+  assert.equal(en.ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234 (https://g.example.com/p/-/commit/abc1234def5678).')
+  assert.equal(en.needs_info_resubmit, 'Task T-1 needs more information; please submit it again with /fix, with the original description and the missing details together.')
+  // without url and without commit link the bracket part is left out
+  assert.equal((await texts('zh', noUrl)).jira_created, '任务 T-1：Jira 单已建好：DEMO-7。')
+  assert.equal((await texts('en', noUrl)).jira_created, 'Task T-1: Jira issue DEMO-7 created.')
+  assert.equal((await texts('zh', task)).ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234。')
+  assert.equal((await texts('en', task)).ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234.')
 })

@@ -3,6 +3,7 @@
 export const USAGE_TEXT = '用法：/fix 问题描述，例如：/fix 登录页的“忘记密码”链接点了没反应。';
 export const WRONG_CHANNEL_TEXT = '请在指定频道里用 /fix。';
 export const UNAVAILABLE_TEXT = 'Chat-to-Fix 服务暂时连不上，这次请求没有开始处理，请稍后再用 /fix 提交。';
+export const QUEUE_FULL_TEXT = '修复队列已满，这次请求没有接收，请稍后再试。';
 export const MENTION_UNAVAILABLE_TEXT = 'Chat-to-Fix 服务暂时连不上，这条补充没有送达，请稍后再 @ 我一次。';
 export const NOT_IN_THREAD_TEXT = '新问题请用 /fix 提交。';
 
@@ -51,6 +52,22 @@ export function createFixCommandHandler({ api, postMessage, fixChannelId, now = 
       return;
     }
 
+    // 发任务消息之前先看服务：连不上或队列满，就只回临时消息，频道里不留任务消息。
+    let health;
+    try {
+      health = await api.health();
+    } catch {
+      health = { status: 503 };
+    }
+    if (health.status !== 200) {
+      await respond({ response_type: 'ephemeral', text: UNAVAILABLE_TEXT });
+      return;
+    }
+    if (health.body?.queueFull === true) {
+      await respond({ response_type: 'ephemeral', text: QUEUE_FULL_TEXT });
+      return;
+    }
+
     const posted = await postMessage({
       channel: fixChannelId,
       text: `<@${command.user_id}> 提交了修复请求：${neutralizeBroadcasts(text)}`,
@@ -75,6 +92,7 @@ export function createFixCommandHandler({ api, postMessage, fixChannelId, now = 
       result = { status: 503 };
     }
     if (isServiceDown(result.status)) {
+      // 健康检查通过后才失败，少见的竞态：任务消息已发出，在讨论串里说明。
       await postMessage({ channel: fixChannelId, thread_ts: ts, text: UNAVAILABLE_TEXT });
     }
     // 4xx：Chat-to-Fix 已把说明放进发件箱，这里不说话。

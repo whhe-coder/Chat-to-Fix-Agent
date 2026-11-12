@@ -27,6 +27,7 @@ const where = (task) => {
   if (task?.repo?.branch) extra.push(`Branch: ${task.repo.branch}`)
   return extra.length > 0 ? ` ${extra.join(', ')}.` : ''
 }
+const shortSha = (sha) => String(sha ?? '').slice(0, 7)
 const ref = (task, zh = false) => (zh ? (task?.id ? `任务 ${task.id}：` : '') : (task?.id ? `Task ${task.id}` : 'This request'))
 
 export const NOTICE = Object.freeze({
@@ -39,6 +40,12 @@ export const NOTICE = Object.freeze({
   stopped: (task) => `${ref(task)} was stopped.${where(task)}`,
   resumed: (task) => `Got the extra information; ${task?.id ? `task ${task.id}` : 'this request'} is queued again.`,
   no_open_task: () => 'There is no open task in this discussion; please submit a new problem with /fix.',
+  // Progress facts, sent by the system right when they are written (src/tools: jira_create_issue, mr_open_draft, mr_push_fix).
+  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? ` (${task.jira.url})` : ''}.`,
+  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}.`,
+  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` (${task.commitUrl})` : ''}.`,
+  // Only with slack.mentions false: the requester cannot answer in the thread.
+  needs_info_resubmit: (task) => `${ref(task)} needs more information; please submit it again with /fix, with the original description and the missing details together.`,
 })
 
 export const NOTICE_KINDS = Object.freeze(Object.keys(NOTICE))
@@ -77,6 +84,10 @@ export const NOTICE_ZH = Object.freeze({
   stopped: (task) => `${zhRef(task)} 已停止。${zhWhere(task)}`,
   resumed: (task) => `收到补充信息，${zhRef(task)} 重新开始处理。`,
   no_open_task: () => '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。',
+  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? `（${task.jira.url}）` : ''}。`,
+  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开：${task?.mr?.url ?? ''}。`,
+  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `（${task.commitUrl}）` : ''}。`,
+  needs_info_resubmit: (task) => `${zhRef(task)} 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。`,
 })
 
 /** The notice text of `kind` for `task` in `language` ('zh' Chinese, anything else English). */

@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createFixCommandHandler, createMentionHandler, neutralizeBroadcasts,
-  USAGE_TEXT, WRONG_CHANNEL_TEXT, UNAVAILABLE_TEXT, NOT_IN_THREAD_TEXT,
+  USAGE_TEXT, WRONG_CHANNEL_TEXT, UNAVAILABLE_TEXT, QUEUE_FULL_TEXT, NOT_IN_THREAD_TEXT,
 } from '../src/slackBot/fix-command.js';
 
 const CH = 'C-FIX';
 
-function setup(apiResult = { status: 202, body: { taskId: 'T-1' } }) {
+function setup(apiResult = { status: 202, body: { taskId: 'T-1' } }, healthResult = { status: 200, body: { up: true, queueFull: false, queueMax: 20 } }) {
   const log = [];
   const api = {
+    health: async () => {
+      log.push(['health']);
+      if (healthResult instanceof Error) throw healthResult;
+      return healthResult;
+    },
     postEvent: async (body) => {
       log.push(['post', body]);
       if (apiResult instanceof Error) throw apiResult;
@@ -52,11 +57,11 @@ test('/fix 通过：确认，发任务消息（去广播），再 POST /events',
   const s = setup();
   const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH });
   await s.run({ text: ' <!channel> 购买按钮拼错了 ' }, handler);
-  assert.deepEqual(s.log.map(([k]) => k), ['ack', 'message', 'post']);
-  assert.equal(s.log[1][1].channel, CH);
-  assert.equal(s.log[1][1].text, '<@U1> 提交了修复请求：购买按钮拼错了');
-  assert.equal(s.log[1][1].thread_ts, undefined);
-  assert.deepEqual(s.log[2][1], {
+  assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health', 'message', 'post']);
+  assert.equal(s.log[2][1].channel, CH);
+  assert.equal(s.log[2][1].text, '<@U1> 提交了修复请求：购买按钮拼错了');
+  assert.equal(s.log[2][1].thread_ts, undefined);
+  assert.deepEqual(s.log[3][1], {
     source: 'fix', eventId: 'slash:TR1', channel: CH, threadTs: '100.001', messageTs: '100.001',
     user: { id: 'U1', name: 'alice' }, text: '<!channel> 购买按钮拼错了',
   });
@@ -74,7 +79,25 @@ test('/fix 同一 trigger_id 重复送达只处理一次，一小时后可再处
   assert.equal(s.log.filter(([k]) => k === 'post').length, 2);
 });
 
-test('/fix 5xx、网络错误：在任务讨论串里回服务连不上', async () => {
+test('/fix 健康检查连不上、超时、5xx、非 200：只回临时消息，不发任务消息，不 POST', async () => {
+  for (const health of [new Error('down'), { status: 503, body: null }, { status: 500, body: null }, { status: 404, body: {} }]) {
+    const s = setup(undefined, health);
+    const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH });
+    await s.run({}, handler);
+    assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health']);
+    assert.deepEqual(s.responses, [{ response_type: 'ephemeral', text: UNAVAILABLE_TEXT }]);
+  }
+});
+
+test('/fix 队列已满：只回临时消息，不发任务消息，不 POST', async () => {
+  const s = setup(undefined, { status: 200, body: { up: true, queueFull: true, queueMax: 20 } });
+  const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH });
+  await s.run({}, handler);
+  assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health']);
+  assert.deepEqual(s.responses, [{ response_type: 'ephemeral', text: QUEUE_FULL_TEXT }]);
+});
+
+test('/fix 5xx、网络错误（健康检查通过之后）：在任务讨论串里回服务连不上', async () => {
   for (const result of [{ status: 503, body: null }, new Error('down')]) {
     const s = setup(result);
     const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH });
@@ -82,6 +105,8 @@ test('/fix 5xx、网络错误：在任务讨论串里回服务连不上', async 
     const last = s.log.at(-1)[1];
     assert.equal(last.thread_ts, '100.001');
     assert.equal(last.text, UNAVAILABLE_TEXT);
+    assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health', 'message', 'post', 'message']);
+    assert.equal(s.responses.length, 0);
   }
 });
 
@@ -89,7 +114,7 @@ test('/fix 4xx：不另外说话', async () => {
   const s = setup({ status: 422, body: { error: 'channel_not_bound' } });
   const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH });
   await s.run({}, handler);
-  assert.deepEqual(s.log.map(([k]) => k), ['ack', 'message', 'post']);
+  assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health', 'message', 'post']);
   assert.equal(s.responses.length, 0);
 });
 

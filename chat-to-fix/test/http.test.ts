@@ -230,7 +230,16 @@ test('health', async () => {
   await post(event({ eventId: 'E2', threadTs: '2' }))
   const r = await call('GET', '/health')
   assert.equal(r.status, 200)
-  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1 })
+  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false })
+})
+
+test('health: queueFull turns true when the queue is at queueMax', async () => {
+  await srv.close(); maxConcurrent = 1; queueMax = 1; await start()
+  await post(event({ eventId: 'E1', threadTs: '1' })); tasks.get('T-1').state = 'running'
+  await post(event({ eventId: 'E2', threadTs: '2' }))
+  const r = await call('GET', '/health')
+  assert.equal(r.body.queueMax, 1)
+  assert.equal(r.body.queueFull, true)
 })
 
 test('unknown route -> 404 JSON with error', async () => {

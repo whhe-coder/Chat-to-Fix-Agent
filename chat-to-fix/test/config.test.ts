@@ -103,6 +103,13 @@ test('adapters.slack "outbox" needs no Slack token; the other adapters do not ta
   assert.throws(() => load({ ...base(), adapters: { slack: 'bogus' } }, {}), /adapters\.slack must be "fake" or "real" or "outbox"/)
 })
 
+test('slack.mentions must be a boolean', () => {
+  assert.equal(load({ ...base(), slack: { mentions: false } }, {}).slack.mentions, false)
+  assert.equal(load({ ...base(), slack: { mentions: true } }, {}).slack.mentions, true)
+  assert.equal(load(base(), {}).slack.mentions, undefined) // not set: the default (true) applies where it is read
+  assert.throws(() => load({ ...base(), slack: { mentions: 'no' } }, {}), /slack\.mentions must be true or false/)
+})
+
 test('engineAuth apiKey needs ANTHROPIC_API_KEY', () => {
   const cfg = { ...base(), engineAuth: 'apiKey' }
   assert.throws(() => load(cfg, {}), /ANTHROPIC_API_KEY/)

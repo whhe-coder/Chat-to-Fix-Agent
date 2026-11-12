@@ -1,8 +1,8 @@
 # Slack Bot 与 Chat-to-Fix 的业务接口
 
 - 日期：2026-11-12
-- 状态：2026-11-12 两侧都已实现，未提交；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `chat-to-fix/src/task/outbox.ts`、`http.ts`、`src/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `chat-to-fix/docs/slack/reference/`，没有放进 Logan 的 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
-- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)；Chat-to-Fix 内部设计见 `chat-to-fix/docs/design/`。
+- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `chat-to-fix/src/task/outbox.ts`、`http.ts`、`src/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `chat-to-fix/docs/slack/reference/`，没有放进 Logan 的 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
+- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 Logan 的 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和他的 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 `chat-to-fix/docs/design/`。
 
 ## 1. 问题
 
@@ -25,13 +25,15 @@
 
 ## 3. 场景
 
-1. 用户在指定频道输入 `/fix 购买按钮拼错了`。Slack Bot 确认命令，在频道发任务消息，以它的 `ts` 作为讨论串，调 `POST /events`（`source: "fix"`）。Chat-to-Fix 回 202 和任务号。
+1. 用户在指定频道输入 `/fix 购买按钮拼错了`。Slack Bot 确认命令，先调 `GET /health`：服务没开或队列满，只给发起人回临时消息，频道里不发任何东西。正常的话在频道发任务消息，以它的 `ts` 作为讨论串，调 `POST /events`（`source: "fix"`）。Chat-to-Fix 回 202 和任务号。
 2. 内部沟通角色回“已收到”，这句话进发件箱。Slack Bot 拉到后发进讨论串。
-3. 主 bot 判断缺信息，内部沟通角色发追问。追问经发件箱出现在讨论串里，任务停在“待补充信息”。
-4. 用户在讨论串里写 `@Chat-to-Fix 改成 Add to cart`。Slack Bot 调 `POST /events`（`source: "mention"`，同一个 `threadTs`）。Chat-to-Fix 把这句存进任务、重新排队，发件箱出一条“收到补充信息，重新开始处理”。重跑时，内部沟通角色读到的讨论是原文加补充。
-5. 修好：发件箱依次出 CI 进度和结果（Jira、Draft MR、CI 结论）。
+3. 建好 Jira 单、开出 Draft MR 时，系统各往发件箱放一条（单号和链接）。
+4. 主 bot 判断缺信息，内部沟通角色发追问，经发件箱出现在讨论串里。
+   - 开了讨论串补充（`slack.mentions` 为真）：任务停在“待补充信息”。用户在讨论串里写 `@Chat-to-Fix 改成 Add to cart`，Slack Bot 调 `POST /events`（`source: "mention"`，同一个 `threadTs`）。Chat-to-Fix 把这句存进任务、重新排队，发件箱出“收到补充信息，重新开始处理”。重跑时内部沟通角色读到的讨论是原文加补充，同一张 Jira 单、同一个分支。
+   - 没开（Slack 应用还没有 `app_mentions:read`）：任务以“缺信息”结束，发件箱再放一条“补全后请用 /fix 重新提交”。
+5. CI：每轮失败、每轮修复推送（带提交号和 commit 链接）、通过，各一条。最后是结果（Jira、Draft MR、CI 结论）。
 6. 修不了或太难：发件箱出“没能自动修好：原因”或“需要人来处理：原因”。
-7. Chat-to-Fix 没开或连不上：Slack Bot 在讨论串里说服务暂时连不上（`/fix` 和 @ 补充各一句，见 [slackenter.md](slackenter.md)）。这是 Slack Bot 仅有的自己写的业务文案。
+7. 健康检查之后 `POST /events` 才失败（极少）：Slack Bot 在讨论串里说服务暂时连不上。这和 @ 补充送不到时那一句，是 Slack Bot 仅有的自己写的业务文案（见 [slackenter.md](slackenter.md)）。
 
 ## 4. 实现决定
 
@@ -109,7 +111,7 @@
 
 - **字段**：
   - `purpose`：`ack`（已收到）、`question`（追问）、`result`（结果）或 `system`（系统通知）。
-  - `kind`：只有 `system` 才有，比如 `failed`、`needs_person`、`resumed`、`in_progress`、`ci_failed`、`ci_passed`。
+  - `kind`：只有 `system` 才有。进度：`jira_created`、`mr_opened`、`ci_failed`、`ci_fix_pushed`、`ci_passed`、`ci_rounds_exhausted`、`ci_no_pipeline`；结束：`failed`、`needs_person`、`timed_out`、`stopped`、`expired`、`needs_info_resubmit`；讨论串：`in_progress`、`resumed`、`no_open_task`；拒绝：`queue_full`、`channel_not_bound`。Slack Bot 一般不用看它，原样发 `text` 就行。
 - **顺序和保存**：
   - `seq` 从 1 开始全局递增，不复用。
   - 消息存在 `<数据目录>/outbox.jsonl`，重启不丢。
@@ -124,7 +126,7 @@
 
 - `GET /tasks/<号>`：查状态，字段有 `state`、`step`、`endReason`、`closeNote`、`jira`、`mr`、`ci`、`origin`。排查用，Slack Bot 平时不用调。
 - `POST /tasks/<号>/stop`：停止任务。
-- `GET /health`：Slack Bot 启动时可以探一次。
+- `GET /health`：返回 `{ up, queued, running, maxConcurrent, queueMax, queueFull }`。Slack Bot 每次 `/fix` 发任务消息之前先调一次：连不上或 `queueFull` 为真，就只给发起人回临时消息（Logan 规格里“拒绝只给发起人看”的做法），不发任务消息。
 
 ### 4.3 Chat-to-Fix 侧的改动
 
@@ -140,14 +142,17 @@
   - 补充信息存进任务（`store.addFollowUp`，已写未提交）。
   - 不带 `source` 的旧格式照旧，测试和模拟用例在用。
 - **系统通知**：`chat-to-fix/src/task/monitor.ts` 的 `NOTICE` 和 CI 通知都经 `reply(origin, 'system', text)` 发出，自然进发件箱，并带上 `kind`。中文模板和“需要人处理”的原因（`closeNote`）在做。
-- **`chat-to-fix/scripts/connected.ts`**：slack 改为 `outbox`，不再要 `SLACK_BOT_TOKEN`。
+- **进度通知**：建单（`jira_create_issue`）、开 MR（`mr_open_draft`）、CI 修复推送（`mr_push_fix`）成功时，工具直接发系统通知，不经过模型。建单和开 MR 每个任务只发一次，重跑不重复（`task.notified`）。对应 Logan README“目标 Slack 回传”里的“工单已创建”“MR 已创建”和 CI 的“新 commit 链接”。
+- **讨论串补充的开关 `slack.mentions`**：默认开。关的时候，任务以“缺信息”结束后系统再发一条 `needs_info_resubmit`，请用户补全后重新 `/fix`。
+- **`GET /health`**：加 `queueMax`、`queueFull`。
+- **`chat-to-fix/scripts/connected.ts`**：slack 改为 `outbox`，不再要 `SLACK_BOT_TOKEN`；`slack.mentions` 先设为关，`app_mentions:read` 批下来再打开。
 - **`chat-to-fix/scripts/slack-forwarder.ts`**：Chat-to-Fix 自己的转发程序，留给 `adapters.slack: "real"` 单独部署时用，不和 Slack Bot 同时跑。
 
 ### 4.4 Slack Bot 侧的改动（`src/slackBot/`）
 
 这一侧归 Yuzhao。下面这些已有一版参考实现，放在本目录的 [reference/](reference/README.md)，没有动 Logan 的代码（未审、没连过真 Slack）。交接说明见 [handover.md](handover.md)。
 
-- **`/fix`**：用 `app.command('/fix')` 处理，行为见 [slackenter.md](slackenter.md) 第 2.1 节。通过后先发任务消息，再调 `POST /events`。
+- **`/fix`**：用 `app.command('/fix')` 处理，行为见 [slackenter.md](slackenter.md) 第 2.1 节。先调 `GET /health`，正常才发任务消息，再调 `POST /events`。
 - **讨论串里的 @**：用 `app.event('app_mention')` 处理，只认指定频道、在讨论串里的 @，见 [slackenter.md](slackenter.md) 第 2.2 节。
 - **发件箱转发**：启动后每 3 秒调一次 `GET /outbox`，按 4.2(2) 发出去。游标存在 `SLACK_BOT_STATE_DIR/outbox-cursor`，默认目录 `.local/`，不进 git。
 - **新文件**：
@@ -189,6 +194,6 @@
 ## 7. 待定
 
 1. **指定频道 ID**：Logan 的 M0。推荐先用一个测试频道。
-2. **讨论串里的 @ 要加权限**：需要 `app_mentions:read` 和 `app_mention` 事件，要和管理员、Logan 确认加进安装申请。推荐加，Yuzhao 也是这个意见，见 [slackenter.md](slackenter.md) 第 3 节。
+2. **讨论串里的 @ 要加权限**：需要 `app_mentions:read` 和 `app_mention` 事件，要和管理员、Logan 确认加进安装申请。推荐加，Yuzhao 也是这个意见，见 [slackenter.md](slackenter.md) 第 3 节。没批下来之前用 `slack.mentions: false`，流程不卡。
 3. **部署位置**：接口只听本机，所以 Slack Bot 和 Chat-to-Fix 跑在同一台机器上。要分开部署时，再定鉴权和地址。推荐第一版同机。
 4. **用户名**：推荐先不申请 `users:read`。`/fix` 带的 `user_name` 够用；@ 补充时只有用户 ID。

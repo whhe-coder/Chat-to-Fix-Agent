@@ -253,7 +253,7 @@ export function createHttp({ config, token, store, outbox, queue, runner, notify
   async function health() {
     const queued = (await store.listTasks({ state: 'queued' })).length
     const running = (await store.listTasks({ state: 'running' })).length
-    return [200, { up: true, queued, running, maxConcurrent: config.limits.maxConcurrent }]
+    return [200, { up: true, queued, running, maxConcurrent: config.limits.maxConcurrent, queueMax: config.limits.queueMax, queueFull: await queue.full() }]
   }
 
   async function route(request) {

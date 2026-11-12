@@ -95,6 +95,8 @@ function adapterSection(raw, name, kind, problems, { email = false, fields = fal
     if (given.apiVersion !== undefined && given.apiVersion !== '2' && given.apiVersion !== '3') problems.push('jira.apiVersion must be "2" or "3"')
     if (given.browseUrl !== undefined && (!isHttpUrl(given.browseUrl) || hasCredentialsInUrl(given.browseUrl))) problems.push('jira.browseUrl must be an http(s) URL without credentials')
   }
+  // slack.mentions: whether the requester can answer in the thread (default true); false until the Slack app has app_mentions:read.
+  if (name === 'slack' && given.mentions !== undefined && typeof given.mentions !== 'boolean') problems.push('slack.mentions must be true or false')
   if (name === 'slack' && given.inputMode !== undefined && !['thread', 'command'].includes(given.inputMode)) problems.push('slack.inputMode must be "thread" or "command"')
   return { ...given }
 }

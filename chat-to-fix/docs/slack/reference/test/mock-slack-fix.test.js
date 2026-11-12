@@ -6,6 +6,7 @@ import { createChatToFixApi } from '../src/slackBot/chat-to-fix-api.js';
 import { createMockSlackBot, createMockSlackServer } from '../src/slackBot/mock-slack-bot.js';
 
 async function startChatToFixStub() {
+  const state = { queueFull: false };
   const events = [];
   const outbox = [];
   const server = createServer(async (request, response) => {
@@ -19,6 +20,9 @@ async function startChatToFixStub() {
       events.push(event);
       status = 202;
       body = { taskId: 'T-1' };
+    } else if (request.method === 'GET' && url.pathname === '/health') {
+      status = 200;
+      body = { up: true, queued: 0, running: 0, maxConcurrent: 1, queueFull: state.queueFull, queueMax: 20 };
     } else if (url.pathname === '/outbox') {
       const after = Number(url.searchParams.get('after'));
       const messages = outbox.filter((m) => m.seq > after);
@@ -30,7 +34,7 @@ async function startChatToFixStub() {
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  return { events, outbox, server, url: `http://127.0.0.1:${server.address().port}` };
+  return { state, events, outbox, server, url: `http://127.0.0.1:${server.address().port}` };
 }
 
 test('模拟 /fix：任务消息进频道讨论串并 POST，发件箱消息出现在同一讨论串', async (t) => {
@@ -76,7 +80,15 @@ test('模拟 /fix：错频道、空正文、重复 trigger 不重复处理；服
 
   const down = createMockSlackBot({ api: createChatToFixApi({ baseUrl: 'http://127.0.0.1:1' }) });
   const result = await down.receiveFix({ text: '问题' });
-  assert.match(result.messages.at(-1).text, /服务暂时连不上/);
+  assert.equal(result.threadTs, null);
+  assert.deepEqual(result.messages, []);
+  assert.match(result.ephemeral[0].text, /服务暂时连不上/);
+
+  stub.state.queueFull = true;
+  const full = await bot.receiveFix({ text: '问题二' });
+  assert.equal(full.threadTs, null);
+  assert.match(full.ephemeral[0].text, /修复队列已满/);
+  assert.equal(stub.events.length, 1);
 });
 
 test('模拟 HTTP 接口：/fix、/mentions、/relay/tick、/threads，旧私信接口照旧', async (t) => {

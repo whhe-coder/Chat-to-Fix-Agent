@@ -118,7 +118,7 @@ index 0dbb93a..2cef870 100644
 -真实 Slack 的当前目标见 [固定频道 `/fix` 入口规格](slack-fix-command.md)。本模拟入口仍使用旧私信处理器，不能代替新入口的验收。
 +真实 Slack 的当前目标见 [固定频道 `/fix` 入口规格](slack-fix-command.md)。模拟入口不能代替真实 Slack 的验收（真实的 3 秒确认、权限和事件投递都不在模拟里）。
 diff --git a/src/slackBot/mock-slack-bot.js b/src/slackBot/mock-slack-bot.js
-index d924521..637ea8a 100644
+index d924521..7d2aa5e 100644
 --- a/src/slackBot/mock-slack-bot.js
 +++ b/src/slackBot/mock-slack-bot.js
 @@ -1,6 +1,8 @@
@@ -152,7 +152,7 @@ index d924521..637ea8a 100644
    }
  
    function nextTs() {
-@@ -74,6 +82,99 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
+@@ -74,6 +82,100 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
      },
    });
  
@@ -169,7 +169,8 @@ index d924521..637ea8a 100644
 +  }
 +
 +  const unavailable = { postEvent: async () => ({ status: 503, body: null }),
-+    getOutbox: async () => ({ status: 503, body: null }) };
++    getOutbox: async () => ({ status: 503, body: null }),
++    health: async () => ({ status: 503, body: null }) };
 +  const fixApi = api || unavailable;
 +  const handleFix = createFixCommandHandler({ api: fixApi, postMessage: fakePost, fixChannelId, now });
 +  const handleMention = createMentionHandler({
@@ -252,7 +253,7 @@ index d924521..637ea8a 100644
    async function receiveDm(input) {
      if (!input || typeof input !== 'object' || Array.isArray(input)) {
        throw new MockInputError('消息内容无效');
-@@ -110,12 +211,22 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
+@@ -110,12 +212,22 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
        messages: getThread(record.threadTs, channel) };
    }
  
@@ -277,7 +278,7 @@ index d924521..637ea8a 100644
  }
  
  export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
-@@ -132,17 +243,29 @@ export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
+@@ -132,17 +244,29 @@ export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
          sendJson(response, 200, { ok: true, ...await bot.receiveDm(await readJson(request)) });
          return;
        }
