@@ -1,0 +1,7 @@
+{
+  "form.email_label": "Email",
+  "form.password_label": "Password",
+  "form.submit": "Create account",
+  "form.email_required": "Enter your email address",
+  "form.password_short": "Password must be at least 8 characters"
+}

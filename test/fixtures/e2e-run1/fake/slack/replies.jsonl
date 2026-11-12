@@ -1,0 +1,2 @@
+{"id":"1794461534.000001","at":"2026-11-12T05:32:14.608Z","channel":"C0456","threadTs":"1794461528.440001","purpose":"ack","text":"received"}
+{"id":"1794461623.000002","at":"2026-11-12T05:33:43.217Z","channel":"C0456","threadTs":"1794461528.440001","purpose":"result","text":"已修复：Jira DEMO-1（fake://jira/DEMO-1），Draft MR fake://gitlab/local/sample-shop/mr/1，applyDiscount 已改为减折扣；注意 sh test.sh 尚未实际运行，合并前请先跑测试或 CI。"}

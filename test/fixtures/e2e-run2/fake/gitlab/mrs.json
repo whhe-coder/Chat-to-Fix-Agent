@@ -1,0 +1,18 @@
+{
+  "ai/DEMO-1": {
+    "iid": 1,
+    "repo": "local/sample-shop",
+    "url": "fake://gitlab/local/sample-shop/mr/1",
+    "branch": "ai/DEMO-1",
+    "target": "master",
+    "title": "fix(price): subtract the discount in applyDiscount instead of adding it (DEMO-1)",
+    "description": "DEMO-1: applyDiscount(100, 10) returned 110 instead of 90.\n\nChange: in src/price.js, applyDiscount now computes price - price * percent / 100 instead of adding the discount. The stale \"BUG\" comment is removed. 1 file, +1 -2 lines.\n\nReview verdict: pass (round 1). The review checked applyDiscount(100,10)=90, applyDiscount(80,25)=60 and applyDiscount(200,50)=100.\n\nTests: sh test.sh was run by the Coding bot, all 4 checks ok.\n\nNot verified:\n- applyDiscount(200, 50) = 100 was checked in the review but has no automated test.\n- No tests or input checks for a percent below 0 or above 100; such values still give a price above the original or below zero.\n- The Neuronet code search tool was not available, so files were read directly.",
+    "jiraKey": "DEMO-1",
+    "draft": true,
+    "state": "opened",
+    "pipeline": "none",
+    "headSha": "db97638d2beb92fb1baaad0d7b48bf88ae412413",
+    "createdAt": "2026-11-12T05:48:08.145Z",
+    "updatedAt": "2026-11-12T05:48:08.145Z"
+  }
+}

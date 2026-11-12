@@ -1,0 +1,2 @@
+{"id":"1794462421.000001","at":"2026-11-12T05:47:01.625Z","channel":"C0456","threadTs":"1794462414.403001","purpose":"ack","text":"received"}
+{"id":"1794462496.000002","at":"2026-11-12T05:48:16.705Z","channel":"C0456","threadTs":"1794462414.403001","purpose":"result","text":"已修复：applyDiscount(100, 10) 现在返回 90，sh test.sh 通过。Jira：DEMO-1（fake://jira/DEMO-1），Draft MR：fake://gitlab/local/sample-shop/mr/1。"}

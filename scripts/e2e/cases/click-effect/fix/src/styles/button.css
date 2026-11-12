@@ -1,0 +1,33 @@
+/* Buttons of the store client. */
+.btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btn-primary {
+  background: #2a9d4a;
+  color: #ffffff;
+  transition: transform 80ms ease, background-color 80ms ease;
+}
+
+.btn-primary:hover {
+  background: #31b556;
+}
+
+.btn-primary:active {
+  background: #1f7a38;
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  background: #3a4656;
+  color: #ffffff;
+}
+
+.btn-secondary:hover {
+  background: #46546a;
+}
