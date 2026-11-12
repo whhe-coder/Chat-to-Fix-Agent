@@ -1,0 +1,10 @@
+{
+  "nav.store": "Store",
+  "nav.library": "Libary",
+  "nav.cart": "Cart",
+  "card.purchase": "Purchase",
+  "card.owned": "Owned in library",
+  "card.add_to_cart": "Add to cart",
+  "checkout.title": "Checkout",
+  "checkout.pay": "Pay now"
+}

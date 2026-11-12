@@ -1,0 +1,18 @@
+{
+  "ai/DEMO-1": {
+    "iid": 1,
+    "repo": "local/sample-shop",
+    "url": "fake://gitlab/local/sample-shop/mr/1",
+    "branch": "ai/DEMO-1",
+    "target": "master",
+    "title": "fix(price): subtract the discount in applyDiscount instead of adding it",
+    "description": "DEMO-1\n\nChange: in src/price.js, applyDiscount returned price + price*percent/100, so applyDiscount(100, 10) gave 110. It now returns price - price*percent/100 (90). The outdated BUG comment was removed. One file, +1 -2 lines.\n\nReview verdict: pass (1 round). The reviewer read the code against test.js: applyDiscount(100, 10) = 90, applyDiscount(80, 25) = 60; no other callers of the function.\n\nNot verified: `sh test.sh` was NOT run. The Coding bot's session could not execute shell commands, and Pipeline has no tool to run them either. The result rests on code review only. Please run `sh test.sh` (or CI) before merging.",
+    "jiraKey": "DEMO-1",
+    "draft": true,
+    "state": "opened",
+    "pipeline": "none",
+    "headSha": "ac5403a31eb6f93b963d6dd7de3c884678bda4cc",
+    "createdAt": "2026-11-12T05:33:34.702Z",
+    "updatedAt": "2026-11-12T05:33:34.702Z"
+  }
+}

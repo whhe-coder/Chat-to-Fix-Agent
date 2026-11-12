@@ -1,0 +1,7 @@
+{
+  "nav.store": "Store",
+  "nav.cart": "Cart",
+  "checkout.title": "Checkout",
+  "checkout.empty": "Nothing to check out yet",
+  "checkout.items": "{count} items"
+}

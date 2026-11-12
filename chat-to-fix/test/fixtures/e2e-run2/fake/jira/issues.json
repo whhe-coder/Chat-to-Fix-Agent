@@ -1,0 +1,24 @@
+{
+  "DEMO-1": {
+    "key": "DEMO-1",
+    "url": "fake://jira/DEMO-1",
+    "project": "DEMO",
+    "type": "Bug",
+    "labels": [
+      "chat-to-fix"
+    ],
+    "title": "商店折扣价计算错误：applyDiscount(100, 10) 返回 110，应为 90",
+    "description": "现象：商店折扣价算错了。src/price.js 中的 applyDiscount(100, 10) 返回 110，期望返回 90。\n复现方法：在代码目录运行 `sh test.sh`。\n涉及功能：商店折扣价计算，文件 src/price.js 中的 applyDiscount。\n提出人：tester（Slack），时间 2026-11-12T05:46:54Z。\nSlack 讨论：fake://slack/C0456/1794462414.403001\n\nSlack discussion: fake://slack/C0456/1794462414.403001",
+    "acceptance": "1. applyDiscount(100, 10) 返回 90。\n2. 运行 `sh test.sh` 通过，不再报错。\n3. 其他折扣取值（例如 applyDiscount(200, 50)）按折扣后价格返回，不会比原价更高。",
+    "permalink": "fake://slack/C0456/1794462414.403001",
+    "status": "In Review",
+    "comments": [
+      {
+        "id": "DEMO-1-c1",
+        "text": "修复已完成，Draft MR 已就绪，请评审。\n\nMR: fake://gitlab/local/sample-shop/mr/1",
+        "at": "2026-11-12T05:48:15.876Z"
+      }
+    ],
+    "createdAt": "2026-11-12T05:47:12.476Z"
+  }
+}

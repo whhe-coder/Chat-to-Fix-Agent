@@ -1,0 +1,24 @@
+{
+  // Loose on purpose: the code was JavaScript until 2026-11-12. Node 24 runs the .ts files
+  // directly by stripping types, so this config only type-checks (noEmit) and allows only
+  // type syntax Node can strip (erasableSyntaxOnly). Tighten group by group later.
+  // Resolution is "bundler" only so that `paths` can point @deepseek-ai/* at the DSH packages in
+  // runtime/ (the runtime itself resolves them through bot/test/harness-resolve.ts and DSH).
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "paths": {
+      "@deepseek-ai/*": ["./runtime/node_modules/@deepseek-ai/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "bot/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "bot/test/**/*.ts"]
+}
