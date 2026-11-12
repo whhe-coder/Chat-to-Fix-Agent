@@ -153,14 +153,30 @@ export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelI
   return { submit, sync, snapshot: () => ({ channelId, threads: [...threads.values()].map(visible).reverse() }) };
 }
 
-export function createMockChannelServer({ channel } = {}) {
+export function createMockChannelServer({ channel, serviceId } = {}) {
   if (!channel) throw new Error('需要模拟频道');
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const host = request.headers.host;
       if (typeof host !== 'string' || !/^127\.0\.0\.1:\d+$/.test(host)
         || (request.headers.origin && request.headers.origin !== `http://${host}`)) throw new MockError('只允许本机请求', 403);
       const path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+      if (path === '/_service/identity') {
+        if (request.method === 'GET' && serviceId && request.headers['x-mock-service-id'] === serviceId) {
+          return json(response, 200, { id: serviceId });
+        }
+        return json(response, 404, { error: '路径不存在' });
+      }
+      if (path === '/_service/shutdown') {
+        if (request.method !== 'POST' || !serviceId || request.headers['x-mock-service-id'] !== serviceId) {
+          return json(response, 404, { error: '路径不存在' });
+        }
+        response.once('finish', () => {
+          server.close();
+          server.closeAllConnections?.();
+        });
+        return json(response, 202, { stopping: true });
+      }
       if (request.method === 'GET' && path === '/') return respond(response, 200, PAGE, 'text/html; charset=utf-8');
       if (request.method === 'GET' && path === '/mock-channel-client.js') return respond(response, 200, SCRIPT, 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && path === '/mock-channel.css') return respond(response, 200, STYLE, 'text/css; charset=utf-8');
@@ -180,4 +196,5 @@ export function createMockChannelServer({ channel } = {}) {
       });
     }
   });
+  return server;
 }

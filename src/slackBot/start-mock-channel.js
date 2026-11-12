@@ -13,6 +13,6 @@ const channel = createMockChannel({
   tokenProvider: () => process.env.CHAT_TO_FIX_HTTP_TOKEN || readFileSync(join(dataRoot, 'http-token'), 'utf8'),
 });
 
-createMockChannelServer({ channel }).listen(port, '127.0.0.1', () => {
+createMockChannelServer({ channel, serviceId: process.env.MOCK_SLACK_SERVICE_ID }).listen(port, '127.0.0.1', () => {
   console.info(`模拟 Slack 频道已启动：http://127.0.0.1:${port}`);
 });

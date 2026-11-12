@@ -1,6 +1,6 @@
 # Slack Bot 与 Chat-to-Fix 的业务接口
 
-> 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。
+> 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。下文关于讨论串 `@`、`app_mentions:read` 和真实 Slack Bot 的内容是历史方案，尚未按当前入口实现；当前行为以 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 和 [模拟 Bot 规格](../../../spec/mock-slack-bot.md) 为准。
 
 - 日期：2026-11-12
 - 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/core/task/outbox.ts`、`http.ts`、`core/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
@@ -182,7 +182,7 @@
   - 新文件 `chat-to-fix/test/outbox.test.ts`。
   - `chat-to-fix/test/adapters-slack.test.ts`：`outbox` 适配器。
   - 照现有 http 测试的写法。
-- **Slack Bot**：照 `test/slack-message.test.js`、`test/mock-slack-bot.test.js` 的写法，Chat-to-Fix 接口用本机 stub HTTP 代替。
+- **Slack Bot**：参考 `src/slackBot/test/slack-message.test.js`、`src/slackBot/test/mock-slack-bot.test.js` 的写法，Chat-to-Fix 接口用本机 stub HTTP 代替。
 - **端到端**：模拟 `/fix` 一路走到发件箱，再发进模拟讨论串，用假模型，不花钱。
 
 ## 6. 不做

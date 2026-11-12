@@ -46,11 +46,12 @@ npm ci
 
 | 做什么 | 命令 |
 |---|---|
-| 启动 Agent | `npm start` |
-| 停止 Agent | `npm run stop:agent` |
+| 启动 Agent 和模拟 Slack 页面（后台） | `npm start`，页面地址 `http://127.0.0.1:4001/`；不自动打开浏览器 |
+| 停止两者 | `npm stop` |
+| 只停止 Agent | `npm run stop:agent` |
 | 查看 Agent 实时日志 | `npm run logs:agent`；收到 `/fix` 时先输出频道、发送者和问题正文 |
 | 启动旧 Slack 私信测试 Bot（获批后才有 token） | `npm run start:slack` |
-| 启动本机模拟 Slack 频道 | `npm run start:mock-slack`，打开 `http://127.0.0.1:4001/` |
+| 单独在前台启动模拟 Slack 频道 | `npm run start:mock-slack` |
 | 测试 | `npm test`（根目录连接模块与模拟 Bot、Agent、Agent 层、Bot） |
 | 类型检查 | `npm run typecheck` |
 | 冒烟（本机假模型，不花钱） | `npm run smoke:agent` |
@@ -61,16 +62,16 @@ npm ci
 
 ## 接入现有 GitLab、Jira、Slack 配置
 
-根目录的 `.env.local` 保存现有连接的 token，并需设置 `CHAT_TO_FIX_LOCAL_REPO` 为本机 F2P 仓库路径。`npm start` 复用这些变量，生成不含 token 的 Agent 配置，建立隔离的 F2P 仓库，然后启动 Agent。配置和隔离仓库放在 `src/chat-to-fix/.data/connected/`。迁移前保存在旧目录的本地数据可通过 `CHAT_TO_FIX_DATA` 指向原路径。
+根目录的 `.env.local` 保存现有连接的 token，并需设置 `CHAT_TO_FIX_LOCAL_REPO` 为本机 F2P 仓库路径。`npm start` 复用这些变量，生成不含 token 的 Agent 配置，建立隔离的 F2P 仓库，然后先启动 Agent、再启动本机模拟 Slack 页面。两个进程独立运行。Agent 的配置和隔离仓库放在 `src/chat-to-fix/.data/connected/`。迁移前保存在旧目录的本地数据可通过 `CHAT_TO_FIX_DATA` 指向原路径。
 
 ```bash
 npm run check:agent-connections
 npm start
 ```
 
-第一条命令只读检查 GitLab 分支和 Jira board。第二条命令只启动 Agent，不启动 Slack Bot。Slack 尚未接入且 `CHAT_TO_FIX_SLACK_CHANNEL` 为空时，Agent 暂用本机频道 `CLOCAL`；此时它不能接收真实 `/fix` 命令。获得真实频道 ID 后，将它写入 `.env.local`，先运行 `npm run stop:agent`，再运行 `npm start`。Slack 一侧由公司的 Slack Bot（仓库根目录 `src/slackBot/`）负责，后续单独接入。
+第一条命令只读检查 GitLab 分支和 Jira board。第二条命令启动 Agent 和本机模拟页面，不启动真实 Slack Bot。Slack 尚未接入且 `CHAT_TO_FIX_SLACK_CHANNEL` 为空时，Agent 暂用本机频道 `CLOCAL`；此时它不能接收真实 `/fix` 命令。获得真实频道 ID 后，将它写入 `.env.local`，运行 `npm stop`，再运行 `npm start`。公司的 Slack Bot 位于 `src/slackBot/`，后续单独接入。
 
-本机模拟入口可在 Agent 运行后用 `npm run start:mock-slack` 启动。它会用 `CLOCAL` 或已配置的频道 ID 将 `/fix` 转发给 Agent，并显示发件箱回传；它不会连接真实 Slack。若当前 Agent 使用真实 Jira 和 GitLab，模拟入口提交的任务也会使用这些真实连接。见 [模拟 Bot 规格](../../spec/mock-slack-bot.md)。
+本机模拟入口默认随 `npm start` 在后台启动。设置 `MOCK_SLACK_AUTO_START=0` 可关闭自动启动；需要单独运行页面时，用 `npm run start:mock-slack` 在前台启动。它会用 `CLOCAL` 或已配置的频道 ID 将 `/fix` 转发给 Agent，并显示发件箱回传；它不会连接真实 Slack。若当前 Agent 使用真实 Jira 和 GitLab，模拟入口提交的任务也会使用这些真实连接。见 [模拟 Bot 规格](../../spec/mock-slack-bot.md)。
 
 Agent 使用现有 `GITLAB_TOKEN` 和 `JIRA_TOKEN`，不再需要 Slack 令牌。Jira scoped token 走 REST v3；浏览器链接使用 Jira 站点地址。若无法自动查出站点地址，设置 `CHAT_TO_FIX_JIRA_SITE_URL`。当前配置不执行 Jira 状态迁移，因为现有 token 的迁移权限尚未验证。
 

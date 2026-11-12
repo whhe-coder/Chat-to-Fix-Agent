@@ -5,8 +5,8 @@
 ## Runtime installation
 
 - Root `package.json` names the DSH packages. One `npm ci` at the repository root installs them. `scripts/dev-env.sh` sets `DSH_HARNESS` to the root package for tests.
-- From the repository root, start with `npm run start:agent`, stop with `npm run stop:agent`, and run the smoke check with `npm run smoke:agent` (`--sentinel-home` gives an exact list of writes under HOME).
-- The configuration file is `$CHAT_TO_FIX_DATA/chat-to-fix.json` (default `.data/chat-to-fix.json`), or the path in `CHAT_TO_FIX_CONFIG`. Keep `dataDir` and `worktreesDir` under `$CHAT_TO_FIX_DATA`; the start script warns when they are not.
+- From the repository root, `npm start` launches the Agent and the local mock Slack page; `npm stop` stops both. Use `npm run start:agent` and `npm run stop:agent` to control only the Agent. Run the smoke check with `npm run smoke:agent` (`--sentinel-home` gives an exact list of writes under HOME).
+- The configuration file is `$CHAT_TO_FIX_DATA/chat-to-fix.json` (default `src/chat-to-fix/.data/connected/chat-to-fix.json` for `npm start`), or the path in `CHAT_TO_FIX_CONFIG`. Keep `dataDir` and `worktreesDir` under `$CHAT_TO_FIX_DATA`; the start script warns when they are not.
 - The token is read from `CHAT_TO_FIX_HTTP_TOKEN`. If that is not set, the start script creates `$CHAT_TO_FIX_DATA/http-token` (mode 600) once.
 - Claude Code: the start script passes `CLAUDE_BIN` (set by `dev-env.sh`) through, and the plugin row turns it into `claudeCommand`. Without a CLI there is no `claude-code` route, and every task fails at start.
 

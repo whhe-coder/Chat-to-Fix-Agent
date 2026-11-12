@@ -228,7 +228,7 @@
 
 ### 4.3 DSH 配置补丁（D3）
 
-DSH 以无界面方式运行，用 `runtime/` 里自带的 DSH 0.2.2-rc.1（不改 DSH 源码），用自己的配置档 `chat-to-fix`，它的组合是 `dsh-base`，再加 `dsh-web-app`。`scripts/start-chat-to-fix.sh` 把 `config/cordis.patch.yml` 作为 `--patch` 追加在上面。DSH 自己的 web 配置档不用。补丁里带 `config` 的行会整体替换该行的配置；也可以用 `disabled: true` 把一行关掉。
+DSH 以无界面方式运行，使用仓库根目录 `package.json` 安装的 DSH 0.2.2-rc.1（不改 DSH 源码）。它使用配置档 `chat-to-fix`，组合 `dsh-base` 和 `dsh-web-app`。`scripts/start-chat-to-fix.sh` 把 `config/cordis.patch.yml` 作为 `--patch` 追加在上面。DSH 自己的 web 配置档不用。补丁里带 `config` 的行会整体替换该行的配置；也可以用 `disabled: true` 把一行关掉。
 
 | 行 | 内容 | 作用 |
 |---|---|---|
@@ -246,14 +246,14 @@ DSH 以无界面方式运行，用 `runtime/` 里自带的 DSH 0.2.2-rc.1（不�
 
 ### 4.3a 启动和停止脚本
 
-- `scripts/start-chat-to-fix.sh` 先清空环境，只保留 `PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`LC_ALL`、`LC_CTYPE`、`TERM`、代理变量、`ANTHROPIC_API_KEY`、Slack/Jira/GitLab 三个令牌、`CHAT_TO_FIX_JIRA_EMAIL`、`CLAUDE_BIN`、`CHAT_TO_FIX_HTTP_TOKEN`，以及 `CHAT_TO_FIX_PASS_ENV` 里列的名字。然后把原本落在家目录下的位置改到数据目录里：`DSH_HOME`、`DSH_AGENTS_HOME`、`TMPDIR`、`XDG_*_HOME`、npm 缓存和工作目录，都在 `$CHAT_TO_FIX_DATA`（默认 `.data`）下。正常运行时 `HOME` 本身不改。
+- `scripts/start-chat-to-fix.sh` 先清空环境，只保留 `PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`LC_ALL`、`LC_CTYPE`、`TERM`、代理变量、`ANTHROPIC_API_KEY`、Slack/Jira/GitLab 三个令牌、`CHAT_TO_FIX_JIRA_EMAIL`、`CLAUDE_BIN`、`CHAT_TO_FIX_HTTP_TOKEN`，以及 `CHAT_TO_FIX_PASS_ENV` 里列的名字。然后把原本落在家目录下的位置改到数据目录里：`DSH_HOME`、`DSH_AGENTS_HOME`、`TMPDIR`、`XDG_*_HOME`、npm 缓存和工作目录，都在 `$CHAT_TO_FIX_DATA` 下。`npm start` 的默认目录是 `src/chat-to-fix/.data/connected/`。正常运行时 `HOME` 本身不改。
 - 进程在自己的进程组里，pid 和日志放在 `$CHAT_TO_FIX_DATA/run/`。`scripts/stop-chat-to-fix.sh` 停这个进程组（先 SIGTERM，15 秒后 SIGKILL），从不按名字杀进程。
 - 仍然存在的已知泄漏（列在 `config/README.md`）：`~/.npm/_logs` 下的 npm 调试日志、登录 shell 读 `~/.zprofile`、Claude Code 往 `~/.claude` 写东西。
 
 ### 4.3b 本机路径和 README
 
-- 机器相关的路径已移出仓库（提交 3f6806a、db267ea）：`scripts/dev-env.sh` 不再写死任何路径。它先读 `scripts/dev-env.local.sh`（在 `.gitignore` 里，不进 git；可设 `CHAT_TO_FIX_NODE_BIN`、`CLAUDE_BIN`），Node 24 取自 `CHAT_TO_FIX_NODE_BIN` 或 `PATH`，`DSH_HARNESS` 默认是项目根的 `runtime`，`CLAUDE_BIN` 没设时取 `PATH` 上的 `claude`。项目根取 `CHAT_TO_FIX_ROOT`，否则从当前目录往上找含 `scripts/dev-env.sh` 的目录，所以在 `bot/` 等子目录也能用；启动脚本调用它时会带上 `CHAT_TO_FIX_ROOT`。
-- 代码仓库根目录有了 `README.zh.md`：一页说明做什么、七步（README 在提交 192a721 里仍写七步，落后于代码的八步）、bot 分工、做到哪、怎么跑。设计文档仍以本文件夹为准。
+- 机器相关的路径已移出仓库（提交 3f6806a、db267ea）：`scripts/dev-env.sh` 不再写死任何路径。它先读 `scripts/dev-env.local.sh`（在 `.gitignore` 里，不进 git；可设 `CHAT_TO_FIX_NODE_BIN`、`CLAUDE_BIN`），Node 24 取自 `CHAT_TO_FIX_NODE_BIN` 或 `PATH`，`DSH_HARNESS` 默认指向仓库根目录安装的 DSH 包，`CLAUDE_BIN` 没设时取 `PATH` 上的 `claude`。项目根取 `CHAT_TO_FIX_ROOT`，否则从当前目录往上找含 `scripts/dev-env.sh` 的目录，所以在 `bot/` 等子目录也能用；启动脚本调用它时会带上 `CHAT_TO_FIX_ROOT`。
+- Agent 的运行说明见 `src/chat-to-fix/README.zh.md`；仓库入口是根目录的 `README.md`。
 
 ### 4.4 历史工单评测（E2）
 
@@ -292,11 +292,11 @@ DSH 以无界面方式运行，用 `runtime/` 里自带的 DSH 0.2.2-rc.1（不�
 
 ### 4.7 验证工具
 
-- `scripts/smoke.ts`（`npm run smoke`）：在自带的运行时里启动本工程，用本地的模拟模型（`scripts/mock-llm.ts`，它还会拒绝并记录其他任何外发请求）和一个代替 Claude Code 的桩（`scripts/lib/fake-claude.sh`）。不用密钥，不调用真实模型。它发一个 @，跟着任务走到运行中，检查五个 bot 和群、每个 bot 会话的 agent 预设、主 bot 请求里的工具列表、套接字，还检查主 bot 的一轮有一条按价格表算出费用的 `usage` 记录、`task.usage` 把它加起来（见规格 2、5），最后把一切停掉。`--sentinel-home` 把 HOME 设为一个空目录，家目录下的所有写入都能被准确列出。
+- `scripts/smoke.ts`（`npm run smoke:agent`）：在本机运行时里启动本工程，用本地的模拟模型（`scripts/mock-llm.ts`，它还会拒绝并记录其他任何外发请求）和一个代替 Claude Code 的桩（`scripts/lib/fake-claude.sh`）。不用密钥，不调用真实模型。它发一个 @，跟着任务走到运行中，检查五个 bot 和群、每个 bot 会话的 agent 预设、主 bot 请求里的工具列表、套接字，还检查主 bot 的一轮有一条按价格表算出费用的 `usage` 记录、`task.usage` 把它加起来（见规格 2、5），最后把一切停掉。`--sentinel-home` 把 HOME 设为一个空目录，家目录下的所有写入都能被准确列出。
 - `scripts/isolation-snapshot.sh`：列出工程之外 DSH 默认会写的那些位置的名字和修改时间（不读内容）；运行前后各跑一次再 diff。
 - `scripts/first-run.ts`：在工程之外的新目录里准备第一次真实运行（一个测试仓库、假适配器的配置、指明 Claude Code CLI 的 DSH 叠加文件），并打印启动、注入、查看、停止的命令。它只做准备，不调用模型。API 密钥取自环境变量或 macOS 钥匙串，从不打印也不写入。
 - `scripts/fake-event.ts` 注入一个假的 @；`scripts/e2e/` 是用真实模型的用例集（4.4）。
-- 测试：`npm test`、`npm run test:bot`、`npm run test:layer`；`npm run typecheck`。
+- 测试：`npm test`、`npm run test:agent-bot`、`npm run test:agent-layer`；`npm run typecheck`。
 
 ## 5. 代码参考
 

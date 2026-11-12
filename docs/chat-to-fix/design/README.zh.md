@@ -15,7 +15,7 @@
 | [kickoff-plan.zh.md](kickoff-plan.zh.md) | （历史）开工方案：从 DS Bot 搬哪些文件、要改哪里、五天的顺序 | 想了解最初计划的人；第 6 节镜像仍是待办 |
 | [questions-for-colleagues.zh.md](questions-for-colleagues.zh.md) | 要问同事的问题，两段可以直接发的消息 | 用户 |
 
-状态：设计文档最初写于 2026-11-11 开工前。software-spec、tools-and-limits、spec-1 至 spec-7 都已按代码（提交 192a721，八步、CI 修复循环、计费）更新，代码还没做到的标“未实现”。入口改为 `/fix` 是 2026-11-12 定的，代码还在实现，相关文字标了“实现中”。implementation-guide 和 kickoff-plan 是历史文档；decision-record 和 questions-for-colleagues 开头加了说明。
+状态：设计文档最初写于 2026-11-11 开工前。software-spec、tools-and-limits、spec-1 至 spec-7 曾按提交 192a721 的代码更新（八步、CI 修复循环、计费）。`/fix` 的 Agent 入口和本机模拟页面现已实现；真实 Slack Bot 的 `/fix` 接入仍未实现。部分正文沿用实现时的状态说明，当前入口以 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 和 [模拟 Bot 规格](../../../spec/mock-slack-bot.md) 为准。implementation-guide 和 kickoff-plan 是历史文档；decision-record 和 questions-for-colleagues 开头加了说明。
 
 目录说明：本文档组中指向 Agent 源码的旧 `src/...` 路径，在当前仓库对应 `src/chat-to-fix/core/...`。历史方案的路径保留原文。
 
@@ -29,6 +29,6 @@
 | 代码目录的定期清理写好了没人调用 | spec-3 第 4.4 节 | 不是本阶段的任务 |
 | `reviewMaxRounds` 没人读，`setupCommands` 只校验不执行 | tools-and-limits 第 4 节、spec-6 | 先放着 |
 | 开 MR 的强推在重跑时可能冲掉别人推到 `ai/<单号>` 上的提交 | spec-4 第 4.5 节、spec-7 第 4.5 节 | 2026-11-12 定，已实现（提交 192a721）：只追加提交、普通推送，被拒就停 |
-| 入口：Slack 斜杠命令 `/fix 问题描述` 为主，@ 只用于讨论串里的补充信息；需要的 Slack 权限随之变化 | software-spec 的监听口和入口、spec-4 的 Slack 适配器和权限表、decision-record 第 2.11 节第 5 条 | 2026-11-12 定，实现中（代码还没提交） |
+| 入口：Slack 斜杠命令 `/fix 问题描述`；本期不接收讨论串里的二次修改 | software-spec 的监听口和入口、spec-4 的 Slack 适配器和权限表、decision-record 第 2.11 节第 5 条 | Agent 的 `/fix` 入口和本机模拟页面已实现；真实 Slack Bot 尚未接入。`@` 补充信息是历史方案，不属本期范围 |
 
 还没定的：GitLab 适配器读错了超时配置的位置（spec-4 第 4.9 节）。
