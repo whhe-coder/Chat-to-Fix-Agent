@@ -298,6 +298,10 @@ test('checks: refusals, tool errors and an admitted skipped test run are caught'
   const admitted = evaluate(c, makeWorkspace(c), { records: [...recs().filter((r) => r.type !== 'round_end'), { type: 'round_end', role: 'coding', text: '修好了。但 sh test.sh 没有运行，命令被自动拒绝了。' }] })
   assert.deepEqual(failed(admitted), ['tests_were_run'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c), { mr: { description: 'Not verified: `sh test.sh` was NOT run.' } })), ['tests_were_run'])
+  // Real copy-typo run, 2026-11-12: the tests ran and passed; only the read-only reviewer did not run them.
+  const reviewerOnly = '**测试：** 运行 `sh test.sh`，3 项测试全部通过。\n**未验证：** - reviewer 自己没有运行测试，也没有逐行核对 `git diff`。'
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c), { records: [...recs().filter((r) => r.type !== 'round_end'), { type: 'round_end', role: 'coding', text: reviewerOnly }] })), [])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c), { mr: { description: 'Not verified: The reviewer did not run the tests. The tests were not run.' } })), ['tests_were_run'])
 })
 
 test('checks: a secret-looking string in Jira, Slack or the MR is caught', () => {
