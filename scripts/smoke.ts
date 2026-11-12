@@ -255,6 +255,23 @@ async function main() {
     check('the Main bot\'s reply appears in the execution record', false, `${error.message}; records: ${JSON.stringify((r.body.records ?? []).map((e) => [e.type, e.role, String(e.text ?? '').slice(0, 40)])).slice(0, 600)}`)
   }
 
+  // Token billing: the Main bot's round is a usage record read from DSH's own projections (tokenUsage, sessionStats),
+  // priced from the table, and the task's running summary adds it up. The mock model reports its tokens, so they are non-zero.
+  const USAGE_CHECK = 'the Main bot\'s round is a usage record from DSH projections, priced from the table, and task.usage adds it up'
+  try {
+    const usage = await until('a usage record of the Main bot', async () => {
+      const r = await api('GET', `${taskUrl}?records=1`)
+      const record = (r.body.records ?? []).find((e) => e.type === 'usage' && e.role === 'main')
+      return record === undefined ? undefined : { record, summary: r.body.usage }
+    }, 30_000)
+    const u = usage.record
+    check(USAGE_CHECK,
+      u.source === 'dsh' && u.model === MODEL && u.input + u.output > 0 && typeof u.costUsd === 'number' && usage.summary?.calls >= 1 && usage.summary.byRole?.main?.usd > 0,
+      `${u.text}; task.usage: $${usage.summary?.totalUsd} over ${usage.summary?.calls} record(s), tps ${u.outputTps ?? 'none'} (${u.tpsBasis ?? '-'})`)
+  } catch (error) {
+    check(USAGE_CHECK, false, error.message)
+  }
+
   const sockets = (await lsof('-i')).split('\n').slice(1).filter(Boolean)
   writeFileSync(join(DATA, 'sockets-running.txt'), sockets.join('\n') + '\n')
   const outward = sockets.filter((l) => !/127\.0\.0\.1|\[::1\]/.test(l))

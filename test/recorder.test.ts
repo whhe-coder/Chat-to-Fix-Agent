@@ -143,7 +143,7 @@ test('entries keep the order of the events, and stop() unsubscribes', async () =
   for (let i = 0; i < 20; i++) r.botlayer.emit.groupLine({ groupId: r.groupId, kind: 'line', botId: null, name: 'u', text: `line ${i}`, at: AT })
   const list = await entries(r)
   assert.deepEqual(list.map((e) => e.text), Array.from({ length: 20 }, (_, i) => `line ${i}`))
-  assert.equal(r.botlayer.subscriberCount(), 4)
+  assert.equal(r.botlayer.subscriberCount(), 5)
   r.recorder.stop()
   assert.equal(r.botlayer.subscriberCount(), 0)
   r.botlayer.emit.groupLine({ groupId: r.groupId, kind: 'line', botId: null, name: 'u', text: 'late', at: AT })
@@ -158,4 +158,80 @@ test('a second run of the same task numbers its entries by run', async () => {
   r.botlayer.emit.groupLine({ groupId: group2, kind: 'line', botId: r.bots.main, name: 'Main', text: 'again', at: AT })
   const [entry] = await entries(r)
   assert.equal(entry.run, 2)
+})
+
+// ---- token billing: usage events become usage records and the task's running summary
+
+const dshCall = (r, role, over = {}) => ({
+  sessionId: r.bots[role], botId: r.bots[role], source: 'dsh', model: 'claude-sonnet-5-5', input: 4, output: 53, cacheRead: 0, cacheWrite: 9047,
+  costUsd: null, durationMs: 1000, ttftMs: 700, outputTps: 53, tpsBasis: 'dsh-decode', at: AT, ...over,
+})
+
+test('an API bot call becomes a usage record priced from the table, and counts in task.usage', async () => {
+  const r = await rig()
+  r.botlayer.emit.usage(dshCall(r, 'jira'))
+  r.botlayer.emit.usage(dshCall(r, 'jira', { output: 100, cacheRead: 9047, cacheWrite: 0, input: 2, durationMs: 2000, outputTps: 50 }))
+  const [one, two] = await entries(r)
+  assert.equal(one.type, 'usage')
+  assert.deepEqual({ role: one.role, botId: one.botId, run: one.run, step: one.step, source: one.source, model: one.model }, { role: 'jira', botId: r.bots.jira, run: 1, step: 'fetch', source: 'dsh', model: 'claude-sonnet-5-5' })
+  assert.deepEqual([one.input, one.output, one.cacheRead, one.cacheWrite], [4, 53, 0, 9047])
+  assert.equal(one.costUsd, Number(((4 * 2 + 53 * 10 + 9047 * 2.5) / 1e6).toFixed(8)))
+  assert.deepEqual([one.costSource, one.unpriced, one.durationMs, one.ttftMs, one.outputTps, one.tpsBasis], ['table', false, 1000, 700, 53, 'dsh-decode'])
+  assert.match(one.text, /^usage claude-sonnet-5-5: in 4, out 53, cache read 0, cache write 9\.05k, \$0\.0/)
+  const usage = (await r.store.getTask(r.id)).usage
+  assert.equal(usage.calls, 2)
+  assert.equal(usage.totalUsd, Number((one.costUsd + two.costUsd).toFixed(8)))
+  assert.equal(usage.byRole.jira.output, 153)
+  assert.equal(usage.byRole.jira.outputTps, 51, '153 tokens / 3 s')
+  assert.equal(usage.byRun['1'].calls, 2)
+  assert.deepEqual(Object.keys(usage.byRole), ['jira'])
+})
+
+test('a Coding bot turn: one record per model with the CLI cost, the reviewer model apart', async () => {
+  const r = await rig({ step: 'code' })
+  const turn = { sessionId: r.bots.coding, botId: r.bots.coding, source: 'cli', effort: 'high', at: AT, durationMs: 20_000, tpsBasis: 'cli-api' }
+  r.botlayer.emit.usage({ ...turn, model: 'claude-sonnet-5-5', input: 28, output: 3915, cacheRead: 248_280, cacheWrite: 26_070, costUsd: 0.2143, outputTps: 195.75 })
+  r.botlayer.emit.usage({ ...turn, model: 'claude-opus-5-5', input: 5, output: 700, cacheRead: 9000, cacheWrite: 0, costUsd: 0.05, durationMs: 4000, outputTps: 175 })
+  const list = (await entries(r)).filter((e) => e.type === 'usage')
+  assert.deepEqual(list.map((e) => [e.role, e.model, e.costUsd, e.costSource, e.effort, e.source]), [
+    ['coding', 'claude-sonnet-5-5', 0.2143, 'cli', 'high', 'cli'],
+    ['coding', 'claude-opus-5-5', 0.05, 'cli', 'high', 'cli'],
+  ])
+  const usage = (await r.store.getTask(r.id)).usage
+  assert.equal(usage.byRole.coding.usd, 0.2643)
+  assert.deepEqual(usage.byRole.coding.models, ['claude-sonnet-5-5', 'claude-opus-5-5'])
+  assert.deepEqual(usage.byModel['claude-opus-5-5'].last, { model: 'claude-opus-5-5', outputTps: 175, tpsBasis: 'cli-api', effort: 'high' })
+})
+
+test('a CLI turn without a cost falls back to the table; an unknown model is unpriced', async () => {
+  const r = await rig({ step: 'code' })
+  r.botlayer.emit.usage({ sessionId: r.bots.coding, botId: r.bots.coding, source: 'cli', model: 'claude-sonnet-5-5', input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null, durationMs: 0, outputTps: null, tpsBasis: null, at: AT })
+  r.botlayer.emit.usage(dshCall(r, 'main', { model: 'mystery-1' }))
+  const [a, b] = await entries(r)
+  assert.deepEqual([a.costUsd, a.costSource, a.unpriced], [2, 'table', false])
+  assert.deepEqual([b.costUsd, b.costSource, b.unpriced], [null, null, true])
+  assert.match(b.text, /unpriced/)
+  const usage = (await r.store.getTask(r.id)).usage
+  assert.equal(usage.unpriced, true)
+  assert.equal(usage.totalUsd, 2, 'the unpriced call adds no cost')
+  assert.equal(usage.byModel['mystery-1'].unpriced, true)
+})
+
+test('configured pricing reaches the recorder; usage of a session in no task is ignored; a second run is booked under run 2', async () => {
+  const r = await rig()
+  const priced = createRecorder({ store: r.store, botlayer: r.botlayer, pricing: { 'claude-sonnet-5-5': { input: 100, output: 0, cacheRead: 0 } }, warn: () => {} })
+  r.recorder.stop()
+  priced.start()
+  r.botlayer.emit.usage({ ...dshCall(r, 'main'), sessionId: 'nobody', botId: 'nobody' })
+  r.botlayer.emit.usage(dshCall(r, 'main', { input: 1e6, output: 0, cacheWrite: 0 }))
+  await priced.flush()
+  assert.equal((await r.store.readRecords(r.id)).filter((e) => e.type === 'usage').length, 1)
+  assert.equal((await r.store.readRecords(r.id))[0].costUsd, 100)
+  await r.store.endRun(r.id, 'needs_info', 'needs_info')
+  await r.store.startRun(r.id, { groupId: r.groupId, bots: r.bots })
+  r.botlayer.emit.usage(dshCall(r, 'main', { input: 1e6, output: 0, cacheWrite: 0 }))
+  await priced.flush()
+  const usage = (await r.store.getTask(r.id)).usage
+  assert.deepEqual(Object.keys(usage.byRun).sort(), ['1', '2'])
+  assert.equal(usage.totalUsd, 200)
 })

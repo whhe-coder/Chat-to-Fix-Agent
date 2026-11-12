@@ -2,6 +2,8 @@
 // Credentials come only from environment variables. They are never copied into the returned
 // configuration and never appear in an error message (only the variable NAME may be mentioned).
 import { readFileSync } from 'node:fs'
+import { EFFORT_LEVELS } from './engine/args.ts'
+import { pricingProblems } from './task/pricing.ts'
 
 export const DEFAULT_LIMITS = Object.freeze({
   taskMinutes: 80,
@@ -25,6 +27,7 @@ export const DEFAULT_LIMITS = Object.freeze({
 const DEFAULTS = {
   language: 'zh',
   codingModel: 'claude-code/default',
+  codingEffort: 'high',
   codingPermission: 'workspace-write',
   engineAuth: 'login',
   jiraTransitions: ['In Review'],
@@ -139,6 +142,12 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   if (engineAuth !== 'login' && engineAuth !== 'apiKey') problems.push('engineAuth must be "login" or "apiKey"')
   else if (engineAuth === 'apiKey' && secret(env, 'ANTHROPIC_API_KEY') === undefined) problems.push('engineAuth is "apiKey" but ANTHROPIC_API_KEY is not set')
 
+  // codingEffort: --effort of the Coding bot and its reviewer (low, medium, high, xhigh, max).
+  const codingEffort = raw.codingEffort ?? DEFAULTS.codingEffort
+  if (!EFFORT_LEVELS.includes(codingEffort)) problems.push(`codingEffort must be one of ${EFFORT_LEVELS.join(', ')}`)
+  // pricing: rows of the price table (USD per million tokens) that replace or add to src/task/pricing.ts.
+  problems.push(...pricingProblems(raw.pricing))
+
   // bindings
   const bindings = []
   if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) problems.push('missing bindings (at least one entry is required)')
@@ -193,6 +202,8 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     language: raw.language ?? DEFAULTS.language,
     apiModel: raw.apiModel,
     codingModel: raw.codingModel ?? DEFAULTS.codingModel,
+    codingEffort,
+    ...(raw.pricing === undefined ? {} : { pricing: raw.pricing }),
     codingPermission: raw.codingPermission ?? DEFAULTS.codingPermission,
     engineAuth,
     adapters,

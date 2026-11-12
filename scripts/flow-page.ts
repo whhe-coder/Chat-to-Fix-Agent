@@ -20,6 +20,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { connection } from './show-task.ts'
 import { buildChat, CHAT_CSS, CHAT_JS } from './debug-ui/chat.ts'
+import { fmtUsd, roundView, usageView } from '../src/task/usage.ts'
 
 export const DEFAULT_PORT = 3092
 export const LABEL_MAX = 200 // a safety cap only: the page cuts a label to the room it has between its lifelines
@@ -102,6 +103,7 @@ function buildDetailed(records, task) {
   const lastRoundArrow: any = {} // role -> the arrow of that round_end (the group's copy of it joins its recordIds)
   const justEnded: any = {} // role -> true while its round_end has not yet been followed by another record of that role
   const lastCallRole: any = {} // tool -> role of its latest call (for records that do not name a role)
+  const roundUsage: any = {} // role -> its usage records since its latest round_end (shown in that round's popup)
   let step: string | null = null
   let awaitTaskLine = false
 
@@ -224,6 +226,18 @@ function buildDetailed(records, task) {
     else if (isLane(r.role)) arrow = push(r, { from: r.role, to: 'main', kind: 'reply', label: text, detail: text, failed: Boolean(r.failed) })
     else arrow = grey(r, text)
     if (isLane(r.role)) lastRoundArrow[r.role] = arrow
+    // what this round cost: the usage records the bot wrote since its previous round end (src/task/usage.ts roundView)
+    const usage = isLane(r.role) ? roundView(roundUsage[r.role]) : null
+    if (usage !== null) arrow.usage = usage
+    if (isLane(r.role)) delete roundUsage[r.role]
+  }
+
+  // A usage record (one model call or one model of a CLI turn): drawn only in the detailed view, as a small self-loop;
+  // its figures also go to the popup of the round it belongs to.
+  const onUsage = (r) => {
+    if (isLane(r.role)) (roundUsage[r.role] ??= []).push(r)
+    const lane = roleLane(r)
+    push(r, { from: lane, to: lane, kind: 'self', label: `用量 ${r.model ?? ''} ${r.unpriced ? '未定价' : fmtUsd(r.costUsd)}`.trim(), detail: String(r.text ?? ''), minor: true })
   }
 
   const onLine = (r) => {
@@ -258,6 +272,7 @@ function buildDetailed(records, task) {
         case 'tool_call': onToolCall(r); break
         case 'tool_result': onToolResult(r); break
         case 'round_end': onRoundEnd(r); break
+        case 'usage': onUsage(r); break
         case 'advance': {
           const m = /(\w+)\s*->\s*(\w+)/.exec(String(r.text ?? ''))
           const index = m ? STEP_LIST.findIndex((s) => s.id === m[2]) : -1
@@ -348,7 +363,7 @@ function codingFacts(text, review) {
 /** One record's view for the popup: what an arrow holds when it stands for several records. */
 const partOf = (a) => ({
   recordIds: [...a.recordIds], recordType: a.recordType, at: a.at, step: a.step, from: a.from, to: a.to, role: a.role, tool: a.tool, label: a.label,
-  detail: a.detail, args: a.args, result: a.result, ok: a.ok, ms: a.ms, resultAt: a.resultAt, failed: a.failed, pending: a.pending,
+  detail: a.detail, args: a.args, result: a.result, ok: a.ok, ms: a.ms, resultAt: a.resultAt, failed: a.failed, pending: a.pending, usage: a.usage ?? null,
 })
 
 /**
@@ -501,6 +516,7 @@ const trimTask = (task, now) => {
     createdAt: task.createdAt ?? null, updatedAt: task.updatedAt ?? null, elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
     jira: { key: task.jira?.key ?? null, url: task.jira?.url ?? null }, mr: { url: task.mr?.url ?? null },
     binding: { channel: task.binding?.channel ?? null, repo: task.binding?.repo ?? null },
+    usage: usageView(task.usage),
     runs: (task.runs ?? []).map((x) => ({ no: x.no, startedAt: x.startedAt ?? null, endedAt: x.endedAt ?? null, endReason: x.endReason ?? null })),
   }
 }
@@ -546,6 +562,7 @@ header .f { display: flex; gap: 5px; align-items: baseline; white-space: nowrap;
 header .f.shrink { overflow: hidden; }
 header .f.shrink a, header .f.shrink span:last-child { overflow: hidden; text-overflow: ellipsis; max-width: 30ch; }
 header .k { color: var(--muted); }
+header #costbox span:last-child { max-width: 80ch; }
 header a { color: var(--ink); }
 select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; max-width: 280px; }
 .badge { padding: 0 7px; border-radius: 9px; font-weight: 600; background: var(--lane-bg); border: 1px solid var(--lane-line); }
@@ -568,6 +585,7 @@ body.nochat #split, body.nochat #chatpane { display: none; }
 .lanes { display: flex; position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 4px 0 0; }
 .lanes.bottom { position: static; padding: 0 0 4px; }
 .lane { flex: none; padding: 0 5px; }
+.lane small { display: block; height: 14px; line-height: 14px; padding: 0 4px; text-align: center; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lane i { display: block; height: 28px; line-height: 26px; padding: 0 4px; text-align: center; font-style: normal; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--lane-bg); border: 1px solid var(--lane-line); border-radius: 3px; }
 svg { display: block; font-family: inherit; }
 svg text { fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
@@ -607,6 +625,9 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
 .phead b { color: var(--ink); font-weight: 600; }
 .phead .bad { color: var(--c-fail); font-weight: 600; }
 .phead .warn { color: var(--c-notice); }
+.usage { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); font-size: 11.5px; line-height: 1.55; }
+.usage b { color: var(--ink); font-weight: 600; }
+.usage .warn { color: var(--c-notice); }
 .blk { margin-top: 8px; }
 .bh { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
 .bh button { font: inherit; font-size: 11px; color: var(--ink); background: var(--lane-bg); border: 1px solid var(--lane-line); border-radius: 3px; padding: 0 7px; cursor: pointer; }
@@ -626,6 +647,7 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
   <div class="f"><span class="k">任务</span><select id="pick" aria-label="选择任务"></select></div>
   <div class="f"><span class="k">状态</span><span id="state" class="badge">-</span></div>
   <div class="f"><span class="k">已用</span><span id="elapsed">-</span></div>
+  <div class="f shrink" id="costbox" title="还没有用量记录"><span class="k">花费</span><span id="cost">-</span></div>
   <div class="f shrink"><span class="k">Jira</span><span id="jira">-</span></div>
   <div class="f shrink"><span class="k">MR</span><span id="mr">-</span></div>
   <div class="f"><span class="k">当前步骤</span><span id="step">-</span></div>
@@ -704,7 +726,10 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
   }
   function renderHeader() {
     var t = state.task, st = $('state');
-    if (!t) { st.textContent = '-'; st.className = 'badge'; $('elapsed').textContent = '-'; $('jira').textContent = '-'; $('mr').textContent = '-'; $('step').textContent = '-'; return; }
+    if (!t) { st.textContent = '-'; st.className = 'badge'; $('elapsed').textContent = '-'; $('jira').textContent = '-'; $('mr').textContent = '-'; $('step').textContent = '-'; $('cost').textContent = '-'; $('costbox').title = ''; return; }
+    // the bill: total cost and usage, the average output speed with DSH's part and the derived part named (the strings are built on the server)
+    $('cost').textContent = t.usage ? t.usage.line.replace(/^花费 /, '') : '-';
+    $('costbox').title = t.usage ? t.usage.title : '还没有用量记录';
     st.textContent = (STATES[t.state] || t.state) + (t.endReason && t.endReason !== 'completed' ? ' (' + t.endReason + ')' : '');
     st.className = 'badge ' + t.state;
     linkOrText($('jira'), t.jira && t.jira.key, t.jira && t.jira.url);
@@ -729,7 +754,7 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
     if (!list.length) { var o = document.createElement('option'); o.textContent = '(没有任务)'; sel.appendChild(o); return; }
     list.forEach(function (t) {
       var o = document.createElement('option'); o.value = t.id;
-      o.textContent = t.id + ' · ' + (STATES[t.state] || t.state) + (t.step ? ' · ' + (STEP_NAME[t.step] || t.step) : '') + (t.jiraKey ? ' · ' + t.jiraKey : '');
+      o.textContent = t.id + ' · ' + (STATES[t.state] || t.state) + (t.step ? ' · ' + (STEP_NAME[t.step] || t.step) : '') + (t.jiraKey ? ' · ' + t.jiraKey : '') + (t.totalUsd > 0 ? ' · $' + (t.totalUsd >= 0.01 ? t.totalUsd.toFixed(2) : t.totalUsd.toFixed(4)) + (t.unpriced ? '+' : '') : '');
       if (t.id === state.taskId) o.selected = true;
       sel.appendChild(o);
     });
@@ -825,7 +850,8 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
       svg.push('<line class="bandline" x1="0" y1="' + row.top + '" x2="' + W + '" y2="' + row.top + '"/><text class="cap" x="' + (onLeft ? 6 : W - 6) + '" y="' + (row.top + 10) + '" text-anchor="' + (onLeft ? 'start' : 'end') + '">' + esc(cap) + '</text>');
     });
     svg.push('</svg>');
-    var laneHtml = LANES.map(function (l) { return '<div class="lane" style="width:' + colW + 'px"><i title="' + esc(l.label) + '">' + esc(l.label) + '</i></div>'; }).join('');
+    var byRole = (state.task && state.task.usage && state.task.usage.byRole) || {};
+    var laneHtml = LANES.map(function (l) { var u = byRole[l.id]; return '<div class="lane" style="width:' + colW + 'px"><i title="' + esc(l.label) + '">' + esc(l.label) + '</i><small title="' + esc(u ? u.subtitle + (u.tpsLabel ? '\n速度：' + u.tpsLabel : '') : '') + '">' + esc(u ? u.subtitle : '') + '</small></div>'; }).join('');
     canvas.style.width = W + 'px';
     canvas.innerHTML = '<div class="lanes" style="width:' + W + 'px">' + laneHtml + '</div>' + (arrows.length ? svg.join('') : '<div class="empty">这个任务还没有记录</div>') + '<div class="lanes bottom" style="width:' + W + 'px">' + laneHtml + '</div>';
     // follow the newest arrow only while the user is at the bottom, is not scrolling and has no popup open
@@ -909,6 +935,12 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
     else if (p.ms != null) span(head, p.ms + ' ms');
     if (p.resultAt) { var rt = span(head, '结果 ' + clock(p.resultAt)); rt.title = fullTime(p.resultAt); }
     sec.appendChild(head);
+    if (p.usage && p.usage.lines && p.usage.lines.length) {
+      var u = document.createElement('div'); u.className = 'usage';
+      var ut = document.createElement('b'); ut.textContent = p.usage.title + (p.usage.unpriced ? '（含未定价，未计入花费）' : ''); u.appendChild(ut);
+      p.usage.lines.forEach(function (line) { var d = document.createElement('div'); d.textContent = line; u.appendChild(d); });
+      sec.appendChild(u);
+    }
     block(sec, '完整文本', p.detail, false);
     block(sec, '参数 args', p.args && p.args !== p.detail ? p.args : '', true);
     block(sec, '结果 result', p.result, true);
@@ -936,7 +968,7 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
   function chatSigOf(chat) {
     var m = chat && chat.messages || [], len = 0;
     m.forEach(function (x) { len += String(x.text || '').length + (x.ok === false ? 1 : 0); });
-    return m.length + ':' + len + ':' + (m.length ? m[m.length - 1].id : '');
+    return m.length + ':' + len + ':' + (m.length ? m[m.length - 1].id : '') + ':' + (chat && chat.usage ? chat.usage.line : '');
   }
   function renderChatPane() {
     var el = $('chat');
@@ -950,12 +982,12 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
 
   // ---- polling -----------------------------------------------------------------------------
   function status(ok, text) { $('dot').className = 'dot' + (ok ? '' : ' bad'); $('liveText').textContent = text; }
-  function sigOf(arrows) {
-    return arrows.length + ':' + arrows.map(function (a) { return a.uid + (a.pending ? 'p' : '') + (a.failed ? 'f' : '') + a.label.length + (a.sub || '').length + (a.parts ? a.parts.length : 0) + (a.result || '').length; }).join(',');
+  function sigOf(arrows, task) {
+    return arrows.length + ':' + arrows.map(function (a) { return a.uid + (a.pending ? 'p' : '') + (a.failed ? 'f' : '') + (a.usage ? 'u' : '') + a.label.length + (a.sub || '').length + (a.parts ? a.parts.length : 0) + (a.result || '').length; }).join(',') + '|' + (task && task.usage ? task.usage.line : '');
   }
   function apply(d, taskId, detailed) {
     if (taskId !== state.taskId || detailed !== state.detailed) return; // a late answer for another task or the other view
-    var before = state.arrows.length, sig = sigOf(d.arrows || []);
+    var before = state.arrows.length, sig = sigOf(d.arrows || [], d.task);
     state.task = d.task; state.fetchedAt = Date.now(); state.arrows = d.arrows || []; state.chat = d.chat || null;
     renderHeader();
     if (sig !== state.sig) {

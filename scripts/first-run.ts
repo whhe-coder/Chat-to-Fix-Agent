@@ -101,7 +101,9 @@ export async function prepareFirstRun(options: any = {}) {
     httpPort: port,
     language: 'zh',
     apiModel,
-    codingModel: 'claude-code/default',
+    // pinned (the owner's decision): the Coding bot and its reviewer run on Sonnet 5.5 at high effort, not the CLI default
+    codingModel: 'claude-code/claude-sonnet-5-5',
+    codingEffort: 'high',
     engineAuth,
     adapters: { slack: 'fake', jira: 'fake', gitlab: 'fake' },
     bindings: [{

@@ -577,3 +577,89 @@ test('parseArgs and connect: --dir, or --url with --token-file; the token comes 
   assert.deepEqual(connect({ url: 'http://127.0.0.1:9/', tokenFile: '/t/token' }, {}, read), { url: 'http://127.0.0.1:9', token: 'file-token' })
   assert.throws(() => connect({}, {}, read), /no connection/)
 })
+
+// ------------------------------------------------------------------ token billing
+
+const usageRec = (o: any = {}) => ({
+  type: 'usage', at: '2026-11-12T10:00:09.000Z', run: 1, step: 'issue', role: 'jira', botId: 'b-jira', model: 'claude-sonnet-5-5', source: 'dsh',
+  input: 4, output: 53, cacheRead: 0, cacheWrite: 9047, costUsd: 0.0236, costSource: 'table', unpriced: false, durationMs: 1000, ttftMs: 700, outputTps: 53, tpsBasis: 'dsh-decode', text: 'usage claude-sonnet-5-5: in 4', ...o,
+})
+const USAGE_RECORDS = [
+  rec({ type: 'system', role: null, botId: null, step: 'fetch', text: 'run 1 created: group g1, bots main=b-main jira=b-jira coding=b-coding' }),
+  usageRec(),
+  usageRec({ costUsd: 0.01, output: 100, durationMs: 2000, outputTps: 50, ttftMs: 500 }),
+  rec({ type: 'round_end', role: 'jira', botId: 'b-jira', step: 'issue', text: 'Jira 单号 DEMO-1' }),
+  usageRec({ role: 'coding', botId: 'b-coding', step: 'code', source: 'cli', model: 'claude-opus-5-5', effort: 'high', costUsd: 0.31, costSource: 'cli', tpsBasis: 'cli-api', outputTps: 120, output: 2400, durationMs: 20_000, ttftMs: undefined }),
+  rec({ type: 'round_end', role: 'coding', botId: 'b-coding', step: 'code', text: '改了 card.css' }),
+  rec({ type: 'round_end', role: 'jira', botId: 'b-jira', step: 'writeback', text: '已写' }),
+]
+
+test('usage records: a small self-loop in the detailed view only, and the round popup shows that round\'s cost, tokens, time and speed with its source', () => {
+  const detailed = buildDetailed(USAGE_RECORDS) as any[]
+  assert.equal(detailed.filter((a) => a.recordType === 'usage').length, 3)
+  const loop = detailed.find((a) => a.recordType === 'usage')
+  assert.deepEqual([loop.from, loop.to, loop.kind, loop.minor], ['jira', 'jira', 'self', true])
+  assert.match(loop.label, /^用量 claude-sonnet-5-5 \$0\.02/)
+  // the round end of the Jira bot carries both calls of its round, nothing of the Coding bot
+  const rounds = detailed.filter((a) => a.recordType === 'round_end')
+  const jira = rounds[0]
+  assert.equal(jira.usage.title, '本轮用量 · 2 次调用')
+  assert.equal(jira.usage.lines.length, 1)
+  assert.match(jira.usage.lines[0], /^claude-sonnet-5-5 · 花费 \$0\.03 · 输入 8 \/ 输出 153 \/ 缓存读 0 \/ 缓存写 18\.1k · 2 次调用 · 计时 3 s · 输出速度 51 tok\/s（DSH 统计（sessionStats：decodeTokens ÷ decodeMs））/)
+  assert.match(jira.usage.lines[0], /首 token 600 ms（DSH 统计）$/)
+  assert.equal(jira.usage.brief, '$0.03 · 51 tok/s DSH')
+  const coding = rounds[1]
+  assert.match(coding.usage.lines[0], /^claude-opus-5-5（effort high） · 花费 \$0\.31 · .* · 输出速度 120 tok\/s（推算（CLI 输出 token ÷ duration_api_ms））$/)
+  assert.equal(coding.usage.brief, '$0.31 · 120 tok/s 推算')
+  // the next round of the Jira bot starts from zero
+  assert.equal(rounds[2].usage, undefined)
+  // concise: no arrow of its own for a usage record, the figures ride on the round's arrow (and in its popup parts)
+  const concise = buildArrows(USAGE_RECORDS) as any[]
+  assert.equal(concise.some((a) => a.recordType === 'usage' && a.role === 'jira'), false)
+  const answer = concise.find((a) => a.recordType === 'round_end' && a.from === 'jira' && a.step === 'issue')
+  assert.equal(answer.usage.title, '本轮用量 · 2 次调用')
+  assert.equal(answer.parts[0].usage.brief, '$0.03 · 51 tok/s DSH')
+  assert.equal(concise.every((a) => Array.isArray(a.parts) ? true : false), true)
+  // the page prints it: a usage block in the popup
+  assert.match(PAGE_HTML, /p\.usage\.lines\.forEach/)
+})
+
+test('an unpriced model shows in the round popup as unpriced, with no cost made up', () => {
+  const arrows = buildDetailed([usageRec({ model: 'mystery-1', costUsd: null, unpriced: true }), rec({ type: 'round_end', role: 'jira', botId: 'b-jira', step: 'issue', text: 'x' })]) as any[]
+  const round = arrows.find((a) => a.recordType === 'round_end')
+  assert.equal(round.usage.unpriced, true)
+  assert.match(round.usage.lines[0], /^mystery-1 · 花费 \$0（含未定价）/)
+  assert.match(arrows[0].label, /未定价/)
+})
+
+test('proxy: the task view carries the bill (header line, per-bot lane subtitles) and the chat the same', async () => {
+  const usage = {
+    calls: 4, totalUsd: 0.67, usd: 0.67, input: 1000, output: 2600, cacheRead: 60_000, cacheWrite: 0, unpriced: false, tpsTokens: 2600, tpsMs: 22_000, outputTps: 118.18, models: [], sources: [], last: null,
+    byRole: {
+      jira: { usd: 0.36, input: 8, output: 153, cacheRead: 0, cacheWrite: 18_094, calls: 2, unpriced: false, tpsTokens: 153, tpsMs: 3000, outputTps: 51, models: ['claude-sonnet-5-5'], sources: ['dsh'], last: { model: 'claude-sonnet-5-5', outputTps: 51, tpsBasis: 'dsh-decode', effort: null } },
+      coding: { usd: 0.31, input: 992, output: 2447, cacheRead: 60_000, cacheWrite: 0, calls: 2, unpriced: false, tpsTokens: 2447, tpsMs: 19_000, outputTps: 128.79, models: ['claude-sonnet-5-5', 'claude-opus-5-5'], sources: ['cli'], last: { model: 'claude-opus-5-5', outputTps: 120, tpsBasis: 'cli-api', effort: 'high' } },
+    },
+    byModel: {}, byRun: {},
+  }
+  const task = { ...TASK, usage }
+  const fetchImpl: any = async (url) => ({ ok: true, status: 200, json: async () => (String(url).includes('records=1') ? { ...task, records: USAGE_RECORDS } : { tasks: [] }) })
+  const handle = createFlowHandler({ conn: { url: 'http://x', token: TOKEN }, fetchImpl })
+  const answer = await handle('GET', '/api/tasks/T-1', '127.0.0.1:3092')
+  const body = JSON.parse(answer.body)
+  const view = body.task.usage
+  assert.equal(view.line, '花费 $0.67 · 输入 1k / 输出 2.6k / 缓存读 60k · 平均 118 tok/s（DSH 51 · 推算 129）')
+  assert.match(view.title, /DSH：API bot 的速度.*推算：修复 bot 的速度/)
+  assert.equal(view.byRole.jira.subtitle, 'claude-sonnet-5-5 · $0.36 · 51 tok/s DSH')
+  assert.equal(view.byRole.coding.subtitle, 'claude-sonnet-5-5, claude-opus-5-5 · $0.31 · 129 tok/s 推算')
+  assert.equal(view.byRole.coding.effort, 'high')
+  assert.equal(body.chat.usage.line, view.line)
+  assert.equal(body.chat.members.find((m) => m.role === 'coding').usage.modelText, 'claude-sonnet-5-5, claude-opus-5-5')
+  // the page: header cost, lane subtitles, redraw when the bill changes
+  assert.match(PAGE_HTML, /id="cost"/)
+  assert.match(PAGE_HTML, /byRole\[l\.id\]/)
+  assert.match(PAGE_HTML, /task\.usage\.line/)
+  assert.equal(JSON.stringify(body).includes(TOKEN), false)
+  // a task without usage: no bill, the page shows a dash
+  const none = JSON.parse((await createFlowHandler({ conn: { url: 'http://x', token: TOKEN }, fetchImpl: (async (url) => ({ ok: true, status: 200, json: async () => (String(url).includes('records=1') ? { ...TASK, records: RECORDS } : { tasks: [] }) })) as any }).call(null, 'GET', '/api/tasks/T-1', '127.0.0.1:3092')).body)
+  assert.equal(none.task.usage, null)
+})

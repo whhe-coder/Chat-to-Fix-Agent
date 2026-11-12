@@ -22,10 +22,17 @@
 .cx-chat *, .cx-chat *::before, .cx-chat *::after { box-sizing: border-box; }
 
 /* header: group name, status line, member marks */
-.cx-head { flex: none; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; background: var(--cx-head); border-bottom: .5px solid var(--cx-line); }
+.cx-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; background: var(--cx-head); border-bottom: .5px solid var(--cx-line); }
 .cx-head-text { flex: 1 1 auto; min-width: 0; }
 .cx-title { font-size: 14px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cx-sub { font-size: 11px; line-height: 15px; color: var(--cx-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-bill { flex: 1 0 100%; font-size: 11px; line-height: 15px; color: var(--cx-ink2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-mems { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 10.5px; line-height: 16px; color: var(--cx-ink2); }
+.cx-mem { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.cx-mem .cx-mark { margin: 0; flex: none; }
+.cx-mem-name { color: var(--cx-ink); font-weight: 600; }
+.cx-mem-use { font-size: 10.5px; color: var(--cx-ink2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-use { margin-left: 2px; }
 .cx-stack { flex: none; display: flex; padding-left: 6px; }
 .cx-stack .cx-mark { margin-left: -6px; box-shadow: 0 0 0 2px var(--cx-head); }
 
@@ -114,3 +121,4 @@
 .cx-notice { margin: 8px 16px; padding: 3px 10px; border-radius: 10px; background: var(--cx-warn-soft); color: var(--cx-warn); }
 .cx-notice b { font-weight: 600; }
 .cx-sys-long { text-align: left; }
+.cx-mem .cx-mark-sm { width: 16px; height: 16px; font-size: 9px; }

@@ -23,6 +23,8 @@ export async function start(t, config: any = {}) {
   const prompts = []
   // Every request the bot layer made to create a session (cwd, workspaceId, agentPreset).
   const creates = []
+  // What the projections of a session report (see sessionController.projections below).
+  const totals = new Map()
   // What the local agents module registers on the llm service (a route list and the adapter).
   const adapters = []
   let sessions = 0
@@ -58,8 +60,12 @@ export async function start(t, config: any = {}) {
   Object.assign(ctx, {
     llm: {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'claude-code', name: 'Claude Code' }],
+      // The Claude Code route lists what the registered local-agents adapter lists (as DSH's llm service does);
+      // until it is registered, a short fixed list.
       listModels: async provider => (provider === 'claude-code'
-        ? [{ id: 'default', name: 'CLI default', inputModalities: ['text'] }, { id: 'sonnet', name: 'sonnet', inputModalities: ['text'] }]
+        ? (adapters.length > 0
+          ? (await adapters[0].adapter.listModels(provider)).map(model => ({ ...model, inputModalities: ['text'] }))
+          : [{ id: 'default', name: 'CLI default', inputModalities: ['text'] }, { id: 'sonnet', name: 'sonnet', inputModalities: ['text'] }])
         : [{ id: 'v4-flash', name: 'v4-flash', inputModalities: ['text'] }]),
       resolveModelInfo: async () => ({}),
       registerAdapter(routes, adapter) {
@@ -70,6 +76,12 @@ export async function start(t, config: any = {}) {
     },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
+      // DSH's per-session projections (tokenUsage, sessionStats); only when `config.projections` is set, so the
+      // other tests keep the plain synchronous round end. A test sets what a session reports: host.totals.set(id, { tokens, stats }).
+      ...(config.projections ? { projections: async ({ sessionId }) => {
+        const got = totals.get(sessionId)
+        return got === undefined ? null : { kind: 'sequenced', asOfSeq: 1, values: { tokenUsage: got.tokens, sessionStats: got.stats } }
+      } } : {}),
       create: async (request) => { creates.push(request); return { sessionId: `s${++sessions}` } },
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async (request) => { selected.push(request) },
@@ -80,7 +92,7 @@ export async function start(t, config: any = {}) {
   })
   // `config.build(ctx, home)` lets a test install something else on the context (the plugin
   // entry); it returns the facade or an object with a `botlayer`.
-  const { build, presets, ...rest } = config
+  const { build, presets, projections, ...rest } = config
   const built = build ? build(ctx, home) : createRuntime(ctx, { home, ...rest })
   const botlayer = built.botlayer ?? built
   const rt = runtimeOf(botlayer)
@@ -90,9 +102,9 @@ export async function start(t, config: any = {}) {
   })
   let seq = 0
   const turns = new Map()
-  const emit = (id, type, data) => {
+  const emit = (id, type, data, time?) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data, ...(time === undefined ? {} : { time }) })
     }
   }
   const tool = (name, args, sessionId, exec = {}) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, ...exec })
@@ -121,7 +133,7 @@ export async function start(t, config: any = {}) {
     assert.ok(adapters.length > 0, 'the local agent adapter was not registered')
     return adapters[0].adapter
   }
-  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, creates, emit, tool, begin, finish, adapters, localAdapter }
+  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, creates, totals, emit, tool, begin, finish, adapters, localAdapter }
 }
 
 export const settle = async (check) => {

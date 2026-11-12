@@ -63,7 +63,7 @@ test('engineAuth apiKey end to end: the key from the environment reaches the CLI
   const config: any = loadConfig({ path: configFile({ engineAuth: 'apiKey' }), env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.equal(JSON.stringify(config).includes(FAKE_KEY), false, 'the loaded configuration never holds the key')
   const settings: any = engineSettings(config, { ANTHROPIC_API_KEY: FAKE_KEY })
-  assert.deepEqual(Object.keys(settings).sort(), ['engineApiKey', 'engineAuth', 'engineMaxTurns'])
+  assert.deepEqual(Object.keys(settings).sort(), ['codingEffort', 'codingModel', 'engineApiKey', 'engineAuth', 'engineMaxTurns'])
   const { argv, env } = await echo(t, { runtime: settings })
   assert.equal(env.ANTHROPIC_API_KEY, FAKE_KEY)
   assert.equal(argv.some((arg) => String(arg).includes(FAKE_KEY)), false)

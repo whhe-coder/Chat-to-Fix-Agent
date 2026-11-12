@@ -40,7 +40,12 @@ export function install(rt) {
   }
 
   // How a Claude Code process is started for a Session: launch.js (arguments and environment).
-  const spawnEngine = (kind, route, spec) => new ClaudeEngine(route, spec, { findExecutable, launch: (sessionId, open) => launchFor(rt, sessionId, open) })
+  const spawnEngine = (kind, route, spec) => new ClaudeEngine(route, spec, {
+    findExecutable,
+    launch: (sessionId, open) => launchFor(rt, sessionId, open),
+    // The configured Coding model (`codingModel`, "claude-code/<id>") is a model of the route.
+    extraModels: () => [splitRef(rt.config?.codingModel)?.model].filter(id => typeof id === 'string' && id !== ''),
+  })
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
@@ -68,6 +73,8 @@ export function install(rt) {
     rt,
     findExecutable,
     engineOf,
+    // The CLI's per-turn usage reaches the task layer through the facade (src/task/botlayer.ts).
+    reportUsage: report => rt.botlayer?.reportEngineUsage?.(report),
     spawnEngine,
     record: sessionId => store().sessions[sessionId],
     saveRecord: (sessionId, record) => {

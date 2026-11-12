@@ -25,6 +25,8 @@ export function engineSettings(config, env = process.env) {
   return {
     engineAuth: config.engineAuth,
     engineMaxTurns: config.limits.engineMaxTurns,
+    codingEffort: config.codingEffort,
+    codingModel: config.codingModel,
     ...(config.engineAuth === 'apiKey' ? { engineApiKey: secret(env, 'ANTHROPIC_API_KEY') } : {}),
   }
 }

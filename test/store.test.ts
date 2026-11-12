@@ -352,3 +352,28 @@ test('writes leave no temporary files behind', async () => {
   assert.deepEqual((await readdir(join(dir, 'tasks', 'T-1'))).sort(), ['task.json'])
   assert.deepEqual((await readdir(dir)).sort(), ['index.json', 'tasks'])
 })
+
+test('addUsage keeps the running usage summary of the task, in order and under concurrency, and a task from before it works too', async () => {
+  const dir = await fresh()
+  const store = open(dir)
+  const task = await store.createTask(origin(), binding)
+  assert.equal(task.usage.totalUsd, 0)
+  assert.equal(task.usage.calls, 0)
+  const record = (over = {}) => ({ role: 'jira', run: 1, model: 'claude-sonnet-5-5', source: 'dsh', input: 1, output: 10, cacheRead: 0, cacheWrite: 0, costUsd: 0.5, durationMs: 1000, outputTps: 10, tpsBasis: 'dsh-decode', ...over })
+  await Promise.all([store.addUsage(task.id, record()), store.addUsage(task.id, record({ role: 'main' })), store.addUsage(task.id, record({ costUsd: null }))])
+  const read = (await open(dir).getTask(task.id)).usage
+  assert.equal(read.calls, 3)
+  assert.equal(read.totalUsd, 1)
+  assert.equal(read.unpriced, true)
+  assert.equal(read.byRole.jira.calls, 2)
+  assert.equal(read.outputTps, 10)
+  // a task.json written before billing existed has no usage field
+  const path = join(dir, 'tasks', task.id, 'task.json')
+  const old = JSON.parse(await readFile(path, 'utf8'))
+  delete old.usage
+  await writeFile(path, JSON.stringify(old))
+  const after = await open(dir).addUsage(task.id, record())
+  assert.equal(after.usage.totalUsd, 0.5)
+  // a task that does not exist is skipped with a warning, not thrown
+  assert.equal(await open(dir).addUsage('T-99', record()), undefined)
+})

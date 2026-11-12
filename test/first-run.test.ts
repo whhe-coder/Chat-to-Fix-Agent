@@ -31,6 +31,8 @@ test('first-run writes the data folder outside the project: test repo, config, o
 
   const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
   assert.equal(config.apiModel, 'anthropic/claude-sonnet-5-5')
+  assert.equal(config.codingModel, 'claude-code/claude-sonnet-5-5', 'the Coding bot is pinned, not the CLI default')
+  assert.equal(config.codingEffort, 'high')
   assert.equal(config.engineAuth, 'apiKey')
   assert.deepEqual(config.adapters, { slack: 'fake', jira: 'fake', gitlab: 'fake' })
   assert.ok(config.dataDir.startsWith(r.dir) && config.worktreesDir.startsWith(r.dir))
@@ -207,4 +209,27 @@ test('show-task finds the connection from the first-run folder', () => {
   assert.throws(() => connection({}, {}), /no connection/)
   assert.match(formatTask(TASK), /branch=ai\/DEMO-1/)
   assert.match(formatRecord({ type: 'system', text: 'run ended' }), /system +run ended$/)
+})
+
+test('show-task prints the token bill: total, per role with models and where the speed comes from, per run, unpriced marks', async (t) => {
+  const bucket = (over = {}) => ({ usd: 0.1, input: 1000, output: 2000, cacheRead: 30_000, cacheWrite: 400, calls: 2, unpriced: false, outputTps: 50, models: ['claude-sonnet-5-5'], sources: ['dsh'], last: { model: 'claude-sonnet-5-5', outputTps: 50, tpsBasis: 'dsh-decode', effort: null }, ...over })
+  const usage = {
+    ...bucket({ usd: 0.62, calls: 5, unpriced: true }), totalUsd: 0.62,
+    byRole: { jira: bucket(), coding: bucket({ usd: 0.5, source: 'cli', models: ['claude-sonnet-5-5', 'claude-opus-5-5'], last: { model: 'claude-opus-5-5', outputTps: 120, tpsBasis: 'cli-api', effort: 'high' }, outputTps: 120, unpriced: true }) },
+    byModel: {}, byRun: { 1: bucket({ usd: 0.2 }), 2: bucket({ usd: 0.42 }) },
+  }
+  const s = await stub((url) => (url.startsWith('/tasks/T-1') ? [200, { ...TASK, usage, records: [{ at: '2026-11-12T10:00:06.000Z', type: 'usage', step: 'code', role: 'coding', text: 'usage claude-sonnet-5-5: in 28, out 3.92k, cache read 248k, cache write 26.1k, $0.2143, 195 tok/s' }] }] : [200, { tasks: [{ id: 'T-1', state: 'done', step: null, jiraKey: null, mrUrl: null, totalUsd: 0.62, unpriced: true }] }]))
+  t.after(s.close)
+  const out = []
+  await showTask({ id: 'T-1', conn: { url: s.url, token: 't' }, out: (l) => out.push(l) })
+  const text = out.join('\n')
+  assert.match(text, /usage {3}\$0\.62 {2}in 1k \/ out 2k \/ cache read 30k \/ cache write 400 {2}5 calls {2}avg 50 tok\/s {2}\(some calls unpriced/)
+  assert.match(text, /jira +claude-sonnet-5-5 +\$0\.10 .* 50 tok\/s \[DSH sessionStats: decodeTokens \/ decodeMs\]/)
+  assert.match(text, /coding +claude-sonnet-5-5, claude-opus-5-5 \(effort high\) +\$0\.50 .* 120 tok\/s \[derived: CLI output tokens \/ duration_api_ms\]/)
+  assert.match(text, /per run: run 1 \$0\.20, run 2 \$0\.42/)
+  assert.match(text, /usage claude-sonnet-5-5: in 28/)
+  assert.match(formatTask({ ...TASK, usage: undefined }), /usage {3}none yet/)
+  const list = []
+  await showTask({ conn: { url: s.url, token: 't' }, out: (l) => list.push(l) })
+  assert.match(list[0], /cost=\$0\.62\+unpriced$/)
 })

@@ -80,7 +80,7 @@ export function bridgeNames(rt, sessionId, requested = []) {
 // -> { args, env, permissionTimeoutMs, resumed }
 //
 // rt.config (from the plugin config, see src/plugin.ts): engineAuth ('login' | 'apiKey'),
-// engineApiKey (only with 'apiKey'), engineConfigRoot (parent of the private config dirs, see isolatedConfigDir), engineMaxTurns, testCommands (the plugin-level list of shell
+// engineApiKey (only with 'apiKey'), engineConfigRoot (parent of the private config dirs, see isolatedConfigDir), engineMaxTurns, codingEffort (--effort of the Coding bot and its reviewer; unset: the CLI's own default), testCommands (the plugin-level list of shell
 // commands the coding bot may run besides git status / git diff; the fallback), permissionTimeoutMs.
 // The task's own list comes first: rt.taskLayer.codingOptions(taskId).testCommands is the
 // `testCommands` of the task's binding (src/task/runner.ts), so each channel names its own.
@@ -99,13 +99,16 @@ export function launchFor(rt, sessionId, open) {
     // No permission prompt is ever asked, so a session that is not saved cannot be resumed: a
     // process that comes back later starts fresh and the adapter replays the conversation.
     const testCommands = own?.testCommands ?? config.testCommands ?? []
+    // The reviewer runs on the Coding bot's own model and effort, set explicitly in its definition.
+    const effort = config.codingEffort
     const args = codingArgs({
-      reviewer: { name: def.reviewer.name, description: REVIEWER_DESCRIPTION, prompt: loadPrompt(def.reviewer.instructions), tools: def.reviewer.tools },
+      reviewer: { name: def.reviewer.name, description: REVIEWER_DESCRIPTION, prompt: loadPrompt(def.reviewer.instructions), tools: def.reviewer.tools, model, effort },
       roleToolNames,
       mcpServer: { name: 'chat-to-fix', config: { url: open.mcp.url, token: open.mcp.token } },
       testCommands,
       maxTurns: config.engineMaxTurns,
       model,
+      effort,
       system: withTestCommands(open.system, testCommands),
       settings: isolation.settings,
     } as any)

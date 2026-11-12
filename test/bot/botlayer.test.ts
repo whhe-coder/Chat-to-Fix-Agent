@@ -270,3 +270,118 @@ test('the Coding bot is made with one session; setting its Claude Code model ope
   assert.equal(host.rt.botOf(bots.coding).appliedModel ?? host.rt.botOf(bots.coding).model, 'claude-code/default')
   assert.equal(host.rt.state.switching?.[bots.coding], undefined)
 })
+
+// ---- token billing: the usage events of the facade
+
+// What DSH's projections report for a session (checked against the package sources: tokenUsage is the token totals,
+// sessionStats the whole-log counts and wall times of @deepseek-ai/dsh-session-stats).
+const totals = (tokens, stats) => ({
+  tokens: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, ...tokens },
+  stats: { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0, ...stats },
+})
+
+test('an API bot round becomes a usage event from the difference of DSH\'s projections, fired before its round end; the speed is decodeTokens / decodeMs', async (t) => {
+  const host = await start(t, { projections: true })
+  const { ids } = await team(host)
+  const order = []
+  host.botlayer.onUsage(e => order.push(['usage', e]))
+  host.botlayer.onRoundEnd(e => order.push(['round', e]))
+  const id = ids[2]
+  host.totals.set(id, totals({ uncachedInputTokens: 10, outputTokens: 100, cacheWriteTokens: 5000 }, { ttftMs: 900, ttftSteps: 3, decodeMs: 4000, decodeTokens: 90 }))
+  host.emit(id, 'turn/start', { turn: 2 })
+  // the round: two calls, 3 s of generation for 150 tokens, two first tokens at 500 ms
+  host.totals.set(id, totals({ uncachedInputTokens: 16, outputTokens: 260, cacheReadTokens: 9000, cacheWriteTokens: 5200 }, { ttftMs: 1900, ttftSteps: 5, decodeMs: 7000, decodeTokens: 240 }))
+  host.emit(id, 'assistant/message', { message: { content: [{ type: 'text', text: 'DEMO-1 created' }] } })
+  host.emit(id, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => order.length === 2)
+  assert.deepEqual(order.map(([kind]) => kind), ['usage', 'round'])
+  const usage = order[0][1]
+  assert.deepEqual({ ...usage, at: typeof usage.at }, {
+    sessionId: id, botId: id, source: 'dsh', model: 'v4-flash', input: 6, output: 160, cacheRead: 9000, cacheWrite: 200, costUsd: null,
+    durationMs: 3000, tpsTokens: 150, ttftMs: 500, outputTps: 50, tpsBasis: 'dsh-decode', at: 'string',
+  })
+  assert.equal(order[1][1].text, 'DEMO-1 created')
+})
+
+test('a round that billed nothing, a session DSH reports nothing for, and a failing read are no usage event but the round end still comes', async (t) => {
+  const warnings = []
+  const host = await start(t, { projections: true })
+  host.rt.warn = (...args) => warnings.push(args.join(' '))
+  const { ids } = await team(host)
+  const usages = []
+  const rounds = []
+  host.botlayer.onUsage(e => usages.push(e))
+  host.botlayer.onRoundEnd(e => rounds.push(e))
+  // nothing billed in the round
+  host.totals.set(ids[1], totals({ outputTokens: 5 }, {}))
+  host.emit(ids[1], 'turn/start', { turn: 1 })
+  host.emit(ids[1], 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // DSH has no projections for the session (null)
+  host.emit(ids[2], 'turn/start', { turn: 1 })
+  host.emit(ids[2], 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // the read throws
+  host.ctx.sessionController.projections = async () => { throw new Error('boom') }
+  host.emit(ids[3], 'turn/start', { turn: 1 })
+  host.emit(ids[3], 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => rounds.length === 3)
+  assert.equal(usages.length, 0)
+  assert.deepEqual(rounds.map(r => r.botId), [ids[1], ids[2], ids[3]])
+})
+
+test('a stalled and an aborted round are billed as well; two rounds are two events, each its own difference', async (t) => {
+  const host = await start(t, { projections: true })
+  const { ids } = await team(host)
+  const usages = []
+  host.botlayer.onUsage(e => usages.push(e))
+  const id = ids[0]
+  host.totals.set(id, totals({}, {}))
+  host.emit(id, 'turn/start', { turn: 1 })
+  host.totals.set(id, totals({ uncachedInputTokens: 3, outputTokens: 20 }, {}))
+  host.emit(id, 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  await settle(() => usages.length === 1)
+  host.emit(id, 'turn/start', { turn: 2 })
+  host.totals.set(id, totals({ uncachedInputTokens: 5, outputTokens: 50 }, { decodeMs: 1000, decodeTokens: 30 }))
+  host.emit(id, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => usages.length === 2)
+  assert.deepEqual(usages.map(u => [u.input, u.output, u.outputTps, u.tpsBasis]), [[3, 20, null, null], [2, 30, 30, 'dsh-decode']])
+})
+
+test('the Coding bot is not counted twice: its DSH session is not read, the CLI turn is reported per model with the CLI cost', async (t) => {
+  const host = await start(t, { projections: true, claudeCommand: CLI.command, claudeCommandArgs: CLI.args, codingEffort: 'high' })
+  await host.localAdapter()
+  const { ids } = await team(host)
+  const events = []
+  host.botlayer.onUsage(e => events.push(e))
+  const id = ids[4]
+  // the Coding bot's own DSH session is not read: no projections, no usage event from DSH
+  host.rt.botOf(id).model = 'claude-code/default'
+  host.totals.set(id, totals({ outputTokens: 3915 }, {}))
+  host.emit(id, 'turn/start', { turn: 1 })
+  host.emit(id, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => true)
+  assert.equal(events.length, 0)
+  // what adapter.reportUsage passes on: the rows of model_usage_since_last_result and the turn's time
+  host.botlayer.reportEngineUsage({
+    sessionId: id, route: 'claude-code', model: 'claude-sonnet-5-5', durationMs: 30_000, durationApiMs: 20_000, failed: false,
+    models: [
+      { model: 'claude-sonnet-5-5', input: 28, output: 3000, cacheRead: 248_280, cacheWrite: 26_070, costUsd: 0.2 },
+      { model: 'claude-opus-5-5', input: 5, output: 1000, cacheRead: 9000, cacheWrite: 0, costUsd: 0.05 },
+    ],
+  })
+  assert.deepEqual(events.map(e => [e.source, e.model, e.effort, e.input, e.output, e.cacheRead, e.cacheWrite, e.costUsd, e.durationMs, e.outputTps, e.tpsBasis]), [
+    ['cli', 'claude-sonnet-5-5', 'high', 28, 3000, 248_280, 26_070, 0.2, 15_000, 200, 'cli-api'],
+    ['cli', 'claude-opus-5-5', 'high', 5, 1000, 9000, 0, 0.05, 5_000, 200, 'cli-api'],
+  ])
+  assert.ok(events.every(e => e.sessionId === id && e.botId === id))
+})
+
+test('a CLI turn without duration_api_ms is measured over duration_ms; without model rows the summed usage is booked under the init model; a failed turn is marked', async (t) => {
+  const host = await start(t)
+  const { ids } = await team(host)
+  const events = []
+  host.botlayer.onUsage(e => events.push(e))
+  host.botlayer.reportEngineUsage({ sessionId: ids[4], model: 'claude-sonnet-5-5', durationMs: 10_000, usage: { inputTokens: 5, outputTokens: 500, cacheReadTokens: 3, cacheCreationTokens: 7 }, models: [], failed: true })
+  host.botlayer.reportEngineUsage({ sessionId: 'not-a-team-session', model: 'm', models: [{ model: 'm', output: 1 }] })
+  assert.equal(events.length, 1)
+  assert.deepEqual([events[0].model, events[0].output, events[0].cacheWrite, events[0].costUsd, events[0].tpsBasis, events[0].outputTps, events[0].failed], ['claude-sonnet-5-5', 500, 7, null, 'cli-wall', 50, true])
+})

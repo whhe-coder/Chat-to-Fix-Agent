@@ -643,3 +643,48 @@ test('userConfigHome: CLAUDE_CONFIG_DIR when set, else ~/.claude', () => {
   assert.equal(userConfigHome({ HOME: '/Users/me', CLAUDE_CONFIG_DIR: '/x/cfg' }), '/x/cfg')
   assert.equal(userConfigHome({ HOME: '/Users/me', CLAUDE_CONFIG_DIR: '' }), '/Users/me/.claude')
 })
+
+// ---- model, effort and usage (token billing)
+
+test('args: --model and --effort, and the reviewer runs on the same model and effort', () => {
+  const args = codingArgs({
+    model: 'claude-sonnet-5-5', effort: 'high', roleToolNames: [], mcpServer: { config: { url: 'http://127.0.0.1:9/mcp', token: 't' } },
+    reviewer: { ...reviewer, model: 'claude-sonnet-5-5', effort: 'high' },
+  })
+  const at = flag => args[args.indexOf(flag) + 1]
+  assert.equal(at('--model'), 'claude-sonnet-5-5')
+  assert.equal(at('--effort'), 'high')
+  assert.deepEqual(JSON.parse(at('--agents')).reviewer, { description: reviewer.description, prompt: reviewer.prompt, tools: reviewer.tools, model: 'claude-sonnet-5-5', effort: 'high' })
+  // 'default' pins nothing: no --model, and the reviewer follows the default subagent model
+  const open = codingArgs({ model: 'default', roleToolNames: [], mcpServer: { config: { url: 'http://127.0.0.1:9/mcp', token: 't' } }, reviewer: { ...reviewer, model: 'default' } })
+  assert.ok(!open.includes('--model') && !open.includes('--effort'))
+  assert.equal(JSON.parse(open[open.indexOf('--agents') + 1]).reviewer.model, undefined)
+  assert.throws(() => claudeArgs({ effort: 'ultra' }), /unknown effort/)
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) assert.equal(claudeArgs({ effort: level }).at(-1), level)
+})
+
+test('session: done carries the turn\'s usage per model, its cost and the CLI durations; the init model is kept', async () => {
+  const session = await open()
+  try {
+    await session.prompt([{ type: 'text', text: 'fix it' }])
+    let done
+    for (;;) {
+      const event = await session.next()
+      if (event.type === 'done') { done = event; break }
+    }
+    assert.deepEqual(done.models, [{ model: 'fake-model', input: 10, output: 5, cacheRead: 3, cacheWrite: 7, costUsd: 0.01 }])
+    assert.equal(done.model, 'fake-model')
+    assert.equal(done.turnCostUsd, 0.01)
+    assert.deepEqual([done.durationMs, done.durationApiMs], [5, 4])
+  } finally { session.kill() }
+})
+
+test('session: a failed turn carries its usage too (it was billed all the same)', async () => {
+  const session = await open()
+  try {
+    await session.prompt('[maxturns]')
+    const event = await until(session, 'error')
+    assert.deepEqual(event.models, [{ model: 'fake-model', input: 10, output: 5, cacheRead: 3, cacheWrite: 7, costUsd: 0.01 }])
+    assert.equal(event.durationApiMs, 4)
+  } finally { session.kill() }
+})

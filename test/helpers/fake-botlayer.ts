@@ -9,7 +9,7 @@
 //   layer.bindings               Map botId -> { taskId, role }
 //   layer.fail                   make a function throw: fail.createBot = true | Error | { nth: 3, error? }
 //                                (nth counts calls to that function, starting at 1)
-//   layer.emit.groupLine(e) / sessionEvent(e) / toolResult(e) / roundEnd(e) / approval(e)
+//   layer.emit.groupLine(e) / sessionEvent(e) / toolResult(e) / roundEnd(e) / approval(e) / usage(e)
 //   layer.setQuiet(groupId, bool)   what isQuiet answers (default true)
 //   layer.linkSession(sessionId, botId)   a session id other than the bot id (default: same id)
 //
@@ -18,7 +18,7 @@
 const FUNCTIONS = [
   'createBot', 'createGroup', 'setGroupWorkDir', 'postTask', 'askBot', 'stopBot', 'stopGroup',
   'deleteGroup', 'deleteBot', 'groupExists', 'isQuiet', 'status',
-  'onGroupLine', 'onSessionEvent', 'onToolResult', 'onRoundEnd', 'onApproval', 'answerApproval',
+  'onGroupLine', 'onSessionEvent', 'onToolResult', 'onRoundEnd', 'onApproval', 'onUsage', 'answerApproval',
   'bindBot', 'unbindBot', 'botOfSession',
 ]
 
@@ -34,7 +34,7 @@ export function createFakeBotLayer({ fail = {} } = {}) {
   const sessions = new Map()
   const quiet = new Map()
   const answers = []
-  const subscribers = { groupLine: new Set(), sessionEvent: new Set(), toolResult: new Set(), roundEnd: new Set(), approval: new Set() }
+  const subscribers = { groupLine: new Set(), sessionEvent: new Set(), toolResult: new Set(), roundEnd: new Set(), approval: new Set(), usage: new Set() }
   let nextBot = 1
   let nextGroup = 1
 
@@ -125,6 +125,7 @@ export function createFakeBotLayer({ fail = {} } = {}) {
     onToolResult(fn) { enter('onToolResult', [fn]); return subscribe(subscribers.toolResult, fn) },
     onRoundEnd(fn) { enter('onRoundEnd', [fn]); return subscribe(subscribers.roundEnd, fn) },
     onApproval(fn) { enter('onApproval', [fn]); return subscribe(subscribers.approval, fn) },
+    onUsage(fn) { enter('onUsage', [fn]); return subscribe(subscribers.usage, fn) },
     answerApproval(id, choice) {
       enter('answerApproval', [id, choice])
       if (choice !== 'allow' && choice !== 'reject') throw new Error(`answerApproval: bad choice ${choice}`)
@@ -159,6 +160,7 @@ export function createFakeBotLayer({ fail = {} } = {}) {
     toolResult: fire(subscribers.toolResult),
     roundEnd: fire(subscribers.roundEnd),
     approval: fire(subscribers.approval),
+    usage: fire(subscribers.usage),
   }
   layer.subscriberCount = () => Object.values(subscribers).reduce((sum, set) => sum + set.size, 0)
   return layer

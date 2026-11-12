@@ -7,6 +7,8 @@
 // Approval events are not recorded here: the monitor rejects the approval and writes the one
 // `approval` entry itself (spec 3, 4.5), so subscribing would write it twice.
 import { stepDef } from '../flow/steps.ts'
+import { costOf, priceTable } from './pricing.ts'
+import { fmtTokens, fmtTps, fmtUsd } from './usage.ts'
 
 const argsText = (value) => {
   if (typeof value === 'string') return value
@@ -14,11 +16,13 @@ const argsText = (value) => {
 }
 
 /**
- * @param {{ store: import('./contracts.ts').TaskStore, botlayer: import('./contracts.ts').BotLayer, warn?: (...args: any[]) => void }} deps
+ * @param {{ store: import('./contracts.ts').TaskStore, botlayer: import('./contracts.ts').BotLayer, pricing?: object, warn?: (...args: any[]) => void }} deps
+ *   `pricing`: the configuration's `pricing` rows over the default price table (src/task/pricing.ts).
  * @returns {{ start: () => void, stop: () => void, flush: () => Promise<void> }}
  *   `flush()` resolves when every event received so far has been written (used by tests).
  */
-export function createRecorder({ store, botlayer, warn = (...args) => console.warn(...args) }) {
+export function createRecorder({ store, botlayer, pricing = undefined, warn = (...args) => console.warn(...args) }) {
+  const prices = priceTable(pricing)
   let off = []
   // Events are handled one after the other, so the entries of one task keep the order of the events.
   let chain = Promise.resolve()
@@ -120,11 +124,36 @@ export function createRecorder({ store, botlayer, warn = (...args) => console.wa
     await store.patchTask(task.id, { stepResults: { [task.step]: { [bot.role]: { text: e.text, at: e.at } } } })
   }
 
-  const handlers = { onGroupLine, onSessionEvent, onToolResult, onRoundEnd }
+  // One usage record per model call (API bots) or per model of a CLI turn (Coding bot), and the same record
+  // added to the task's running summary. The cost of an API call is computed from the price table; the CLI's
+  // own cost wins for the Coding bot. A model with no price gets costUsd null and unpriced true (never a guess).
+  // Fields: see src/task/usage.ts.
+  async function onUsage(e) {
+    const found = await ofSession(e.sessionId)
+    if (found === undefined) return
+    const { task, bot } = found
+    const tokens = { input: e.input ?? 0, output: e.output ?? 0, cacheRead: e.cacheRead ?? 0, cacheWrite: e.cacheWrite ?? 0 }
+    const cli = typeof e.costUsd === 'number' && Number.isFinite(e.costUsd)
+    const costUsd = cli ? e.costUsd : costOf(e.model, tokens, prices)
+    const record = {
+      at: e.at, type: 'usage', model: e.model ?? 'unknown', ...(e.effort === undefined ? {} : { effort: e.effort }), ...tokens,
+      costUsd, costSource: cli ? 'cli' : costUsd === null ? null : 'table', unpriced: costUsd === null,
+      source: e.source, durationMs: e.durationMs ?? 0, ...(e.tpsTokens === undefined ? {} : { tpsTokens: e.tpsTokens }), ...(e.ttftMs === undefined ? {} : { ttftMs: e.ttftMs }),
+      outputTps: e.outputTps ?? null, tpsBasis: e.tpsBasis ?? null, ...(e.failed ? { failed: true } : {}),
+      text: `usage ${e.model ?? 'unknown'}: in ${fmtTokens(tokens.input)}, out ${fmtTokens(tokens.output)}, cache read ${fmtTokens(tokens.cacheRead)}, cache write ${fmtTokens(tokens.cacheWrite)}, ${costUsd === null ? 'unpriced' : fmtUsd(costUsd)}${e.outputTps ? `, ${fmtTps(e.outputTps)}` : ''}${e.failed ? ' (failed call)' : ''}`,
+    }
+    const run = runOf(task, undefined)
+    await append(task, run, bot.role, bot.botId, record)
+    await store.addUsage(task.id, { ...record, role: bot.role, botId: bot.botId, run })
+  }
+
+  const handlers = { onGroupLine, onSessionEvent, onToolResult, onRoundEnd, onUsage }
 
   function start() {
     if (off.length > 0) return
-    for (const [name, handler] of Object.entries(handlers)) off.push(botlayer[name]((e) => later(() => handler(e))))
+    for (const [name, handler] of Object.entries(handlers)) {
+      if (typeof botlayer[name] === 'function') off.push(botlayer[name]((e) => later(() => handler(e))))
+    }
   }
 
   function stop() {

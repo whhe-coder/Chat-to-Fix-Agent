@@ -29,6 +29,7 @@ import { ALL_CASE_IDS, DEFAULT_CASE_IDS, loadCase } from './cases.ts'
 import { runChecks, summarize } from './checks.ts'
 import { loadManifest, prepareE2e, ROOT } from './prepare.ts'
 import { collectEvidence, inspectWorkspace } from './workspace.ts'
+import { fmtTokens, fmtTps, fmtUsd, mergeUsage, TPS_BASIS_LABEL } from '../../src/task/usage.ts'
 
 const exec = promisify(execFile)
 export const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
@@ -92,6 +93,13 @@ export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60
   const results = []
   const report: any = { dir, startedAt, finishedAt: undefined, interrupted: false, caseTimeoutMinutes: caseTimeoutMs / 60_000, results }
   const save = () => writeReport(dir, report)
+  const finish = () => {
+    report.finishedAt = new Date().toISOString()
+    report.passed = results.filter((r) => r.pass).length
+    report.total = results.length
+    report.usage = mergeUsage(results.map((r) => r.summary?.usage))
+    save()
+  }
   try {
     log('starting the system ...')
     await system.start()
@@ -131,20 +139,41 @@ export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60
       result.wallSec = Math.round((Date.now() - t0) / 1000)
       save()
     }
+    // The cases are over: the report is final now. Stopping the system comes after and can be slow (or the
+    // process can be killed during it); the report must not keep saying "not finished" for that.
+    finish()
   } catch (error) {
     report.error = error.message
     log(`the suite failed: ${error.message}`)
   } finally {
     try { await system.stop() } catch (error) { report.stopError = error.message; log(`could not stop the system: ${error.message}`) }
-    report.finishedAt = new Date().toISOString()
-    report.passed = results.filter((r) => r.pass).length
-    report.total = results.length
-    save()
+    finish()
   }
   return report
 }
 
 const mark = (ok) => (ok ? '[x]' : '[ ]')
+
+// ---- token billing in the report (task.usage, src/task/usage.ts)
+const costCell = (usage) => (usage && usage.calls > 0 ? `${fmtUsd(usage.totalUsd)}${usage.unpriced ? '（含未定价）' : ''}` : '-')
+const tokenText = (b) => `输入 ${fmtTokens(b.input)} / 输出 ${fmtTokens(b.output)} / 缓存读 ${fmtTokens(b.cacheRead)} / 缓存写 ${fmtTokens(b.cacheWrite)}`
+// 速度的来源：DSH 自己的算法（API bot），或由 CLI 结果推算（修复 bot）
+const basisText = (b) => (b.last?.tpsBasis === undefined || b.last?.tpsBasis === null ? '' : TPS_BASIS_LABEL[b.last.tpsBasis] ?? b.last.tpsBasis)
+const usageHeader = (report) => {
+  const u = report.usage
+  if (!u || !(u.calls > 0)) return []
+  return [`- 花费：${fmtUsd(u.totalUsd)}${u.unpriced ? '（含未定价的调用，未计入）' : ''}　${tokenText(u)}　${u.calls} 次调用`, `- 平均输出速度：${fmtTps(u.outputTps)}（总输出 token ÷ 总计时用时；API bot 的速度取自 DSH 的 sessionStats，修复 bot 的是按 CLI 结果推算，来源见各用例的“花费”表）`]
+}
+const usageSection = (u) => {
+  if (!u || !(u.calls > 0)) return []
+  const rows = Object.entries<any>(u.byRole ?? {}).map(([role, b]) => `| ${role} | ${b.models.join(', ')}${b.last?.effort ? `（effort ${b.last.effort}）` : ''} | ${fmtUsd(b.usd)}${b.unpriced ? '（含未定价）' : ''} | ${tokenText(b)} | ${b.calls} | ${fmtTps(b.outputTps)} | ${basisText(b) || '-'} |`)
+  return [
+    '', '### 花费', '',
+    `合计 ${fmtUsd(u.totalUsd)}${u.unpriced ? '（含未定价的调用，未计入）' : ''}；${tokenText(u)}；平均输出速度 ${fmtTps(u.outputTps)}。`, '',
+    '| bot | 模型 | 花费 | token | 调用数 | 输出速度 | 速度来源 |', '|---|---|---|---|---|---|---|',
+    ...rows,
+  ]
+}
 const fence = (s) => '```\n' + String(s ?? '').replace(/```/g, "'''") + '\n```'
 
 /** report.md (Chinese headings). */
@@ -152,19 +181,22 @@ export function renderReport(report) {
   const lines = [
     '# Chat-to-Fix 端到端回归报告', '',
     `- 运行目录：${report.dir}`,
-    `- 开始：${report.startedAt}　结束：${report.finishedAt ?? '(未结束)'}`,
+    `- 开始：${report.startedAt}　结束：${report.finishedAt ?? '（进行中，用例还没跑完）'}`,
     `- 结果：${report.passed ?? report.results.filter((r) => r.pass).length} / ${report.total ?? report.results.length} 个用例通过${report.interrupted ? '（被中断）' : ''}`,
     `- 单用例时间上限：${report.caseTimeoutMinutes} 分钟`,
+    ...usageHeader(report),
     ...(report.error ? [`- 套件错误：${report.error}`] : []),
     ...(report.stopError ? [`- 停止系统时出错：${report.stopError}`] : []),
     '', '## 总表', '',
-    '| 用例 | 结果 | 任务 | 状态 | 耗时(秒) | 评审轮数 | 记录数 | 拒绝 | 工具错误 |', '|---|---|---|---|---|---|---|---|---|',
-    ...report.results.map((r) => `| ${r.id} | ${r.pass ? '通过' : '失败'} | ${r.taskId ?? '-'} | ${r.summary?.state ?? '-'}${r.summary?.endReason ? ` (${r.summary.endReason})` : ''}${r.timedOut ? ' 超时' : ''} | ${r.summary?.durationSec ?? r.wallSec ?? '-'} | ${r.summary?.reviewRounds ?? '-'} | ${r.summary?.records ?? '-'} | ${r.summary?.refusals ?? '-'} | ${r.summary?.toolErrors ?? '-'} |`),
+    '| 用例 | 结果 | 任务 | 状态 | 耗时(秒) | 评审轮数 | 记录数 | 拒绝 | 工具错误 | 花费 | 输出速度 |', '|---|---|---|---|---|---|---|---|---|---|---|',
+    ...report.results.map((r) => `| ${r.id} | ${r.pass ? '通过' : '失败'} | ${r.taskId ?? '-'} | ${r.summary?.state ?? '-'}${r.summary?.endReason ? ` (${r.summary.endReason})` : ''}${r.timedOut ? ' 超时' : ''} | ${r.summary?.durationSec ?? r.wallSec ?? '-'} | ${r.summary?.reviewRounds ?? '-'} | ${r.summary?.records ?? '-'} | ${r.summary?.refusals ?? '-'} | ${r.summary?.toolErrors ?? '-'} | ${costCell(r.summary?.usage)} | ${fmtTps(r.summary?.usage?.outputTps)} |`),
+    ...(report.usage?.calls > 0 ? [`| 合计 | | | | | | | | | ${costCell(report.usage)} | ${fmtTps(report.usage.outputTps)} |`] : []),
   ]
   for (const r of report.results) {
     lines.push('', `## ${r.id}：${r.title} — ${r.pass ? '通过' : '失败'}`, '', '### 检查项', '')
     for (const c of r.checks) lines.push(`- ${mark(c.ok)} ${c.title}${c.detail ? ` — ${String(c.detail).replace(/\n/g, ' ')}` : ''}`)
     if (r.error) lines.push('', `执行错误：${r.error}`)
+    lines.push(...usageSection(r.summary?.usage))
     const t = r.summary?.texts
     if (t) {
       lines.push('', '### 最终文本', '', '**Slack 回复**', '')

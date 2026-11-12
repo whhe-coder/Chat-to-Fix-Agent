@@ -185,3 +185,18 @@ test('isolation: a bot of another role or an unbound session is isolated the sam
     assert.equal(launch.args.includes('--agents'), false, session)
   }
 })
+
+test('the Coding bot is started on its configured model and effort, and its reviewer runs on the same ones', () => {
+  const host = rt({ codingEffort: 'high' }, { roles: CODING, options: { 'T-1': { testCommands: ['sh test.sh'] } } })
+  const launch = launchFor(host, 'coding', { ...open, model: 'claude-sonnet-5-5' })
+  assert.equal(valueOf(launch.args, '--model'), 'claude-sonnet-5-5')
+  assert.equal(valueOf(launch.args, '--effort'), 'high')
+  const reviewer = JSON.parse(valueOf(launch.args, '--agents')).reviewer
+  assert.deepEqual([reviewer.model, reviewer.effort], ['claude-sonnet-5-5', 'high'])
+  // no effort configured (a bare runtime): the CLI keeps its own default; model 'default' pins nothing
+  const bare = launchFor(rt({}, { roles: CODING }), 'coding', open)
+  assert.ok(!bare.args.includes('--effort') && !bare.args.includes('--model'))
+  assert.equal(JSON.parse(valueOf(bare.args, '--agents')).reviewer.model, undefined)
+  // a bot of another role gets neither
+  assert.ok(!launchFor(host, 'main', { ...open, model: 'claude-sonnet-5-5' }).args.includes('--effort'))
+})

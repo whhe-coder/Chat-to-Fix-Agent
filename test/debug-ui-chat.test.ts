@@ -223,3 +223,50 @@ test('CHAT_JS builds DOM through createElement/textContent: the only innerHTML t
   assert.equal([...CHAT_JS.matchAll(/setHtml\(/g)].length, 2) // the definition and its one call, on chatMarkdown output
   assert.match(CHAT_JS, /setHtml\(text, chatMarkdown\(m\.text, st\.mdOpts\)\)/)
 })
+
+// ---- token billing: the bill in the members row, the total, and the cost of a round next to its message
+
+const U = (o: any = {}) => ({
+  type: 'usage', at: '2026-11-12T10:00:09.000Z', run: 1, step: 'issue', role: 'jira', botId: 'b-jira', model: 'claude-sonnet-5-5', source: 'dsh',
+  input: 4, output: 100, cacheRead: 0, cacheWrite: 0, costUsd: 0.5, unpriced: false, durationMs: 2000, outputTps: 50, tpsBasis: 'dsh-decode', text: 'usage ...', ...o,
+})
+const BILL_RECORDS = [
+  { at: '2026-11-12T10:00:00.000Z', type: 'system', step: 'fetch', role: null, botId: null, text: 'run 1 created: group g1, bots main=b-main jira=b-jira coding=b-coding' },
+  U(),
+  { at: '2026-11-12T10:00:10.000Z', type: 'round_end', step: 'issue', role: 'jira', botId: 'b-jira', text: 'DEMO-1 已建' },
+  U({ role: 'coding', botId: 'b-coding', step: 'code', source: 'cli', model: 'claude-opus-5-5', costUsd: 1.5, tpsBasis: 'cli-api', outputTps: 200, output: 400, effort: 'high' }),
+  { at: '2026-11-12T10:00:20.000Z', type: 'round_end', step: 'code', role: 'coding', botId: 'b-coding', text: '改好了' },
+  U({ role: 'main', botId: 'b-main', model: 'mystery', costUsd: null, unpriced: true }),
+]
+
+test('usage records make no chat rows; members carry their bill and the chat the total, built from the records when the task has none', () => {
+  const chat: any = buildChat(BILL_RECORDS, { id: 'T-1', runs: [{ no: 1, bots: { main: 'b-main', jira: 'b-jira', coding: 'b-coding' } }] })
+  assert.equal(chat.messages.some((m) => /usage|\[usage\]/.test(m.text)), false)
+  const jira = chat.members.find((m) => m.role === 'jira').usage
+  assert.deepEqual([jira.modelText, jira.costText, jira.tpsText, jira.tpsTag], ['claude-sonnet-5-5', '$0.50', '50 tok/s', 'DSH'])
+  const coding = chat.members.find((m) => m.role === 'coding').usage
+  assert.deepEqual([coding.modelText, coding.costText, coding.tpsText, coding.tpsTag, coding.effort], ['claude-opus-5-5', '$1.50', '200 tok/s', '推算', 'high'])
+  assert.match(coding.tpsLabel, /CLI 输出 token ÷ duration_api_ms/)
+  assert.equal(chat.members.find((m) => m.role === 'main').usage.costText, '$0（含未定价）')
+  assert.equal(chat.usage.costText, '$2.00（含未定价）')
+  assert.match(chat.usage.line, /^花费 \$2\.00（含未定价） · 输入 12 \/ 输出 600 \/ 缓存读 0 · 平均 /)
+  assert.equal(chat.members.find((m) => m.role === 'user'), undefined)
+})
+
+test('a bot\'s message carries what its round cost; the next round starts from zero; the task summary wins over the records', () => {
+  const chat: any = buildChat(BILL_RECORDS, { id: 'T-1', usage: { calls: 1, totalUsd: 9, usd: 9, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, byRole: {} }, runs: [{ no: 1, bots: { main: 'b-main', jira: 'b-jira', coding: 'b-coding' } }] })
+  const said = chat.messages.filter((m) => m.kind === 'message')
+  assert.deepEqual(said.map((m) => [m.role, m.usage?.brief]), [['jira', '$0.50 · 50 tok/s DSH'], ['coding', '$1.50 · 200 tok/s 推算']])
+  assert.match(said[0].usage.lines[0], /^claude-sonnet-5-5 · 花费 \$0\.50/)
+  assert.equal(chat.usage.costText, '$9.00', 'the running summary of the task is the bill')
+  assert.equal(buildChat([BILL_RECORDS[2]], {}).usage, null, 'no usage, no bill')
+})
+
+test('the chat client prints the bill: total line, a row per bot with model, cost and speed tag, the cost of a round beside its time', () => {
+  assert.match(CHAT_JS, /chat\.usage\.line/)
+  assert.match(CHAT_JS, /cx-mem-use/)
+  assert.match(CHAT_JS, /m\.usage\.tpsTag/)
+  assert.match(CHAT_JS, /m\.usage\.brief/)
+  assert.match(CHAT_CSS, /\.cx-mems/)
+  assert.doesNotThrow(() => new Script(CHAT_JS))
+})

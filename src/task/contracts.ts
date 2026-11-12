@@ -20,7 +20,7 @@ export const CLOSE_OUTCOMES = Object.freeze(['done', 'needs_info', 'failed', 'ne
 export const REPLY_PURPOSES = Object.freeze(['ack', 'question', 'result'])
 
 /** Types of execution-record entries. (spec 2, 2.4) */
-export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_result', 'round_end', 'advance', 'refused', 'limit', 'approval', 'system'])
+export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_result', 'round_end', 'advance', 'refused', 'limit', 'approval', 'system', 'usage'])
 
 /**
  * I1 bot-layer facade — src/task/botlayer.ts (spec 5, section 3)
@@ -42,6 +42,7 @@ export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_
  * @property {(fn: Function) => () => void} onToolResult
  * @property {(fn: Function) => () => void} onRoundEnd
  * @property {(fn: Function) => () => void} onApproval
+ * @property {(fn: Function) => () => void} onUsage
  * @property {(id: string, choice: 'allow' | 'reject') => void} answerApproval
  * @property {(botId: string, binding: {taskId: string, role: string}) => void} bindBot
  * @property {(botId: string) => void} unbindBot
@@ -85,6 +86,24 @@ export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_
  * @property {boolean} failed           True when the turn ended with an error or was stopped.
  * @property {string} at
  *
+ * @typedef {object} UsageEvent         onUsage (one round of an API bot, or one model of one Claude Code turn)
+ * @property {string} sessionId
+ * @property {string | null} botId
+ * @property {'dsh' | 'cli'} source     'dsh': DSH's tokenUsage and sessionStats projections, as the difference over the round; 'cli': the Claude Code result event.
+ * @property {string} model             The model that ran (what the provider or the CLI reported).
+ * @property {string} [effort]          The effort level the Coding bot was started with.
+ * @property {number} input             Uncached input tokens.
+ * @property {number} output
+ * @property {number} cacheRead
+ * @property {number} cacheWrite
+ * @property {number | null} costUsd    The CLI's own cost ('cli'); null for 'dsh', which the recorder prices from the table.
+ * @property {number} durationMs        The span the speed is measured over (DSH: decodeMs of sessionStats; CLI: duration_api_ms, else duration_ms).
+ * @property {number} [tpsTokens]       DSH only: decodeTokens, the output tokens of that span.
+ * @property {number} [ttftMs]          DSH only: mean time to first token over the round's steps (ttftMs / ttftSteps).
+ * @property {'dsh-decode' | 'cli-api' | 'cli-wall' | null} tpsBasis
+ * @property {boolean} [failed]
+ * @property {string} at
+ *
  * @typedef {object} ApprovalEvent      onApproval
  * @property {string} id
  * @property {string} sessionId
@@ -99,6 +118,7 @@ export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_
  * @property {(eventId: string) => (string | undefined)} knownEvent
  * @property {(origin: object, binding: object) => Promise<object>} createTask
  * @property {(id: string) => Promise<object | undefined>} getTask
+ * @property {(id: string, usageRecord: object) => Promise<object | undefined>} addUsage
  * @property {(channel: string, threadTs: string) => Promise<object | undefined>} findByThread
  * @property {(id: string, patch: object) => Promise<object>} patchTask
  * @property {(id: string, run: {groupId: string, bots: Record<string, string>}) => Promise<object>} startRun

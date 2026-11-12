@@ -45,7 +45,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
     limits: config.limits,
     onClosed: (id, state, reason) => runner.end(id, state, reason),
   })
-  const recorder = createRecorder({ store, botlayer, warn })
+  const recorder = createRecorder({ store, botlayer, pricing: config.pricing, warn })
   // `defineTool` is DSH's own tool constructor (@deepseek-ai/dsh-tools), passed in by the plugin entry;
   // without it the registry registers plain definitions, which is what the tests use.
   const tools = createToolRegistry({ store, gate, adapters, config, botlayer, warn, ...(defineTool ? { defineTool } : {}) })

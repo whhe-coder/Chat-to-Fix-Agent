@@ -11,7 +11,8 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { loadConfig } from '../src/config.ts'
 import { CASE_DEFS, DEFAULT_CASE_IDS, ALL_CASE_IDS, INJECTION_TOKEN, isAllowedFile, loadCase, loadCases } from '../scripts/e2e/cases.ts'
-import { CHECKS, checksFor, EXPECTED_STEPS, NOT_RUN_PATTERNS, SECRET_PATTERNS } from '../scripts/e2e/checks.ts'
+import { CHECKS, checksFor, EXPECTED_STEPS, NOT_RUN_PATTERNS, SECRET_PATTERNS, summarize } from '../scripts/e2e/checks.ts'
+import { mergeUsage } from '../src/task/usage.ts'
 import { loadManifest, prepareE2e } from '../scripts/e2e/prepare.ts'
 import { evaluateCase, parseArgs, renderReport, runSuite } from '../scripts/e2e/run.ts'
 import { collectEvidence, createCaseRepo, inspectWorkspace, newTestsOnBase, run, runHidden, sh, tempDir, testNamesOf, writeTree } from '../scripts/e2e/workspace.ts'
@@ -411,6 +412,8 @@ test('prepareE2e: one repository per case, one config with one binding per case,
   assert.ok(r.dir.startsWith(join(home, 'chat-to-fix-runs', 'e2e-')), r.dir)
   const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
   assert.equal(config.apiModel, 'anthropic/claude-sonnet-5-5')
+  assert.equal(config.codingModel, 'claude-code/claude-sonnet-5-5')
+  assert.equal(config.codingEffort, 'high')
   assert.equal(config.engineAuth, 'apiKey')
   assert.deepEqual(config.adapters, { slack: 'fake', jira: 'fake', gitlab: 'fake' })
   assert.deepEqual(config.bindings.map((b) => b.jiraProject), ['COPY', 'RADIUS', 'CLICK', 'FORM', 'PRICE', 'CART', 'SEC'])
@@ -620,4 +623,57 @@ test('renderReport: Chinese headings, the table, final texts', () => {
   assert.match(md, /\*\*Slack 回复\*\*/)
   assert.match(md, /COPY-1（In Review）t/)
   assert.match(md, /提交信息：fix: x/)
+})
+
+// ---- token billing in the report
+
+const bucket = (over = {}) => ({ usd: 0.1, input: 1000, output: 2000, cacheRead: 30_000, cacheWrite: 400, calls: 2, unpriced: false, tpsTokens: 2000, tpsMs: 40_000, outputTps: 50, models: ['claude-sonnet-5-5'], sources: ['dsh'], last: { model: 'claude-sonnet-5-5', outputTps: 50, tpsBasis: 'dsh-decode', effort: null }, ...over })
+const usageOf = (coding = 0.4) => ({
+  ...bucket({ usd: 0.1 + coding, calls: 4, output: 4000, tpsTokens: 4000, tpsMs: 60_000, outputTps: 66.67 }), totalUsd: 0.1 + coding,
+  byRole: { jira: bucket(), coding: bucket({ usd: coding, models: ['claude-sonnet-5-5', 'claude-opus-5-5'], sources: ['cli'], tpsMs: 20_000, outputTps: 100, last: { model: 'claude-opus-5-5', outputTps: 100, tpsBasis: 'cli-api', effort: 'high' } }) },
+  byModel: {}, byRun: {},
+})
+
+test('renderReport: cost and speed per case and in total, with the speed source named per bot', () => {
+  const usage = usageOf()
+  const md = renderReport({
+    dir: '/x', startedAt: 'a', finishedAt: 'b', caseTimeoutMinutes: 20, passed: 1, total: 1, usage: mergeUsage([usage]),
+    results: [{ id: 'copy-typo', title: '文案', pass: true, taskId: 'T-1', checks: [], summary: { state: 'done', endReason: 'completed', durationSec: 9, reviewRounds: 1, records: 3, refusals: 0, toolErrors: 0, usage } }],
+  })
+  assert.match(md, /- 花费：\$0\.50　输入 1k \/ 输出 4k \/ 缓存读 30k \/ 缓存写 400　4 次调用/)
+  assert.match(md, /- 平均输出速度：67 tok\/s/)
+  assert.match(md, /花费 \| 输出速度 \|/)
+  assert.match(md, /\| copy-typo \| 通过 \| T-1 \| done \(completed\) \| 9 \| 1 \| 3 \| 0 \| 0 \| \$0\.50 \| 67 tok\/s \|/)
+  assert.match(md, /\| 合计 \|.*\| \$0\.50 \| 67 tok\/s \|/)
+  assert.match(md, /### 花费/)
+  assert.match(md, /\| jira \| claude-sonnet-5-5 \| \$0\.10 \| 输入 1k .* \| 2 \| 50 tok\/s \| DSH 统计（sessionStats/)
+  assert.match(md, /\| coding \| claude-sonnet-5-5, claude-opus-5-5（effort high） \| \$0\.40 \| .* \| 100 tok\/s \| 推算（CLI 输出 token ÷ duration_api_ms）/)
+  // a case without usage and an unpriced one
+  const none = renderReport({ dir: '/x', startedAt: 'a', finishedAt: 'b', caseTimeoutMinutes: 20, results: [{ id: 'x', title: 't', pass: false, checks: [], summary: {} }] })
+  assert.doesNotMatch(none, /### 花费/)
+  assert.match(none, /\| - \| - \|$/m)
+  const unpriced = renderReport({ dir: '/x', startedAt: 'a', finishedAt: 'b', caseTimeoutMinutes: 20, results: [{ id: 'x', title: 't', pass: true, checks: [], summary: { usage: { ...usage, unpriced: true } } }] })
+  assert.match(unpriced, /\$0\.50（含未定价）/)
+})
+
+test('the report header says the run is in progress until it ended, and says it ended as soon as the cases are over (even while the system is still stopping)', async () => {
+  assert.match(renderReport({ dir: '/x', startedAt: 'a', caseTimeoutMinutes: 20, results: [] }), /结束：（进行中，用例还没跑完）/)
+  const { dir, manifest } = suiteFolder()
+  const server = await stubInterface({ state: () => 'done' })
+  const seen: string[] = []
+  const system = { start: async () => {}, stop: async () => { seen.push(readFileSync(join(dir, 'report.md'), 'utf8')) } }
+  const report = await runSuite({ dir, manifest, caseIds: ['copy-typo'], system, conn: () => ({ url: server.url, token: 'tok' }), pollMs: 5, caseTimeoutMinutes: 1, caseTimeoutMs: 10_000, log: () => {} } as any)
+  assert.match(seen[0], /结束：\d{4}-\d\d-\d\dT/, 'finished already when stop() runs')
+  assert.doesNotMatch(readFileSync(join(dir, 'report.md'), 'utf8'), /进行中/)
+  assert.ok(report.finishedAt && report.usage)
+})
+
+test('the e2e summary carries the task usage; mergeUsage adds cases together', () => {
+  const merged = mergeUsage([usageOf(0.4), usageOf(0.2), undefined])
+  assert.equal(merged.totalUsd, 0.8)
+  assert.equal(merged.byRole.coding.usd, 0.6)
+  assert.equal(merged.byRole.jira.calls, 4)
+  assert.deepEqual(merged.byRole.coding.models, ['claude-sonnet-5-5', 'claude-opus-5-5'])
+  assert.equal(merged.outputTps, 66.67, '8000 tokens / 120 s')
+  assert.equal(summarize({ task: { id: 'T-1', usage: usageOf() }, records: [] } as any).usage.totalUsd, 0.5)
 })

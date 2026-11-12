@@ -190,3 +190,13 @@ test('slack.apiBase is an optional http(s) URL without credentials and is passed
   assert.throws(() => load({ ...base(), slack: { apiBase: 'nope' } }), /slack\.apiBase must be an http\(s\) URL/)
   assert.throws(() => load({ ...base(), slack: { apiBase: 'https://u:hunter2@slack.example.com' } }), (e: any) => /slack\.apiBase must not contain/.test(e.message) && !/hunter2/.test(e.message))
 })
+
+test('codingEffort defaults to high and is checked; pricing rows are checked and passed on', () => {
+  assert.equal(load(base()).codingEffort, 'high')
+  assert.equal(load({ ...base(), codingEffort: 'max' }).codingEffort, 'max')
+  assert.throws(() => load({ ...base(), codingEffort: 'ultra' }), /codingEffort must be one of low, medium, high, xhigh, max/)
+  assert.equal(load(base()).pricing, undefined)
+  const pricing = { 'claude-sonnet-5-5': { input: 3, output: 15, cacheRead: 0.3 } }
+  assert.deepEqual(load({ ...base(), pricing }).pricing, pricing)
+  assert.throws(() => load({ ...base(), pricing: { x: { input: 'a' } } }), /pricing\.x\.input must be a number/)
+})

@@ -10,11 +10,13 @@ export class ClaudeEngine {
   declare findExecutable: any
   declare launch: any
   declare sessions: Map<any, any>
-  constructor(route, engine, { findExecutable, launch }) {
+  declare extraModels: any
+  constructor(route, engine, { findExecutable, launch, extraModels = () => [] }: any) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.launch = launch
+    this.extraModels = extraModels
     this.sessions = new Map()
   }
 
@@ -53,8 +55,12 @@ export class ClaudeEngine {
     this.sessions.delete(dshSessionId)
   }
 
+  // The aliases of the CLI, the full ids of the priced models (src/task/pricing.ts) and the configured Coding model.
+  // A model the catalog does not list cannot be given to a bot (models.ts resolveModel refuses it, and a bot
+  // whose model is not listed falls back to the default), so a pinned `claude-code/claude-sonnet-5-5` must be here.
   async listModels() {
-    return ['default', 'opus', 'sonnet', 'haiku'].map(id => ({ id, name: id === 'default' ? 'CLI default' : id }))
+    const ids = ['default', 'opus', 'sonnet', 'haiku', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', ...this.extraModels()]
+    return [...new Set(ids)].map(id => ({ id, name: id === 'default' ? 'CLI default' : id }))
   }
 
   async close() {

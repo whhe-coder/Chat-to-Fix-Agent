@@ -16,6 +16,9 @@ const CLI_MODES = {
   'danger-full-access': 'bypassPermissions',
 }
 
+// `--effort <level>` of the CLI 2.1.321 (`claude --help`); CLAUDE_CODE_EFFORT_LEVEL and the `effortLevel` setting do the same.
+export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])
+
 export const cliMode = permission => CLI_MODES[permission]
 
 // Rules without a scope that open more than the working directory: a bare Write was shown to let a
@@ -37,7 +40,8 @@ function toolList(name, list) {
 //   mcp: { name = 'chat-to-fix', url, token }            an http server, or
 //        { name = 'chat-to-fix', command, args, env? }   a stdio server,
 //   maxTurns,
-//   reviewer: { name = 'reviewer', description, prompt, tools? },
+//   effort                                               -> --effort (low, medium, high, xhigh, max)
+//   reviewer: { name = 'reviewer', description, prompt, tools?, model?, effort? },
 //   unattended mode (nobody can answer a permission prompt; a refused action is
 //   denied by the CLI itself, see system/permission_denied):
 //   permissionPrompts: 'none'   -> --permission-prompts none
@@ -54,7 +58,7 @@ function toolList(name, list) {
 export function claudeArgs(options: any = {}) {
   const {
     print = true, settingSources, resumeId, system, permission, model, mcp, maxTurns, reviewer,
-    permissionPrompts, tools, allowedTools, disallowedTools, persist, settings,
+    permissionPrompts, tools, allowedTools, disallowedTools, persist, settings, effort,
   } = options
   const args = []
   if (print) args.push('-p')
@@ -73,6 +77,10 @@ export function claudeArgs(options: any = {}) {
     args.push('--permission-mode', mode)
   }
   if (model !== undefined && model !== 'default') args.push('--model', model)
+  if (effort !== undefined) {
+    if (!EFFORT_LEVELS.includes(effort)) throw new Error(`unknown effort: ${effort} (use ${EFFORT_LEVELS.join(', ')})`)
+    args.push('--effort', effort)
+  }
   if (tools !== undefined) args.push('--tools', toolList('tools', tools).join(','))
   if (allowedTools !== undefined) {
     const list = toolList('allowedTools', allowedTools)
@@ -92,6 +100,11 @@ export function claudeArgs(options: any = {}) {
     if (!reviewer.description || !reviewer.prompt) throw new Error('a reviewer needs a description and a prompt')
     const definition: any = { description: reviewer.description, prompt: reviewer.prompt }
     if (reviewer.tools !== undefined) definition.tools = reviewer.tools
+    // The agent definition takes `model` (an alias or a full id; omitted it follows the default subagent
+    // model, else the main model) and `effort` (a named level) - read from the CLI 2.1.321 agent schema.
+    // The caller passes the Coding bot's own model and effort so the reviewer runs on the same ones.
+    if (reviewer.model !== undefined && reviewer.model !== 'default') definition.model = reviewer.model
+    if (reviewer.effort !== undefined) definition.effort = reviewer.effort
     args.push('--agents', JSON.stringify({ [reviewer.name ?? 'reviewer']: definition }))
   }
   return args
@@ -113,7 +126,7 @@ function mcpServerEntry(mcp) {
 //   roleToolNames: ['review_report', ...]             tools of our MCP server this role may call
 //   mcpServer: { name = 'chat-to-fix', config }            config is an http { url, token } or stdio { command, args, env? } entry
 //   testCommands: ['sh test.sh', ...]                 shell commands allowed besides git status / git diff (each as an exact and a prefix rule, see testRules)
-//   maxTurns, model, persist (default false: --no-session-persistence), settingSources (default 'project'),
+//   maxTurns, model, effort, persist (default false: --no-session-persistence), settingSources (default 'project'),
 //   system, resumeId, settings
 // No permission request ever reaches the driver: edits inside the working directory
 // are accepted by the mode, the allow-list holds the rest, everything else is
@@ -142,7 +155,7 @@ export function testRules(command) {
 
 export const CODING_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'Agent', 'ToolSearch'])
 
-export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print, settings }: any = {}) {
+export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, effort, persist = false, settingSources = 'project', system, resumeId, print, settings }: any = {}) {
   const serverName = mcpServer?.name ?? 'chat-to-fix'
   const prefix = `mcp__${serverName}__`
   const allowedTools = [
@@ -155,6 +168,6 @@ export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testComman
     settingSources, permission: 'workspace-write', permissionPrompts: 'none',
     tools: CODING_TOOLS, allowedTools,
     ...(mcpServer === undefined ? {} : { mcp: { name: serverName, ...mcpServer.config } }),
-    maxTurns, reviewer, model, persist, system, resumeId, settings,
+    maxTurns, reviewer, model, effort, persist, system, resumeId, settings,
   })
 }

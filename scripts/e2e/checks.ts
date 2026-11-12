@@ -300,6 +300,7 @@ export function summarize(ctx) {
     taskId: task.id, state: task.state, endReason: task.endReason,
     durationSec: Number.isFinite(start) && Number.isFinite(end) ? Math.round((end - start) / 1000) : undefined,
     reviewRounds: task.review?.rounds, records: rs.length,
+    usage: task.usage,
     refusals: rs.filter((r) => r.type === 'refusal').length,
     toolErrors: rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false)).length,
     texts: {

@@ -238,3 +238,44 @@ test('a permission request nobody answers is denied after the timeout and the tu
   assert.match(ended.reasoning, /Denied: nobody answered/)
   assert.equal(ended.text, 'permission: deny')
 })
+
+test('a CLI turn reaches the facade as usage events with the CLI cost, per model, with the effort it was started with', async (t) => {
+  const { host, bots, adapter } = await rig(t, { codingEffort: 'high' })
+  const events = []
+  host.botlayer.onUsage(e => events.push(e))
+  const reply = await textOf(adapter.stream(streamOptions(bots.coding, 'fix it', { model: 'claude-sonnet-5-5' })))
+  assert.match(reply, /^ok: [\s\S]*fix it/)
+  // the fake CLI's result: usage 10 in / 5 out / 3 cache read / 7 cache write, costUSD 0.01 for 'fake-model', 5 ms, 4 ms of API
+  assert.equal(events.length, 1)
+  assert.deepEqual({ ...events[0], at: typeof events[0].at }, {
+    sessionId: bots.coding, botId: bots.coding, source: 'cli', model: 'fake-model', effort: 'high',
+    input: 10, output: 5, cacheRead: 3, cacheWrite: 7, costUsd: 0.01, durationMs: 4, outputTps: 1250, tpsBasis: 'cli-api', at: 'string',
+  })
+})
+
+test('a failed CLI turn is still reported as usage', async (t) => {
+  const { host, bots, adapter } = await rig(t)
+  const events = []
+  host.botlayer.onUsage(e => events.push(e))
+  await assert.rejects(textOf(adapter.stream(streamOptions(bots.coding, '[maxturns]', { model: 'claude-sonnet-5-5' }))))
+  assert.deepEqual(events.map(e => [e.model, e.costUsd, e.failed]), [['fake-model', 0.01, true]])
+})
+
+test('a pinned Coding model and effort reach the CLI and its reviewer; the model is a listed model of the route', async (t) => {
+  const app = await startApp(t, {
+    cli: CLI,
+    runtime: { testCommands: ['sh test.sh'], codingModel: 'claude-code/claude-sonnet-5-5', codingEffort: 'high' },
+    config: { codingModel: 'claude-code/claude-sonnet-5-5' },
+  })
+  const adapter = await app.host.localAdapter()
+  const listed = (await adapter.listModels('claude-code')).map(model => model.id)
+  assert.ok(listed.includes('claude-sonnet-5-5') && listed.includes('claude-opus-5-5') && listed.includes('default'))
+  const { bots } = await app.post()
+  assert.equal(app.host.rt.botOf(bots.coding).model, 'claude-code/claude-sonnet-5-5')
+  const reply = await textOf(adapter.stream(streamOptions(bots.coding, '[echo]', { model: 'claude-sonnet-5-5' })))
+  const { argv } = echoed(reply)
+  assert.equal(valueOf(argv, '--model'), 'claude-sonnet-5-5')
+  assert.equal(valueOf(argv, '--effort'), 'high')
+  const reviewer = JSON.parse(valueOf(argv, '--agents')).reviewer
+  assert.deepEqual([reviewer.model, reviewer.effort], ['claude-sonnet-5-5', 'high'])
+})

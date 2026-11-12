@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { lineText } from '../../bot/src/host/groups.ts'
 import { textOf } from '../../bot/src/host/text.ts'
+import { tpsOf } from './usage.ts'
 
 const iso = (time?) => new Date(time ?? Date.now()).toISOString()
 const unbracket = text => text.replace(/^\[([\s\S]*)\]$/, '$1')
@@ -19,7 +20,7 @@ export function createBotLayer(rt) {
   const { ctx } = rt
   /** @type {Map<string, {taskId: string, role: string}>} */
   const bindings = new Map()
-  const listeners = { line: new Set(), session: new Set(), tool: new Set(), round: new Set(), approval: new Set() }
+  const listeners = { line: new Set(), session: new Set(), tool: new Set(), round: new Set(), approval: new Set(), usage: new Set() }
   const subscribe = (set, fn) => {
     set.add(fn)
     return () => set.delete(fn)
@@ -52,6 +53,55 @@ export function createBotLayer(rt) {
     fire(listeners.line, { groupId: room.id, kind: notice ? 'notice' : 'line', botId: line.botId ?? null, name: line.who ?? '', text, at: iso() })
   })
 
+  // --- usage ----------------------------------------------------------------------------
+  // The API bots' usage (source 'dsh') comes from DSH's own per-session projections, read through
+  // ctx.sessionController.projections({ sessionId }): `tokenUsage` (the session's token totals: uncached
+  // input, output, cache read, cache write; every settled call and failed attempt is in it) and
+  // `sessionStats` of @deepseek-ai/dsh-session-stats (ttftMs and ttftSteps, decodeMs and decodeTokens: the
+  // time and the output tokens of the first-token-to-message span). They are session totals, so a round's
+  // usage is the difference between the read at its turn/start and the read at its turn/end, and one
+  // usage event is fired per round, just before the round-end event. The speed is derived from them
+  // (decodeTokens / decodeMs, the very quotient of DSH's stats table); nothing is recomputed from streams.
+  // DSH reports no cost, so the task layer prices the tokens from its table (src/task/pricing.ts).
+  // The Coding bot is not read here: its CLI turn is reported by reportEngineUsage below with the CLI's cost.
+  // Not counted: model calls DSH keeps out of the session log (a session title, a compaction summary).
+  const READ_MS = 5000
+  const canRead = () => typeof ctx.sessionController?.projections === 'function'
+  async function readTotals(id) {
+    try {
+      const got = await ctx.sessionController.projections({ sessionId: id }, AbortSignal.timeout(READ_MS))
+      const values = got?.kind === 'sequenced' ? got.values : got?.kind === 'migration-required' ? got.values : undefined
+      return values === undefined ? undefined : { tokens: values.tokenUsage, stats: values.sessionStats }
+    } catch (error) {
+      rt.warn('chat-to-fix: could not read the usage projections of %s: %s', id, error?.message ?? error)
+      return undefined
+    }
+  }
+  const diff = (after, before, key) => Math.max(0, (after?.[key] ?? 0) - (before?.[key] ?? 0))
+  // The usage event of one round from the totals before and after it; undefined when nothing was billed.
+  function roundUsage(id, before, after, at) {
+    if (before === undefined || after?.tokens === undefined) return undefined
+    const input = diff(after.tokens, before.tokens, 'uncachedInputTokens')
+    const output = diff(after.tokens, before.tokens, 'outputTokens')
+    const cacheRead = diff(after.tokens, before.tokens, 'cacheReadTokens')
+    const cacheWrite = diff(after.tokens, before.tokens, 'cacheWriteTokens')
+    if (input + output + cacheRead + cacheWrite === 0) return undefined
+    const botId = botIdOf(id)
+    const ref = rt.botOf(botId)?.appliedModel ?? rt.botOf(botId)?.model
+    const decodeMs = diff(after.stats, before.stats, 'decodeMs')
+    const decodeTokens = diff(after.stats, before.stats, 'decodeTokens')
+    const ttftSteps = diff(after.stats, before.stats, 'ttftSteps')
+    const outputTps = tpsOf(decodeTokens, decodeMs)
+    return {
+      sessionId: id, botId, source: 'dsh', model: typeof ref === 'string' && ref.includes('/') ? ref.slice(ref.indexOf('/') + 1) : (ref ?? 'unknown'),
+      input, output, cacheRead, cacheWrite, costUsd: null,
+      durationMs: decodeMs, tpsTokens: decodeTokens, ...(ttftSteps > 0 ? { ttftMs: Math.round(diff(after.stats, before.stats, 'ttftMs') / ttftSteps) } : {}),
+      outputTps, tpsBasis: outputTps === null ? null : 'dsh-decode', at,
+    }
+  }
+  const baselines = new Map() // session id -> the pending read at its turn/start
+  const settling = new Map() // session id -> the chain that fires its round ends in order
+
   // Session events and round ends: turns.js:627 (session/event), :1012 (turn/end). turns.js
   // clears its own turn state at turn/end, so the final answer is kept here from the
   // assistant/message events of the turn. Every session event is forwarded with its own type.
@@ -65,6 +115,7 @@ export function createBotLayer(rt) {
     switch (event.type) {
       case 'turn/start':
         answers.delete(id)
+        if (canRead() && botIdOf(id) !== null && !rt.isLocalAgentSession?.(id)) baselines.set(id, readTotals(id))
         break
       case 'assistant/message':
         answers.set(id, textOf(event.data?.message?.content))
@@ -77,15 +128,29 @@ export function createBotLayer(rt) {
         break
       case 'turn/end': {
         const kind = event.data?.reason?.kind
-        fire(listeners.round, {
+        const round = {
           sessionId: id,
           botId: botIdOf(id),
           groupId: rt.groupOwners.get(id)?.roomId ?? rt.roomOf(id)?.id ?? null,
           text: answers.get(id) ?? '',
           failed: kind === 'error' || kind === 'aborted',
           at,
-        })
+        }
         answers.delete(id)
+        const baseline = baselines.get(id)
+        baselines.delete(id)
+        if (baseline === undefined) { fire(listeners.round, round); break }
+        // The bot's usage of this round goes out first, then its round end (the records keep that order).
+        const job = async () => {
+          try {
+            const usage = roundUsage(id, await baseline, await readTotals(id), at)
+            if (usage !== undefined) fire(listeners.usage, usage)
+          } catch (error) {
+            rt.warn('chat-to-fix: usage of %s was not recorded: %s', id, error?.message ?? error)
+          }
+          fire(listeners.round, round)
+        }
+        settling.set(id, (settling.get(id) ?? Promise.resolve()).then(job))
         break
       }
     }
@@ -107,7 +172,39 @@ export function createBotLayer(rt) {
     fire(listeners.approval, { id: data.id, sessionId: data.sessionId, botId: data.botId ?? null, tool: data.tool, text: data.detail?.text || data.reason || data.detail?.code || '' })
   })
 
+  // The Coding bot's turn as the Claude Code CLI reports it (bot/src/host/local-agents/adapter.ts
+  // reportUsage; src/engine/claude.ts for the event). One UsageEvent per model of the turn, so the
+  // reviewer subagent's model is a row of its own; the cost is the CLI's costUSD. Speed is derived:
+  // output tokens of the turn over duration_api_ms (the time spent in API calls) when the CLI gives
+  // it, else over duration_ms (the whole turn, tools included, so lower). With no per-model rows
+  // (an older CLI) the summed usage is booked under the model of system/init, with no cost.
+  function reportEngineUsage(report) {
+    const id = report?.sessionId
+    if (!teamSession(id)) return
+    const rows = Array.isArray(report.models) && report.models.length > 0
+      ? report.models
+      : report.usage === undefined ? [] : [{ model: report.model ?? 'unknown', input: report.usage.inputTokens ?? 0, output: report.usage.outputTokens ?? 0, cacheRead: report.usage.cacheReadTokens ?? 0, cacheWrite: report.usage.cacheCreationTokens ?? 0, costUsd: null }]
+    const output = rows.reduce((sum, row) => sum + (row.output ?? 0), 0)
+    const api = typeof report.durationApiMs === 'number' && report.durationApiMs > 0
+    const durationMs = api ? report.durationApiMs : (typeof report.durationMs === 'number' ? report.durationMs : 0)
+    const effort = rt.config?.codingEffort
+    for (const row of rows) {
+      // the turn's one span is shared out over the models by their output, so the sums of tokens and time stay the turn's
+      const share = output > 0 ? (row.output ?? 0) / output : 0
+      const part = Math.round(durationMs * share)
+      const outputTps = tpsOf(row.output, part)
+      fire(listeners.usage, {
+        sessionId: id, botId: botIdOf(id), source: 'cli', model: row.model, ...(effort === undefined ? {} : { effort }),
+        input: row.input ?? 0, output: row.output ?? 0, cacheRead: row.cacheRead ?? 0, cacheWrite: row.cacheWrite ?? 0,
+        costUsd: typeof row.costUsd === 'number' ? row.costUsd : null,
+        durationMs: part, outputTps, tpsBasis: outputTps === null ? null : api ? 'cli-api' : 'cli-wall',
+        ...(report.failed ? { failed: true } : {}), at: iso(),
+      })
+    }
+  }
+
   return {
+    reportEngineUsage,
     // roster.js:140 createBot (pickModel holds the greeting back), :316 updateBot. Roles map to
     // DS Bot's `role` label. `preset` is the permission preset the bot's session is created
     // with (roster.js botPreset) and is stored on the bot.
@@ -237,6 +334,7 @@ export function createBotLayer(rt) {
     onToolResult: fn => subscribe(listeners.tool, fn),
     onRoundEnd: fn => subscribe(listeners.round, fn),
     onApproval: fn => subscribe(listeners.approval, fn),
+    onUsage: fn => subscribe(listeners.usage, fn),
     // approvals.js:100
     answerApproval: (id, choice) => rt.answerApproval(id, choice),
 

@@ -212,11 +212,11 @@ test('routes: only Claude Code is a local agent route', () => {
   assert.equal(isLocalAgentRoute('deepseek'), false)
 })
 
-test('listModels reports the CLI default plus the model aliases', async (t) => {
+test('listModels reports the CLI default, the model aliases and the priced full model ids', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
   const models = await adapter.listModels('claude-code')
-  assert.deepEqual(models.map(model => model.id), ['default', 'opus', 'sonnet', 'haiku'])
+  assert.deepEqual(models.map(model => model.id), ['default', 'opus', 'sonnet', 'haiku', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'])
   assert.equal(models[0].name, 'CLI default')
 })
 

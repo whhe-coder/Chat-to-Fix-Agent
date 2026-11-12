@@ -288,7 +288,7 @@
   }
 
   function renderHead(st, chat) {
-    var sig = JSON.stringify([chat.title, chat.state, chat.step, chat.members])
+    var sig = JSON.stringify([chat.title, chat.state, chat.step, chat.members, chat.usage && chat.usage.line])
     if (st.headSig === sig) return
     st.headSig = sig
     st.head.textContent = ''
@@ -303,6 +303,25 @@
     ;(chat.members || []).forEach(function (m) { stack.appendChild(mark(m, 'sm')) })
     st.head.appendChild(text)
     st.head.appendChild(stack)
+    // The bill. Strings come ready from the server (src/task/usage.ts usageView): the total line, and one entry per bot with its model,
+    // cost and latest output speed, tagged DSH (measured by DSH, API bots) or 推算 (derived from the Claude Code result).
+    if (chat.usage && chat.usage.line) {
+      var bill = el('div', 'cx-bill', chat.usage.line)
+      bill.title = chat.usage.title || ''
+      st.head.appendChild(bill)
+      var mems = el('div', 'cx-mems')
+      ;(chat.members || []).forEach(function (m) {
+        if (!m.usage) return
+        var item = el('span', 'cx-mem')
+        item.appendChild(mark(m, 'sm'))
+        item.appendChild(el('span', 'cx-mem-name', m.name))
+        var tps = m.usage.tpsText ? ' · ' + m.usage.tpsText + (m.usage.tpsTag ? ' ' + m.usage.tpsTag : '') : ''
+        item.appendChild(el('small', 'cx-mem-use', m.usage.modelText + ' · ' + m.usage.costText + tps))
+        item.title = m.usage.subtitle + (m.usage.tpsLabel ? '\n速度：' + m.usage.tpsLabel : '') + '\n' + m.usage.tokensText + (m.usage.effort ? '\neffort ' + m.usage.effort : '')
+        mems.appendChild(item)
+      })
+      if (mems.childNodes.length > 0) st.head.appendChild(mems)
+    }
   }
 
   function memberOf(st, m) {
@@ -320,6 +339,12 @@
     var step = m.step ? (STEP_LABEL[m.step] || m.step) : ''
     var meta = [t, step].filter(Boolean).join(' · ')
     if (meta) line.appendChild(el('span', 'cx-time', meta))
+    // what this round cost, next to the time (the full lines are in the tooltip and in the diagram's popup)
+    if (m.usage && m.usage.brief) {
+      var use = el('span', 'cx-time cx-use', m.usage.brief)
+      use.title = [m.usage.title].concat(m.usage.lines || []).join('\n')
+      line.appendChild(use)
+    }
     return line
   }
 

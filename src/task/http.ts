@@ -36,7 +36,7 @@ function readBody(request) {
   })
 }
 
-const short = (t) => ({ id: t.id, state: t.state, step: t.step ?? null, jiraKey: t.jira?.key ?? null, mrUrl: t.mr?.url ?? null })
+const short = (t) => ({ id: t.id, state: t.state, step: t.step ?? null, jiraKey: t.jira?.key ?? null, mrUrl: t.mr?.url ?? null, totalUsd: t.usage?.totalUsd ?? 0, unpriced: t.usage?.unpriced === true })
 
 export function createHttp({ config, token, store, queue, runner, notify }) {
   if (!isText(token)) throw new Error('createHttp: the token is required')

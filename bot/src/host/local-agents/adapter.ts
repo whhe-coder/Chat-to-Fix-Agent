@@ -48,6 +48,12 @@ function digestChunks(messages: any) {
   ]
 }
 
+// DSH's usage chunk names the cache-write count cacheWriteTokens; the CLI driver calls it cacheCreationTokens.
+const dshUsage = (usage) => {
+  const { cacheCreationTokens, ...rest } = usage ?? {}
+  return cacheCreationTokens === undefined ? rest : { ...rest, cacheWriteTokens: cacheCreationTokens }
+}
+
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
   //        saveRecord, presetFor(sessionId), cwdFor, probeCwd, toolsFor(options)}
@@ -474,7 +480,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.cliSessionId = event.sessionId
           this.deps.saveRecord(live.sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
           break
-        case 'usage': yield { type: 'usage', usage: event.usage }; break
+        case 'usage': yield { type: 'usage', usage: dshUsage(event.usage) }; break
         case 'call': {
           yield* closeBlocks()
           live.state = 'suspended'
@@ -496,13 +502,16 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'done': {
           yield* closeBlocks()
-          if (event.usage !== undefined) yield { type: 'usage', usage: event.usage }
+          this.reportUsage(live, event)
+          if (event.usage !== undefined) yield { type: 'usage', usage: dshUsage(event.usage) }
           live.state = 'idle'
           yield { type: 'finish', reason: { kind: 'stop' } }
           return
         }
         case 'error': {
           live.state = 'idle'
+          // A failed turn (max turns, interrupted, API error) was billed all the same.
+          this.reportUsage(live, event, { failed: true })
           throw toLlmError(event.error, live)
         }
         default: break
@@ -511,6 +520,18 @@ export class LocalAgentAdapter extends LlmAdapter {
     } finally {
       options.signal?.removeEventListener('abort', onAbort)
     }
+  }
+
+  // The CLI's own account of a finished turn (per model, with its cost), for the task layer's billing.
+  // DSH only sees the summed usage chunk below, and nothing of a failed turn; the per-model rows and
+  // costUSD exist only here. The host passes deps.reportUsage (bot/src/host/local-agents/index.ts).
+  reportUsage(live, event, { failed = false } = {}) {
+    try {
+      this.deps.reportUsage?.({
+        sessionId: live.sessionId, route: live.route, model: event.model ?? live.model, models: event.models ?? [], usage: event.usage,
+        durationMs: event.durationMs, durationApiMs: event.durationApiMs, failed,
+      })
+    } catch {}
   }
 
   async dispose() {

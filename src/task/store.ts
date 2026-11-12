@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TASK_STATES } from './contracts.ts'
+import { addUsage, blankUsage } from './usage.ts'
 
 const TEXT_MAX = 2000
 const ID_PATTERN = /^T-[1-9]\d*$/
@@ -70,6 +71,7 @@ function blankTask(id, no, now) {
     mr: null,
     needsInfo: { main: null, coding: null },
     runs: [],
+    usage: blankUsage(),
   }
 }
 
@@ -264,6 +266,18 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     })
   }
 
+  // Adds one usage record to the running summary of the task (task.usage, src/task/usage.ts). It runs
+  // inside the task's queue, so two records arriving together both count. A task that is gone is
+  // logged and skipped: billing must never stop a task.
+  async function addUsageRecord(id, record) {
+    try {
+      return await update(id, task => ({ ...task, usage: addUsage(task.usage, record) }))
+    } catch (error) {
+      warn('chat-to-fix: cannot add usage to %s: %s', id, error?.message ?? error)
+      return undefined
+    }
+  }
+
   // Appends one line. A failure is logged and swallowed: the task goes on (spec 2, 4.5).
   async function appendRecord(id, entry) {
     try {
@@ -317,5 +331,5 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     return tasks.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.no - b.no))
   }
 
-  return { knownEvent, createTask, getTask, findByThread, patchTask, startRun, endRun, appendRecord, readRecords, listTasks }
+  return { knownEvent, createTask, getTask, findByThread, patchTask, startRun, endRun, appendRecord, addUsage: addUsageRecord, readRecords, listTasks }
 }

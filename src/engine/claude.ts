@@ -54,8 +54,11 @@
 //  tool_error {toolUseId, toolName, input, text, parentToolUseId}
 //  subagent {phase:'started'|'progress'|'updated'|'notification', taskId, toolUseId, ...}
 //  subagent_result {toolUseId, text, isError}
-//  done {reason:'stop', result, sessionId, usage, turnCostUsd, subtype, numTurns, durationMs, totalCostUsd, permissionDenials, terminalReason}
-//  error {error, result, reason?, subtype, terminalReason, numTurns, durationMs, totalCostUsd, permissionDenials, ...}
+//  done {reason:'stop', result, sessionId, usage, turnCostUsd, models, model, subtype, numTurns, durationMs, durationApiMs, totalCostUsd, permissionDenials, terminalReason}
+//  error {error, result, reason?, subtype, terminalReason, numTurns, durationMs, durationApiMs, totalCostUsd, permissionDenials, models, model, ...}
+//   models: the turn's own usage per model, from model_usage_since_last_result (the main model and the reviewer
+//   subagent's model are separate rows): [{ model, input, output, cacheRead, cacheWrite, costUsd }]; input is the
+//   uncached input only. model: the model the CLI reported in system/init (undefined before the first init).
 import { spawn } from 'node:child_process'
 import { childEnv } from './env.ts'
 
@@ -82,6 +85,7 @@ export class ClaudeSession {
   declare initialized: any
   declare exitCode: any
   declare cliSessionId: any
+  declare model: any
   constructor({ name = 'Claude Code' } = {}) {
     this.name = name
     this.events = []
@@ -222,11 +226,15 @@ export class ClaudeSession {
       case 'init':
         if (this.cliSessionId === undefined) {
           this.cliSessionId = event.session_id
+          this.model = event.model
           this.emit({
             type: 'init', sessionId: event.session_id, model: event.model, tools: event.tools, mcpServers: event.mcp_servers,
             permissionMode: event.permissionMode, agents: event.agents, skills: event.skills,
           })
-        } else this.emit({ type: 'turn', sessionId: event.session_id })
+        } else {
+          this.model = event.model ?? this.model
+          this.emit({ type: 'turn', sessionId: event.session_id })
+        }
         break
       case 'permission_denied':
         this.emit({
@@ -317,7 +325,9 @@ export class ClaudeSession {
     const turnCostUsd = Object.values(event.model_usage_since_last_result ?? {}).reduce((sum: number, model: any) => sum + (model?.costUSD ?? 0), 0)
     const common = {
       subtype: event.subtype, terminalReason: event.terminal_reason, numTurns: event.num_turns, durationMs: event.duration_ms,
+      ...(event.duration_api_ms === undefined ? {} : { durationApiMs: event.duration_api_ms }),
       totalCostUsd: event.total_cost_usd, permissionDenials: event.permission_denials ?? [],
+      models: modelsOf(event.model_usage_since_last_result), model: this.model,
     }
     if (event.is_error !== true) {
       this.emit({
@@ -368,6 +378,16 @@ export class ClaudeSession {
     this.close()
   }
 }
+
+// The turn's usage per model (model_usage_since_last_result): camelCase rows with costUSD, as the CLI writes them.
+const modelsOf = (rows) => Object.entries(rows ?? {}).map(([model, row]: [string, any]) => ({
+  model,
+  input: row?.inputTokens ?? 0,
+  output: row?.outputTokens ?? 0,
+  cacheRead: row?.cacheReadInputTokens ?? 0,
+  cacheWrite: row?.cacheCreationInputTokens ?? 0,
+  costUsd: typeof row?.costUSD === 'number' ? row.costUSD : null,
+}))
 
 const usageOf = usage => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,

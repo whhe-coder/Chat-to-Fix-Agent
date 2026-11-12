@@ -10,6 +10,7 @@
 // window.highlightChat(container, recordIds). It uses no external resource, no import and no build step.
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { roundView, summarize, usageView } from '../../src/task/usage.ts'
 
 export const CHAT_CSS: string = readFileSync(new URL('./chat.css', import.meta.url), 'utf8')
 export const CHAT_JS: string = readFileSync(new URL('./chat-client.js', import.meta.url), 'utf8')
@@ -22,13 +23,14 @@ const ROLE_COLOR = { main: '#4d6bfe', slack: '#ec2f6b', jira: '#2563eb', pipelin
 const STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', writeback: '回写', close: '结束' }
 const stepLabel = (id) => STEP_LABEL[id] ?? id
 
-export type ChatMember = { role: string, name: string, color: string }
+// usage: what the bot cost so far (src/task/usage.ts usageView byRole): model, cost, tokens and the latest speed with its source tag
+export type ChatMember = { role: string, name: string, color: string, usage?: any }
 export type ChatMessage = {
   id: string, recordIds: number[], at: string | null, step: string | null, role: string | null, botId: string | null,
   kind: 'message' | 'tool' | 'notice' | 'system' | 'refusal', text: string,
-  tool?: string, ok?: boolean, ms?: number, result?: string,
+  tool?: string, ok?: boolean, ms?: number, result?: string, usage?: any,
 }
-export type Chat = { title: string, state: string | null, step: string | null, members: ChatMember[], messages: ChatMessage[] }
+export type Chat = { title: string, state: string | null, step: string | null, members: ChatMember[], messages: ChatMessage[], usage?: any }
 
 const norm = (text) => String(text ?? '').replace(/\s+/g, ' ').trim()
 const MATERIAL = /-----BEGIN MATERIAL-----\n([\s\S]*?)\n-----END MATERIAL-----/
@@ -67,6 +69,10 @@ export function buildChat(records, task?): Chat {
     members.push({ role, name: names.get(role) ?? `${ROLE_LABEL[role] ?? role}-1`, color: ROLE_COLOR[role] ?? ROLE_COLOR.user })
   }
 
+  // The bill: the task's running summary, or (a task not at hand) the one the usage records add up to.
+  const view = usageView(task?.usage?.calls > 0 ? task.usage : summarize(list))
+  for (const member of members) member.usage = view?.byRole?.[member.role] ?? null
+  const roundUsage = new Map<string, any[]>() // role -> its usage records since its last round end
   const messages: ChatMessage[] = []
   const push = (m: Omit<ChatMessage, 'id'>): ChatMessage => { const msg = { id: `m${messages.length}`, ...m } as ChatMessage; messages.push(msg); return msg }
   const base = (r, i, kind: ChatMessage['kind'], text: string) => ({
@@ -88,6 +94,13 @@ export function buildChat(records, task?): Chat {
       return
     }
     const msg = push({ ...base(r, i, 'message', String(r.text)), ...(ok === false ? { ok: false } : {}) })
+    // what this round of the bot cost (a round_end closes it)
+    const role = r.role ?? roleOfBot.get(r.botId) ?? ''
+    if (src === 'round_end') {
+      const usage = roundView(roundUsage.get(role))
+      if (usage !== null) msg.usage = usage
+      roundUsage.delete(role)
+    }
     lastSpoken.set(key, { msg, srcs: new Set([src]) })
   }
 
@@ -107,9 +120,17 @@ export function buildChat(records, task?): Chat {
         } else if (text.trim() !== '') say({ ...r, text }, i, 'line')
         break
       }
+      case 'usage': {
+        const role = r.role ?? roleOfBot.get(r.botId) ?? ''
+        roundUsage.set(role, [...(roundUsage.get(role) ?? []), r])
+        break
+      }
       case 'round_end': {
         if (text.trim() !== '') say({ ...r, text }, i, 'round_end', r.failed ? false : undefined)
-        else if (r.failed) push({ ...base(r, i, 'refusal', '这一轮失败了，没有回答'), ok: false })
+        else {
+          roundUsage.delete(r.role ?? roleOfBot.get(r.botId) ?? '') // an empty round has no message to carry its cost
+          if (r.failed) push({ ...base(r, i, 'refusal', '这一轮失败了，没有回答'), ok: false })
+        }
         break
       }
       case 'tool_call': {
@@ -160,6 +181,7 @@ export function buildChat(records, task?): Chat {
     step: task?.step ?? null,
     members,
     messages,
+    usage: view,
   }
 }
 

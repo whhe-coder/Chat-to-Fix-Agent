@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { fmtTokens, fmtTps, fmtUsd } from '../src/task/usage.ts'
 
 const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text)
@@ -31,7 +32,26 @@ export function formatTask(task) {
     `  mr      ${task.mr?.url ?? '-'}`,
   ]
   if (task.needsInfo?.main || task.needsInfo?.coding) lines.push(`  needs   ${oneLine(JSON.stringify(task.needsInfo))}`)
+  lines.push(...formatUsage(task.usage))
   return lines.join('\n')
+}
+
+// Where a speed comes from: DSH's own measurement (API bots) or derived from the CLI result (Coding bot).
+const BASIS = { 'dsh-decode': 'DSH sessionStats: decodeTokens / decodeMs', 'cli-api': 'derived: CLI output tokens / duration_api_ms', 'cli-wall': 'derived: CLI output tokens / duration_ms' }
+const tokensOf = (b) => `in ${fmtTokens(b.input)} / out ${fmtTokens(b.output)} / cache read ${fmtTokens(b.cacheRead)} / cache write ${fmtTokens(b.cacheWrite)}`
+
+/** The token bill of a task: the total, then one line per role (models, cost, tokens, speed) and per model. */
+export function formatUsage(usage) {
+  if (!usage || !(usage.calls > 0)) return ['  usage   none yet']
+  const note = (b) => (b.unpriced ? '  (some calls unpriced: left out of the cost)' : '')
+  const lines = [`  usage   ${fmtUsd(usage.totalUsd)}  ${tokensOf(usage)}  ${usage.calls} calls${usage.outputTps ? `  avg ${fmtTps(usage.outputTps)}` : ''}${note(usage)}`]
+  for (const [role, b] of Object.entries<any>(usage.byRole ?? {})) {
+    const basis = BASIS[b.last?.tpsBasis] ?? ''
+    lines.push(`          ${role.padEnd(9)} ${b.models.join(', ')}${b.last?.effort ? ` (effort ${b.last.effort})` : ''}  ${fmtUsd(b.usd)}  ${tokensOf(b)}${b.outputTps ? `  ${fmtTps(b.outputTps)}${basis ? ` [${basis}]` : ''}` : ''}${note(b)}`)
+  }
+  const runs = Object.entries<any>(usage.byRun ?? {})
+  if (runs.length > 1) lines.push(`          per run: ${runs.map(([no, b]) => `run ${no} ${fmtUsd(b.usd)}`).join(', ')}`)
+  return lines
 }
 
 /** One record as one line: time, step, role, kind, tool, text. */
@@ -69,7 +89,7 @@ export async function showTask({ id, conn, full = false, follow = false, interva
   if (id === undefined) {
     const { tasks } = await get(conn, '/tasks', fetchImpl)
     if (tasks.length === 0) out('no tasks')
-    for (const t of tasks) out(`${t.id}  ${t.state}  step=${t.step ?? '-'}  jira=${t.jiraKey ?? '-'}  mr=${t.mrUrl ?? '-'}`)
+    for (const t of tasks) out(`${t.id}  ${t.state}  step=${t.step ?? '-'}  jira=${t.jiraKey ?? '-'}  mr=${t.mrUrl ?? '-'}  cost=${fmtUsd(t.totalUsd ?? 0)}${t.unpriced ? '+unpriced' : ''}`)
     return undefined
   }
   const path = `/tasks/${encodeURIComponent(id)}?records=1`
