@@ -1,0 +1,116 @@
+/* Bot group chat pane: a portrait, phone-style IM column (made for 380-420 px). Ported from the old DS Bot client
+   (git 263a272, bot/src/client/styles.js): colour tokens (--bt-ink/-2/-3, --bt-bubble, --bt-line, --bt-accent, --bt-danger),
+   bubble shape and rhythm (.bt-bubble, .bt-msg, .bt-time), code and list styling inside bubbles. Light and dark through
+   prefers-color-scheme; everything is scoped under .cx-chat. */
+.cx-chat {
+  --cx-bg: #f1f2f4; --cx-head: #fcfcfc; --cx-bubble: #ffffff; --cx-ink: #141414; --cx-ink2: rgba(20, 20, 20, .6); --cx-ink3: rgba(20, 20, 20, .38);
+  --cx-line: rgba(20, 20, 20, .09); --cx-hover: rgba(119, 119, 119, .1); --cx-code: rgba(20, 20, 20, .06); --cx-accent: #4d6bfe;
+  --cx-user: #e8edff; --cx-danger: #e02135; --cx-danger-soft: rgba(224, 33, 53, .1); --cx-warn: #a86400; --cx-warn-soft: rgba(255, 152, 0, .14);
+  --cx-ok: #10b981; --cx-sel: rgba(77, 107, 254, .55);
+  position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; box-sizing: border-box;
+  background: var(--cx-bg); color: var(--cx-ink); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-text-size-adjust: 100%; overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  .cx-chat {
+    --cx-bg: #141414; --cx-head: #1b1b1b; --cx-bubble: #262626; --cx-ink: #f2f2f2; --cx-ink2: rgba(242, 242, 242, .62); --cx-ink3: rgba(242, 242, 242, .38);
+    --cx-line: rgba(255, 255, 255, .09); --cx-hover: rgba(160, 160, 160, .14); --cx-code: rgba(255, 255, 255, .09); --cx-accent: #6a84ff;
+    --cx-user: #26304f; --cx-danger: #ff6b7a; --cx-danger-soft: rgba(255, 90, 110, .16); --cx-warn: #ffb454; --cx-warn-soft: rgba(255, 152, 0, .16);
+    --cx-sel: rgba(106, 132, 255, .7);
+  }
+}
+.cx-chat *, .cx-chat *::before, .cx-chat *::after { box-sizing: border-box; }
+
+/* header: group name, status line, member marks */
+.cx-head { flex: none; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; background: var(--cx-head); border-bottom: .5px solid var(--cx-line); }
+.cx-head-text { flex: 1 1 auto; min-width: 0; }
+.cx-title { font-size: 14px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-sub { font-size: 11px; line-height: 15px; color: var(--cx-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-stack { flex: none; display: flex; padding-left: 6px; }
+.cx-stack .cx-mark { margin-left: -6px; box-shadow: 0 0 0 2px var(--cx-head); }
+
+/* round marks: a coloured disc with the initial */
+.cx-mark { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--c, #8a8f98); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; line-height: 1; user-select: none; }
+.cx-mark-sm { width: 22px; height: 22px; font-size: 11px; }
+
+/* the scrolling list */
+.cx-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; }
+.cx-list { padding: 8px 0 12px; }
+.cx-empty { padding: 40px 0; text-align: center; color: var(--cx-ink3); }
+.cx-new { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); border: 0; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; background: var(--cx-accent); color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .22); }
+.cx-new[hidden] { display: none; }
+
+/* rows: [mark | body]; all bots are the other party, so everything is left-aligned */
+.cx-row { display: flex; gap: 8px; padding: 0 12px; margin-top: 3px; min-width: 0; }
+.cx-row:has(> .cx-side > .cx-mark) { margin-top: 10px; }
+.cx-list > .cx-row:first-child { margin-top: 0; }
+.cx-side { flex: none; width: 28px; }
+.cx-body { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.cx-who { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin: 0 0 2px 2px; line-height: 16px; }
+.cx-name { font-size: 12px; font-weight: 600; color: var(--c, var(--cx-ink2)); white-space: nowrap; }
+.cx-tag { font-size: 10px; line-height: 14px; padding: 0 5px; border-radius: 999px; background: var(--cx-code); color: var(--cx-ink2); }
+.cx-time { font-size: 11px; color: var(--cx-ink3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* bubbles (.bt-bubble: radius, padding, wrap rules) */
+.cx-bubble { display: inline-block; max-width: 100%; min-width: 0; vertical-align: top; padding: 5px 10px; border-radius: 14px; background: var(--cx-bubble); box-shadow: 0 0 0 .5px var(--cx-line); overflow-wrap: anywhere; word-break: break-word; cursor: default; text-align: left; }
+.cx-row:has(> .cx-side > .cx-mark) .cx-who + .cx-bubble { border-top-left-radius: 4px; }
+.cx-user { background: var(--cx-user); }
+.cx-failed { box-shadow: 0 0 0 1px var(--cx-danger); }
+.cx-refusal { background: var(--cx-danger-soft); color: var(--cx-danger); box-shadow: 0 0 0 .5px var(--cx-danger); display: flex; gap: 6px; align-items: baseline; }
+.cx-refusal-icon { flex: none; }
+.cx-refusal .cx-text { min-width: 0; }
+.cx-sel { outline: 2px solid var(--cx-sel); outline-offset: 1px; }
+@keyframes cx-flash { 0% { box-shadow: 0 0 0 3px var(--cx-accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.cx-flash { animation: cx-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .cx-flash { animation: none; outline: 2px solid var(--cx-accent); } }
+
+/* long text: ~8 lines, then a fade and "展开" */
+.cx-text.cx-clip { max-height: 12.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 78%, transparent); mask-image: linear-gradient(#000 78%, transparent); }
+.cx-more { display: block; margin: 2px 0 0; padding: 0; border: 0; background: none; color: var(--cx-accent); font: inherit; font-size: 12px; cursor: pointer; }
+.cx-more[hidden] { display: none; }
+
+/* Markdown inside a bubble (.bt-bubble p / ul / code rules) */
+.cx-text > * + * { margin-top: 6px; }
+.cx-text p { margin: 0; }
+.cx-text ul, .cx-text ol { margin: 0; padding-left: 20px; }
+.cx-text li + li { margin-top: 2px; }
+.cx-text li::marker { color: var(--cx-ink2); }
+.cx-text li > ul, .cx-text li > ol { margin-top: 2px; }
+.cx-text code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 1px 4px; border-radius: 4px; background: var(--cx-code); overflow-wrap: anywhere; }
+.cx-pre { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--cx-code); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-height: 320px; overflow-y: auto; }
+.cx-pre code { padding: 0; background: none; font: inherit; }
+.cx-text a { color: var(--cx-accent); text-decoration: none; overflow-wrap: anywhere; }
+.cx-text a:hover { text-decoration: underline; }
+.cx-text blockquote { margin: 0; padding-left: 8px; border-left: 3px solid var(--cx-line); color: var(--cx-ink2); }
+.cx-text hr { border: 0; border-top: 1px solid var(--cx-line); margin: 6px 0; }
+.cx-h { font-weight: 600; }
+.cx-h1, .cx-h2 { font-size: 14px; }
+.cx-table { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 12px; }
+.cx-table th, .cx-table td { border: .5px solid var(--cx-line); padding: 2px 5px; text-align: left; overflow-wrap: anywhere; }
+.cx-table th { background: var(--cx-code); }
+.cx-at { font-weight: 500; color: var(--c, var(--cx-accent)); background: color-mix(in srgb, var(--c, var(--cx-accent)) 12%, transparent); border-radius: 4px; padding: 0 3px; }
+
+/* tool activity: small chips under the bot, a detail panel when opened */
+.cx-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 2px; }
+.cx-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; padding: 1px 8px 1px 6px; border: 0; border-radius: 999px; background: var(--cx-code); color: var(--cx-ink2); font: 11.5px/18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; }
+.cx-chip:hover { background: var(--cx-hover); }
+.cx-chip .cx-tool { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-chip .cx-ms { color: var(--cx-ink3); font-size: 10.5px; white-space: nowrap; }
+.cx-chip .cx-caret { font-size: 9px; color: var(--cx-ink3); transition: transform .12s; }
+.cx-chip.cx-open .cx-caret { transform: rotate(90deg); }
+.cx-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--cx-ink3); }
+.cx-ok .cx-dot { background: var(--cx-ok); }
+.cx-bad .cx-dot { background: var(--cx-danger); }
+.cx-bad { color: var(--cx-danger); }
+.cx-details { margin-left: 2px; }
+.cx-detail { margin-top: 4px; padding: 4px 8px; border-radius: 10px; background: var(--cx-bubble); box-shadow: 0 0 0 .5px var(--cx-line); }
+.cx-detail[hidden] { display: none; }
+.cx-dl { font-size: 11px; line-height: 16px; color: var(--cx-ink3); }
+.cx-dpre { margin: 0 0 2px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-height: 240px; overflow-y: auto; color: var(--cx-ink); }
+
+/* system and watchdog rows: small, centred */
+.cx-sys { margin: 8px 24px; text-align: center; font-size: 11px; line-height: 16px; color: var(--cx-ink3); overflow-wrap: anywhere; cursor: default; }
+.cx-sys .cx-time { margin-left: 2px; }
+.cx-notice { margin: 8px 16px; padding: 3px 10px; border-radius: 10px; background: var(--cx-warn-soft); color: var(--cx-warn); }
+.cx-notice b { font-weight: 600; }
+.cx-sys-long { text-align: left; }
