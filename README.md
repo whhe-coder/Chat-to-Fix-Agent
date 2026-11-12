@@ -20,10 +20,11 @@ src/
 │   ├── test/       Agent 测试
 │   └── config/     DSH 配置
 ├── gitlab/、jira/   Agent 接入准备时使用的连接函数及各自的 test/
-└── slackBot/       待接入的 Slack Bot、旧测试入口及其 test/
+├── slackBot/       待接入的 Slack Bot、旧测试入口及其 test/
+└── load-local-env.js  旧入口读取根目录 .env.local 的共用脚本
 ```
 
-Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/`。设计规格和历史资料位于 [文档目录](docs/chat-to-fix/README.md)。
+Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/`。根目录的 `config/` 保存各服务的接入记录；`src/chat-to-fix/config/` 保存 Agent 的 DSH 运行配置。设计规格和历史资料位于 [文档目录](docs/chat-to-fix/README.md)。
 
 测试放在对应模块的 `test/` 中。运行全部测试用 `npm test`；连接函数、Slack Bot、Agent 和 Bot 层可分别用 `npm run test:connections`、`npm run test:slack-bot`、`npm run test:agent`、`npm run test:agent-bot` 验证。Agent 与 Bot 层之间的测试用 `npm run test:agent-layer` 验证。
 

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const path = fileURLToPath(new URL('../../.env.local', import.meta.url));
+const path = fileURLToPath(new URL('../.env.local', import.meta.url));
 
 if (existsSync(path)) {
   if (typeof process.loadEnvFile !== 'function') {

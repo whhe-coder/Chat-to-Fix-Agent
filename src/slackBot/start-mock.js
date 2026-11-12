@@ -1,4 +1,4 @@
-import '../config/load-local-env.js';
+import '../load-local-env.js';
 import { createMockSlackServer } from './mock-slack-bot.js';
 
 const port = Number(process.env.MOCK_SLACK_PORT || 4001);
