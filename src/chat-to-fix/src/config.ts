@@ -95,6 +95,8 @@ function adapterSection(raw, name, kind, problems, { email = false, fields = fal
     if (given.apiVersion !== undefined && given.apiVersion !== '2' && given.apiVersion !== '3') problems.push('jira.apiVersion must be "2" or "3"')
     if (given.browseUrl !== undefined && (!isHttpUrl(given.browseUrl) || hasCredentialsInUrl(given.browseUrl))) problems.push('jira.browseUrl must be an http(s) URL without credentials')
   }
+  // slack.mentions: whether the requester can answer in the thread (default true); false until the Slack app has app_mentions:read.
+  if (name === 'slack' && given.mentions !== undefined && typeof given.mentions !== 'boolean') problems.push('slack.mentions must be true or false')
   if (name === 'slack' && given.inputMode !== undefined && !['thread', 'command'].includes(given.inputMode)) problems.push('slack.inputMode must be "thread" or "command"')
   return { ...given }
 }
@@ -170,7 +172,8 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   const given = isObject(raw.adapters) ? raw.adapters : {}
   for (const name of ADAPTER_NAMES) {
     const kind = given[name] ?? 'fake'
-    if (kind !== 'fake' && kind !== 'real') problems.push(`adapters.${name} must be "fake" or "real"`)
+    // slack alone also takes "outbox": the company Slack Bot is connected to Slack, this service keeps no token (spec slackbot.md 4.3).
+    if (kind !== 'fake' && kind !== 'real' && !(name === 'slack' && kind === 'outbox')) problems.push(`adapters.${name} must be "fake" or "real"${name === 'slack' ? ' or "outbox"' : ''}`)
     else if (kind === 'real' && secret(env, ADAPTER_TOKEN[name]) === undefined) problems.push(`adapters.${name} is "real" but ${ADAPTER_TOKEN[name]} is not set`)
     adapters[name] = kind
   }

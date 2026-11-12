@@ -1,6 +1,6 @@
 # Chat-to-Fix
 
-在绑定的 Slack 频道里用 `/fix 问题描述` 提一个小问题（文案、样式、表单这类前端小修），系统就组一个机器人群，把它一路做成一个待审查的 Draft MR。系统先在频道里发一条开头消息，之后的进度和结果都回在这条消息的讨论串里；bot 追问时，在讨论串里 @ 机器人回答。（`/fix` 已实现，只在本机模拟服务上测过；真实 Slack 应用和 token 还没到位。）
+在绑定的 Slack 频道里用 `/fix 问题描述` 提一个小问题（文案、样式、表单这类前端小修），系统就组一个机器人群，把它一路做成一个待审查的 Draft MR。系统先在频道里发一条开头消息，之后的进度和结果都回在这条消息的讨论串里。本期不接收用户在讨论串中的二次修改。`/fix` 已实现，但只在本机模拟服务上测过；真实 Slack 应用和 token 还没到位。
 
 ## 怎么工作
 
@@ -64,11 +64,15 @@ npm run prepare:agent-connections -- --channel C频道ID --repo /本机/F2P仓�
 node src/chat-to-fix/scripts/connected.ts --start
 ```
 
-第一条命令只读检查 GitLab 分支和 Jira board，并报告 Slack Bot token 是否存在。第二条命令在取得频道 ID 后准备配置和隔离仓库；也可以在根目录 `.env.local` 中设置 `CHAT_TO_FIX_SLACK_CHANNEL` 与 `CHAT_TO_FIX_LOCAL_REPO`。第三条命令启动 Agent 和 `/fix` Socket Mode 转发器；需要获批安装后的 `SLACK_BOT_TOKEN`，以及现有的 `SLACK_APP_TOKEN`。本机使用 Node 24 运行这些命令。
+第一条命令只读检查 GitLab 分支和 Jira board。第二条命令在取得频道 ID 后准备配置和隔离仓库；也可以在根目录 `.env.local` 中设置 `CHAT_TO_FIX_SLACK_CHANNEL` 与 `CHAT_TO_FIX_LOCAL_REPO`。第三条命令只启动 Agent；Slack 一侧由公司的 Slack Bot（仓库根目录 `src/slackBot/`）负责，单独启动。本机使用 Node 24 运行这些命令。
 
-Agent 使用现有 `GITLAB_TOKEN`、`JIRA_TOKEN`、`SLACK_BOT_TOKEN` 和 `SLACK_APP_TOKEN`。Jira scoped token 走 REST v3；浏览器链接使用 Jira 站点地址。若无法自动查出站点地址，设置 `CHAT_TO_FIX_JIRA_SITE_URL`。当前配置不执行 Jira 状态迁移，因为现有 token 的迁移权限尚未验证。
+Agent 使用现有 `GITLAB_TOKEN` 和 `JIRA_TOKEN`，不再需要 Slack 令牌。Jira scoped token 走 REST v3；浏览器链接使用 Jira 站点地址。若无法自动查出站点地址，设置 `CHAT_TO_FIX_JIRA_SITE_URL`。当前配置不执行 Jira 状态迁移，因为现有 token 的迁移权限尚未验证。
 
-当前 Slack 应用只有 `commands` 和 `chat:write` Bot scopes。`/fix` 正文可直接交给 Agent；讨论串里的追问回复需要额外的消息事件和读取权限，当前尚未接通。真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
+## 和 Slack Bot 对接
+
+`adapters.slack: "outbox"` 是和公司 Slack Bot 一起用的模式（`connected.ts` 生成的配置就是它）：Slack Bot 是唯一连 Slack 的程序，Chat-to-Fix 不持有 Slack 令牌；`slack.mentions` 当前为 `false`。Slack Bot 把 `/fix` 用 `POST /events`（`source: "fix"`）送进来，再每隔几秒用 `GET /outbox?after=<seq>&limit=<n>` 拉取要发给用户的消息；消息存在 `<数据目录>/outbox.jsonl`。接口、字段和状态码见 [docs/slack/slackbot.md](docs/slack/slackbot.md) 第 4.2、4.3 节，Slack 一侧的行为见 [docs/slack/slackenter.md](docs/slack/slackenter.md)。`adapters.slack: "real"`（服务端自己连 Slack，用 `scripts/slack-forwarder.ts`）仍可用，但不能和 Slack Bot 同时连同一个 Slack 应用。
+
+真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
 
 Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读；`first-run.ts` 也能从 macOS 钥匙串读（服务名 `chat-to-fix-anthropic`）。代码、配置和日志里都没有凭据。
 

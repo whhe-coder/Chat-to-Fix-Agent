@@ -34,6 +34,7 @@ export const LANES = Object.freeze([
   { id: 'jira', label: 'Jira bot' },
   { id: 'pipeline', label: 'Git Pipeline bot' },
   { id: 'coding', label: '修复 bot' },
+  { id: 'ciext', label: 'GitLab CI' },
 ])
 const LANE_IDS = LANES.map((l) => l.id)
 
@@ -49,7 +50,7 @@ const BOT_NAME_LANE = Object.freeze({ main: 'main', slack: 'slack', jira: 'jira'
 const TOOL_HINTS = Object.freeze({
   task_read: '读任务', task_records: '读记录', repo_prepare: '准备代码', repo_diff: '看改动', repo_read_file: '读文件', repo_log: '看历史',
   mr_open_draft: '开 Draft MR', mr_get: '查 MR', jira_create_issue: '建工单', jira_get_issue: '查工单', jira_add_comment: '加评论',
-  jira_transition: '改状态', review_report: '评审结果',
+  jira_transition: '改状态', review_report: '评审结果', ci_read_log: '读 CI 日志', mr_push_fix: '推修复提交', ci_stop: '停止 CI 循环',
 })
 
 const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -102,6 +103,7 @@ function buildDetailed(records, task) {
   const lastRound: any = {} // role -> normalized text of its latest round_end
   const lastRoundArrow: any = {} // role -> the arrow of that round_end (the group's copy of it joins its recordIds)
   const justEnded: any = {} // role -> true while its round_end has not yet been followed by another record of that role
+  const callerOf: any = {} // lane -> the lane that last called it with message_bot (its round end answers there)
   const lastCallRole: any = {} // tool -> role of its latest call (for records that do not name a role)
   const roundUsage: any = {} // role -> its usage records since its latest round_end (shown in that round's popup)
   let step: string | null = null
@@ -180,6 +182,7 @@ function buildDetailed(records, task) {
           ? push(r, { ...common, from: role, to: role, kind: 'self', label: `message_bot → ${to ?? '?'}`, detail: message, unknown: true })
           : push(r, { ...common, from: role, to: lane, kind: 'call', label: message, detail: message })
         made.push(arrow)
+        if (lane !== undefined) callerOf[lane] = role
         mirrors.push({ role: r.role, to: String(to ?? ''), text: oneLine(`@${to} ${message}`), arrow })
       }
     } else if (tool.startsWith('slack_')) {
@@ -223,7 +226,7 @@ function buildDetailed(records, task) {
     if (isLane(r.role)) { lastRound[r.role] = oneLine(text); justEnded[r.role] = true }
     let arrow
     if (r.role === 'main') arrow = push(r, { from: 'main', to: 'main', kind: 'self', label: text, detail: text, minor: true, failed: Boolean(r.failed) })
-    else if (isLane(r.role)) arrow = push(r, { from: r.role, to: 'main', kind: 'reply', label: text, detail: text, failed: Boolean(r.failed) })
+    else if (isLane(r.role)) arrow = push(r, { from: r.role, to: callerOf[r.role] ?? 'main', kind: 'reply', label: text, detail: text, failed: Boolean(r.failed) })
     else arrow = grey(r, text)
     if (isLane(r.role)) lastRoundArrow[r.role] = arrow
     // what this round cost: the usage records the bot wrote since its previous round end (src/task/usage.ts roundView)
@@ -246,6 +249,18 @@ function buildDetailed(records, task) {
       if (awaitTaskLine && /^Task /.test(text)) { awaitTaskLine = false; push(r, { key: 'task_to_main', from: 'gate', to: 'main', kind: 'call', label: '任务发到群里', detail: text }); return }
       const nudge = lastNotice()
       if (nudge !== undefined && Date.parse(r.at) - Date.parse(nudge.at) <= 5000) { nudge.detail = `${nudge.detail}\n\n${text}`; nudge.recordIds.push(ri); return }
+      if (/^\[system\] The CI outcome is in/.test(text)) {
+        const settled = arrows.at(-1)
+        if (settled !== undefined && settled.key === 'ci_settled') { settled.detail = `${settled.detail}\n\n${text}`; settled.recordIds.push(ri); return }
+        push(r, { key: 'ci_settled', from: 'gate', to: 'main', kind: 'notice', label: 'CI 结束，通知主 bot 进到回写', detail: text })
+        return
+      }
+      const addressed = /^(?:\[system\]\s*)?@([A-Za-z]+)-\d+\b/.exec(text)
+      const to = addressed ? BOT_NAME_LANE[addressed[1].toLowerCase()] : undefined
+      if (to !== undefined && to !== 'main') {
+        push(r, { key: /CI failed \(round/.test(text) ? 'ci_nudge' : undefined, from: 'gate', to, kind: 'notice', label: /CI failed \(round/.test(text) ? 'CI 失败，交给 Git Pipeline bot' : text, detail: text })
+        return
+      }
       push(r, { from: 'gate', to: 'main', kind: 'notice', label: text, detail: text })
       return
     }
@@ -255,6 +270,29 @@ function buildDetailed(records, task) {
     // the group's copy of a round_end: same text, or (the group rewrites links) the very next record of that role
     if (lastRound[r.role] === flat || justEnded[r.role]) { lastRoundArrow[r.role]?.recordIds.push(ri); delete lastRound[r.role]; delete justEnded[r.role]; return }
     push(r, { from: r.role, to: r.role, kind: 'self', label: text, detail: text, minor: true })
+  }
+
+  // `ci` records: the monitor's (no role) are GitLab CI telling the watchdog; the CI tools' own (a role) are small notes on the bot's lane.
+  const onCi = (r) => {
+    const text = String(r.text ?? '')
+    let m
+    if (isLane(r.role)) {
+      const rejected = /^fix push rejected/.test(text)
+      push(r, { from: r.role, to: r.role, kind: 'self', label: text, detail: text, minor: !rejected, failed: rejected })
+      return
+    }
+    const ci = (a: any) => push(r, { from: 'ciext', to: 'gate', kind: 'reply', detail: text, ...a })
+    if (/^waiting for the pipeline/.test(text)) push(r, { from: 'gate', to: 'ciext', kind: 'call', label: '等 CI 结果', detail: text })
+    else if ((m = /^pipeline: (.*)$/.exec(text))) ci({ label: 'CI 开始跑', sub: m[1] })
+    else if ((m = /^CI failed: re-running \d+ failed job\(s\) once: (.*)$/.exec(text))) ci({ label: `CI 失败，自动重跑一次：${m[1]}` })
+    else if ((m = /^re-running the failed jobs failed: (.*)$/.exec(text))) ci({ label: `重跑失败：${m[1]}`, failed: true })
+    else if ((m = /^CI failed in round (\d+): (.*?)( \(rounds exhausted\))?$/.exec(text))) {
+      if (m[3]) ci({ label: `CI 修满 ${Number(m[1]) - 1} 轮仍未通过：${m[2]}`, failed: true })
+      else ci({ label: `CI 第 ${m[1]} 轮失败：${m[2]}`, failed: true })
+    } else if ((m = /^CI passed(?: after (\d+) fix round)?/.exec(text))) ci({ label: m[1] ? `CI 通过（修复 ${m[1]} 轮后）` : 'CI 通过' })
+    else if ((m = /^no CI result: (.*)$/.exec(text))) ci({ label: `没有 CI 结果：${m[1]}`, failed: true })
+    else if ((m = /^CI settled \((\w+)\)/.exec(text))) push(r, { key: 'ci_settled', from: 'gate', to: 'main', kind: 'notice', label: `CI 结束（${m[1]}），通知主 bot 进到回写`, detail: text })
+    else push(r, { from: 'ciext', to: 'ciext', kind: 'self', label: text, detail: text, unknown: true })
   }
 
   const list = Array.isArray(records) ? records : []
@@ -273,6 +311,7 @@ function buildDetailed(records, task) {
         case 'tool_result': onToolResult(r); break
         case 'round_end': onRoundEnd(r); break
         case 'usage': onUsage(r); break
+        case 'ci': onCi(r); break
         case 'advance': {
           const m = /(\w+)\s*->\s*(\w+)/.exec(String(r.text ?? ''))
           const index = m ? STEP_LIST.findIndex((s) => s.id === m[2]) : -1
@@ -313,16 +352,25 @@ function buildDetailed(records, task) {
 const CALL_LABEL = Object.freeze({
   slack: { fetch: '取回讨论', writeback: '回复结果' },
   jira: { issue: '建单', writeback: '回写' },
-  pipeline: { prepare: '准备代码', mr: '核对并开 MR' },
-  coding: { code: '修复' },
+  pipeline: { prepare: '准备代码', mr: '核对并开 MR', ci: '等 CI' },
+  coding: { code: '修复', ci: '按 CI 日志修复' },
 })
 // What a bot's round end is called, by (lane, step); a function gets the facts found so far.
 const ROUND_LABEL = Object.freeze({
   slack: { fetch: '摘要（一轮结束）', writeback: '已回复' },
   jira: { issue: (f) => `Jira 单号${f.key ? ` ${f.key}` : ''}`, writeback: '已写' },
-  pipeline: { prepare: '代码目录和分支', mr: 'MR 链接' },
-  coding: { code: '改了什么' },
+  pipeline: { prepare: '代码目录和分支', mr: 'MR 链接', ci: (f) => ciAnswerLabel(f.text) },
+  coding: { code: '改了什么', ci: '修好了' },
 })
+/** What the Pipeline bot's answer in step ci is: it pushed a fix, summarised a failure, or only waits for the system. */
+// Judged on the first line: the waiting answer of the real run (2026-11-12) also said "If a round fails, ..." further on.
+function ciAnswerLabel(text) {
+  const head = firstLine(text)
+  if (/mr_push_fix|pushed|推送|已推|\b[0-9a-f]{7,40}\b/i.test(head)) return '已推修复提交'
+  if (/wait|等待|等系统|等 CI/i.test(head)) return '等系统给 CI 结果'
+  if (/fail|失败|job/i.test(head)) return 'CI 失败摘要'
+  return clip(head, 24)
+}
 const REPLY_LABEL = Object.freeze({ ack: '回复已收到', result: '回复结果' })
 
 const plain = (text) => oneLine(String(text ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`#>]/g, ''))
@@ -335,6 +383,13 @@ const keyIn = (text) => /\b[A-Z][A-Z0-9]+-\d+\b/.exec(String(text ?? ''))?.[0] ?
 function summaryLine(text) {
   const lines = String(text ?? '').split('\n').map(plain).filter((l) => l !== '')
   return lines.length > 1 && /摘要|总结|summary/i.test(lines[0]) ? lines[1] : lines[0] ?? ''
+}
+
+/** The first line of a CI job log (inside its material block) that looks like the error; else its last line (the tail of a log ends at the failure). */
+function logErrorLine(result) {
+  const m = /-----BEGIN MATERIAL-----\n([\s\S]*?)\n-----END MATERIAL-----/.exec(String(result ?? ''))
+  const lines = (m ? m[1] : String(result ?? '')).split('\n').map(oneLine).filter((l) => l !== '' && !l.startsWith('$ '))
+  return lines.find((l) => /error|fail|fatal|exception|assert|not ok|✖|✗|×/i.test(l)) ?? lines.at(-1) ?? ''
 }
 
 /** Files changed and test outcome, read from what the Coding bot said (the code step leaves no other trace before the MR step). */
@@ -410,6 +465,10 @@ function toConcise(all, task) {
     if (keyIn(a.result) && a.tool === 'jira_create_issue') jiraKey = keyIn(a.result)
 
     if (a.recordType === 'advance') { advanceTo = stepNo(a.step); continue }
+    // usage records are shown in the popup of their round, never as an arrow (a usage record must not start a "Claude Code" loop)
+    if (a.recordType === 'usage') continue
+    // "[PASS]": a bot that saw a group message and chose not to answer (real run 2026-11-12: the Coding bot after the CI fix push)
+    if (a.recordType === 'round_end' && /^\s*\[PASS\]\s*$/.test(String(a.detail ?? ''))) continue
 
     // the Coding bot's own lane: its narration and tool calls are one "Claude Code" loop; refusals and errors stay red beside it
     if (a.role === 'coding' && a.from === 'coding' && a.to === 'coding' && a.recordType !== 'round_end') {
@@ -427,6 +486,39 @@ function toConcise(all, task) {
     }
 
     if (a.tool === 'task_advance' && !a.failed) continue
+
+    // the CI loop (step ci): what GitLab CI tells the watchdog, and the Pipeline bot's three CI tools
+    if (a.recordType === 'ci') {
+      if (a.minor) { // the CI tool's own note: it belongs to the tool call just drawn
+        const tool = /^log of job/.test(a.label) ? 'ci_read_log' : /^fix \d+ of/.test(a.label) ? 'mr_push_fix' : /^CI loop stopped/.test(a.label) ? 'ci_stop' : ''
+        const last = out.at(-1)
+        if (last !== undefined && last.tool === tool) { last.parts.push(partOf(a)); last.recordIds = [...new Set<number>(last.parts.flatMap((p) => p.recordIds))].sort((x, y) => x - y) }
+        continue
+      }
+      emit(a, { sub: a.sub || (a.failed ? firstLine(a.detail) : '') })
+      lastRead = undefined
+      continue
+    }
+    if (a.tool === 'ci_read_log' && a.kind === 'self') {
+      const args = jsonOf(a.args)
+      const job = /failed job (.+?) \(id /.exec(a.result)?.[1] ?? String(args?.job ?? '')
+      emit(a, { label: `读 CI 日志 ${job}`.trim(), sub: a.failed ? firstLine(a.result) : logErrorLine(a.result) })
+      lastRead = undefined
+      continue
+    }
+    if (a.tool === 'mr_push_fix' && a.kind === 'self') {
+      const message = String(jsonOf(a.args)?.commit_message ?? '')
+      const sha = /as commit (\S+?):/.exec(a.result)?.[1]
+      emit(a, { from: 'pipeline', to: 'ciext', kind: 'call', label: '推修复提交', sub: a.failed ? firstLine(a.result) : [sha, message].filter(Boolean).join(' ') })
+      lastRead = undefined
+      continue
+    }
+    if (a.tool === 'ci_stop' && a.kind === 'self') {
+      const args = jsonOf(a.args)
+      emit(a, { label: `停止 CI 循环${args?.reason ? `：${args.reason}` : ''}`, failed: true, sub: a.ok === false ? firstLine(a.result) : String(args?.note ?? '') })
+      lastRead = undefined
+      continue
+    }
 
     if (a.key === 'event') { emit(a, { sub: firstLine(a.detail) }); lastRead = undefined; continue }
     if (a.key === 'create') { emit(a, { label: '建任务，排队' }); continue }
@@ -476,7 +568,7 @@ function toConcise(all, task) {
       // bot already moved on to close (second real run of T-1).
       const entry = ROUND_LABEL[a.from]?.[callStep[a.from] ?? a.step]
       const found = keyIn(text) || jiraKey
-      const label = typeof entry === 'function' ? entry({ key: found }) : entry ?? clip(firstLine(text), 24)
+      const label = typeof entry === 'function' ? entry({ key: found, text }) : entry ?? clip(firstLine(text), 24)
       let sub = firstLine(text)
       if (a.from === 'slack' && a.step === 'fetch') sub = summaryLine(text)
       else if (a.from === 'jira' && a.step === 'issue') { const title = jiraTitle || /标题[：:]\s*(.+)/.exec(plain(text))?.[1] || ''; sub = [found, title].filter(Boolean).join(' · ') || sub }
@@ -485,6 +577,7 @@ function toConcise(all, task) {
         const dir = /directory (\S+)/.exec(repoText)?.[1] ?? /目录[：:]\s*`?([^\s`]+)/.exec(text)?.[1]
         if (branch || dir) sub = [branch, dir ? `…/${dir.split('/').slice(-2).join('/')}` : ''].filter(Boolean).join(' · ')
       } else if (a.from === 'pipeline' && a.step === 'mr') sub = urlIn(text) || mrUrl || task?.mr?.url || sub
+      else if (a.from === 'pipeline' && a.step === 'ci') sub = firstLine(text)
       else if (a.from === 'coding') sub = codingFacts(text, review) || sub
       if (a.from === 'coding') work = undefined
       emit(a, { label, sub })

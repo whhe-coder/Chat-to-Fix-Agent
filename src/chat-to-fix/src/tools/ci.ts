@@ -3,7 +3,7 @@
 // (src/task/monitor.ts); these tools only read a log, append a fix commit, or record a stop, and
 // each one checks for itself what the gate's evidence evaluator cannot (spec 7, 6).
 import { CI_CONFIG_DEFAULTS, CI_STOP_REASONS, CI_TOOL_PARAMETERS, newCi } from '../task/contracts.ts'
-import { cutText, material } from './material.ts'
+import { announce, commitUrlOf, cutText, material } from './material.ts'
 import { checkCommitMessage } from './repo.ts'
 
 const limitOf = (ctx, key) => ctx.config?.limits?.[key] ?? CI_CONFIG_DEFAULTS.limits[key]
@@ -98,6 +98,7 @@ export function ciTools() {
         // A fresh pending ci for the new commit; round and waited time are carried (the monitor waits again).
         await ctx.store.patchTask(task.id, { ci: { ...newCi(sha, at, { round, waitedMs: ci.waitedMs }), lastPollAt: null }, mr: { sha } })
         await ciRecord(ctx, `fix ${round} of ${maxRounds} pushed as ${sha}: ${message}`)
+        await announce(ctx, 'ci_fix_pushed', { extra: { commitUrl: commitUrlOf(task.mr?.url, sha) } })
         return `Pushed the fix (round ${round} of ${maxRounds}) as commit ${sha}: ${message}. The system now waits for the pipeline of this commit.`
       },
     },

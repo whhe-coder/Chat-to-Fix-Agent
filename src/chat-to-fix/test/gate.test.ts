@@ -244,9 +244,19 @@ test('close done: the end reason follows task.ci.outcome (spec 7, 4.8); the stat
   const failed = setup({ step: 'close', ci: { outcome: 'rounds_exhausted' } })
   assert.deepEqual(await failed.gate.close('T-1', 'failed', 'repo is gone'), ok)
   assert.equal(failed.store.task.endReason, 'repo is gone')
+  assert.equal(failed.store.task.closeNote, 'repo is gone')
   const person = setup({ ci: { outcome: 'no_pipeline' } })
   assert.deepEqual(await person.gate.close('T-1', 'needs_person', 'x'), ok)
   assert.equal(person.store.task.endReason, 'needs_person')
+  assert.equal(person.store.task.closeNote, 'x')
+  // a done close has no note, so none is stored
+  const done = setup({ step: 'close', ci: null })
+  await done.gate.close('T-1', 'done')
+  assert.equal(done.store.task.closeNote, undefined)
+  // the note is trimmed
+  const trimmed = setup({ ci: null })
+  await trimmed.gate.close('T-1', 'needs_person', '  too big \n')
+  assert.equal(trimmed.store.task.closeNote, 'too big')
   // An outcome outside the map falls back to the plain reason.
   const odd = setup({ step: 'close', ci: { outcome: 'something_else' } })
   assert.deepEqual(await odd.gate.close('T-1', 'done'), ok)

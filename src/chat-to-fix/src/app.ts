@@ -4,6 +4,7 @@
 // real bot layer inside DSH and against the fake bot layer in tests. When no adapters are passed,
 // the ones the configuration names are created (fake implementations until the real hookup exists).
 import { createStore } from './task/store.ts'
+import { createOutbox } from './task/outbox.ts'
 import { createGate } from './task/gate.ts'
 import { createQueue } from './task/queue.ts'
 import { createHttp } from './task/http.ts'
@@ -26,14 +27,16 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   const problems = [...validateRegistry(), ...validateFlow(allBotDefs())]
   if (problems.length) throw new Error(`chat-to-fix: the bot registry or the flow definition is invalid: ${problems.join('; ')}`)
 
-  // The adapters named by the configuration (fake or real); a test may pass its own instead.
-  const adapters = givenAdapters ?? createAdapters(config, { warn })
-
   const store = createStore({ dataDir: config.dataDir, warn })
+  // The outbox of the messages for the Slack Bot (GET /outbox); the "outbox" Slack adapter writes to the same one.
+  const outbox = createOutbox({ dataDir: config.dataDir, store })
+
+  // The adapters named by the configuration (fake, real or outbox); a test may pass its own instead.
+  const adapters = givenAdapters ?? createAdapters(config, { warn, outbox })
 
   // The monitor ends tasks through the runner and the runner is built after it, so the call is late-bound.
   let runner
-  const send = adapters.slack ? (origin, text) => adapters.slack.reply(origin, 'system', text) : undefined
+  const send = adapters.slack ? (origin, text, kind) => adapters.slack.reply(origin, 'system', text, kind) : undefined
   const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, repo: adapters.repo, language: config.language, now, warn })
   runner = createRunner({ store, botlayer, config, monitor, notify: monitor.notify, loadPrompt, groupNotice, repo: adapters.repo, warn, now })
   const queue = createQueue({ store, limits: config.limits, runner, notify: monitor.notify as any, now })
@@ -48,14 +51,14 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   const recorder = createRecorder({ store, botlayer, pricing: config.pricing, warn })
   // `defineTool` is DSH's own tool constructor (@deepseek-ai/dsh-tools), passed in by the plugin entry;
   // without it the registry registers plain definitions, which is what the tests use.
-  const tools = createToolRegistry({ store, gate, adapters, config, botlayer, warn, ...(defineTool ? { defineTool } : {}) })
+  const tools = createToolRegistry({ store, gate, adapters, config, botlayer, notify: monitor.notify, warn, ...(defineTool ? { defineTool } : {}) })
   registerAllTools(tools)
   const undefinedTools = tools.validate()
   if (undefinedTools.length) throw new Error(`chat-to-fix: the tool definitions do not match the bot registry: ${undefinedTools.join('; ')}`)
-  const http = createHttp({ config, token, store, queue, runner, notify: monitor.notify, startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
+  const http = createHttp({ config, token, store, outbox, queue, runner, notify: monitor.notify, startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
 
   return {
-    store, gate, queue, runner, monitor, recorder, tools, http,
+    store, outbox, gate, queue, runner, monitor, recorder, tools, http,
     // The functions the bot layer calls back (spec 5, section 3). `codingOptions(taskId)` gives the
     // Claude Code launcher the test commands of the task's binding (bot/src/host/local-agents/launch.ts).
     taskLayer: {

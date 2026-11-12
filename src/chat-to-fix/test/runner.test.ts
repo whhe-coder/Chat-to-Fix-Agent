@@ -12,7 +12,7 @@ const ORIGIN = { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1'
 const BINDING = { repo: 'group/project', defaultBranch: 'master', jiraProject: 'DEMO', issueType: 'Bug', labels: [] }
 const config = { apiModel: 'anthropic/test', codingPermission: 'workspace-write', limits: { worktreeKeepDays: 7 } }
 
-async function rig({ fail, repo, nowMs, warnings = [] }: any = {}) {
+async function rig({ fail, repo, nowMs, warnings = [], slack }: any = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-runner-'))
   const store = createStore({ dataDir: dir, warn: () => {} })
   const botlayer = createFakeBotLayer({ fail })
@@ -22,7 +22,7 @@ async function rig({ fail, repo, nowMs, warnings = [] }: any = {}) {
   const notify = async (task, kind) => { notices.push([task?.id, kind]); log.push(['notify', kind]) }
   const queue = { release: (id) => { log.push(['queue.release', id]) }, dispatch: async () => { log.push(['queue.dispatch']) } }
   const runner = createRunner({
-    store, botlayer, config, monitor, notify,
+    store, botlayer, config: slack ? { ...config, slack } : config, monitor, notify,
     loadPrompt: (name) => `instructions of ${name}`,
     groupNotice: () => 'the group notice',
     repo, warn: (...args) => warnings.push(args), now: () => nowMs ?? Date.now(),
@@ -245,6 +245,21 @@ test('end: notices only when the end reason is neither a done reason (completed,
     assert.deepEqual(r.notices, expected === null ? [] : [[r.id, expected]], `${state}/${reason}`)
     assert.equal(r.log.filter((e) => e[0] === 'queue.release').length, 1)
   }
+})
+
+test('end: needs_info sends needs_info_resubmit only with slack.mentions false', async () => {
+  for (const [slack, expected] of [[{ mentions: false }, [['needs_info_resubmit']]], [{ mentions: true }, []], [undefined, []]] as any[]) {
+    const r = await rig({ slack })
+    await r.runner.start(r.id)
+    await r.runner.end(r.id, 'needs_info', 'needs_info')
+    assert.deepEqual(r.notices.map((n) => [n[1]]), expected, JSON.stringify(slack))
+    if (expected.length) assert.equal(r.notices[0][0], r.id)
+  }
+  // other end reasons do not get it
+  const r = await rig({ slack: { mentions: false } })
+  await r.runner.start(r.id)
+  await r.runner.end(r.id, 'stopped', 'stopped')
+  assert.deepEqual(r.notices.map((n) => n[1]), ['stopped'])
 })
 
 test('restore: a running task with a live group is watched again, one without is ended as failed/restart', async () => {

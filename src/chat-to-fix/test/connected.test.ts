@@ -11,16 +11,18 @@ test('existing tokens reach real adapters without entering the saved configurati
     GITLAB_URL: 'https://gitlab.example.com', GITLAB_PROJECT: 'account-platform/free-to-play-pc', GITLAB_BRANCH: 'master',
     GITLAB_TOKEN: 'gl-secret', JIRA_TOKEN: 'jira-secret', JIRA_EMAIL: 'user@example.com',
     JIRA_CLOUD_ID: '11111111-1111-1111-1111-111111111111', JIRA_WORK_TYPE_FIELD_ID: 'customfield_12345',
-    SLACK_BOT_TOKEN: 'xoxb-secret', SLACK_APP_TOKEN: 'xapp-secret',
+    SLACK_BOT_TOKEN: 'xoxb-secret', SLACK_APP_TOKEN: 'xapp-secret', // still in .env.local for the Slack Bot; this service ignores them
   }
   const dataRoot = mkdtempSync(join(tmpdir(), 'chat-to-fix-connected-'))
   try {
     const config = connectedConfig({ env, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
-    assert.deepEqual(config.adapters, { slack: 'real', jira: 'real', gitlab: 'real' })
+    assert.deepEqual(config.adapters, { slack: 'outbox', jira: 'real', gitlab: 'real' })
     assert.equal(config.jira.apiVersion, '3')
     assert.equal(config.slack.inputMode, 'command')
+    assert.equal(config.slack.mentions, false)
     assert.equal(config.bindings[0].remote, 'https://gitlab.example.com/account-platform/free-to-play-pc.git')
-    const path = saveConfig(config, bridgeEnv(env), dataRoot)
+    assert.equal(bridgeEnv(env).CHAT_TO_FIX_SLACK_TOKEN, undefined) // no Slack token is handed to this service
+    const path = saveConfig(config, bridgeEnv(env), dataRoot)  // loads without any Slack token
     const saved = readFileSync(path, 'utf8')
     for (const secret of [env.GITLAB_TOKEN, env.JIRA_TOKEN, env.SLACK_BOT_TOKEN, env.SLACK_APP_TOKEN]) assert.equal(saved.includes(secret), false)
   } finally { rmSync(dataRoot, { recursive: true, force: true }) }

@@ -222,6 +222,21 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     return getTask(index.threads[key])
   }
 
+  // A requester's @ in the discussion of an existing task. In command mode (no history scope) this is the
+  // only way the bots see it: it is appended to origin.followUps, and the Slack adapter returns it as part of
+  // the discussion. The event id is remembered like a create's, so a redelivered event is a duplicate.
+  async function addFollowUp(id, eventId, message) {
+    const task = await update(id, (t) => ({ ...t, origin: { ...(t.origin ?? {}), followUps: [...(t.origin?.followUps ?? []), clone(message)] } }))
+    if (eventId) {
+      await enqueue('index', async () => {
+        const before = index.events[eventId]
+        index.events[eventId] = id
+        try { await writeIndex() } catch (error) { if (before === undefined) delete index.events[eventId]; else index.events[eventId] = before; throw error }
+      })
+    }
+    return clone(task)
+  }
+
   function patchTask(id, patch) {
     // `id` and `no` never change.
     const { id: _id, no: _no, ...rest } = patch ?? {}
@@ -239,6 +254,7 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
         ...task,
         state: 'running',
         endReason: null,
+        closeNote: null, // an old failure reason must not show on a later run
         step: 'fetch',
         stepAt: at,
         stepResults: {},
@@ -337,5 +353,5 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     return tasks.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.no - b.no))
   }
 
-  return { knownEvent, createTask, getTask, findByThread, patchTask, startRun, endRun, appendRecord, addUsage: addUsageRecord, readRecords, listTasks }
+  return { knownEvent, createTask, getTask, findByThread, addFollowUp, patchTask, startRun, endRun, appendRecord, addUsage: addUsageRecord, readRecords, listTasks }
 }

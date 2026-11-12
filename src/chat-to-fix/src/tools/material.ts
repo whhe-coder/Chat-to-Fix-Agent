@@ -31,3 +31,29 @@ export function currentRun(task) {
   const runs = task.runs ?? []
   return runs.findLast((run) => run.endedAt === null) ?? runs.at(-1)
 }
+
+/**
+ * A progress notice for the requester, sent by the system (no model call) right after the fact was written.
+ * `once` kinds (jira_created, mr_opened) are sent at most once per task: `task.notified[kind]` is written
+ * first (store.startRun keeps it), so a rerun never repeats them. `extra` is merged into the fresh task the
+ * notice text is built from. Nothing here ever fails the tool: a problem is only warned about.
+ */
+export async function announce(ctx, kind, { once = false, extra = {} }: any = {}) {
+  try {
+    if (typeof ctx.notify !== 'function') return
+    const fresh = (await ctx.store.getTask(ctx.task.id)) ?? ctx.task
+    if (once) {
+      if (fresh.notified?.[kind]) return
+      await ctx.store.patchTask(ctx.task.id, { notified: { [kind]: true } })
+    }
+    await ctx.notify({ ...fresh, ...extra }, kind)
+  } catch (error) {
+    (ctx.warn ?? console.warn)('chat-to-fix: cannot send the %s notice: %s', kind, error?.message ?? error)
+  }
+}
+
+/** The link of a commit on the MR's host: the MR url with its `/-/merge_requests/<n>` tail replaced; undefined for any other url. */
+export function commitUrlOf(mrUrl, sha) {
+  if (typeof mrUrl !== 'string' || !sha || !/\/-\/merge_requests\/\d+$/.test(mrUrl)) return undefined
+  return mrUrl.replace(/\/-\/merge_requests\/\d+$/, `/-/commit/${sha}`)
+}

@@ -27,6 +27,7 @@ const where = (task) => {
   if (task?.repo?.branch) extra.push(`Branch: ${task.repo.branch}`)
   return extra.length > 0 ? ` ${extra.join(', ')}.` : ''
 }
+const shortSha = (sha) => String(sha ?? '').slice(0, 7)
 const ref = (task, zh = false) => (zh ? (task?.id ? `任务 ${task.id}：` : '') : (task?.id ? `Task ${task.id}` : 'This request'))
 
 export const NOTICE = Object.freeze({
@@ -37,9 +38,64 @@ export const NOTICE = Object.freeze({
   failed: (task) => `${ref(task)} could not be completed${task?.endReason ? ` (${task.endReason})` : ''}.${where(task)}`,
   expired: (task) => `${ref(task)} waited too long in the queue and expired. Mention the bot again to retry.${where(task)}`,
   stopped: (task) => `${ref(task)} was stopped.${where(task)}`,
+  resumed: (task) => `Got the extra information; ${task?.id ? `task ${task.id}` : 'this request'} is queued again.`,
+  no_open_task: () => 'There is no open task in this discussion; please submit a new problem with /fix.',
+  // Progress facts, sent by the system right when they are written (src/tools: jira_create_issue, mr_open_draft, mr_push_fix).
+  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? ` (${task.jira.url})` : ''}.`,
+  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}.`,
+  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` (${task.commitUrl})` : ''}.`,
+  // Only with slack.mentions false: the requester cannot answer in the thread.
+  needs_info_resubmit: (task) => `${ref(task)} needs more information; please submit it again with /fix, with the original description and the missing details together.`,
 })
 
 export const NOTICE_KINDS = Object.freeze(Object.keys(NOTICE))
+
+// Chinese notices (chosen when `language` is 'zh'). The reason of failed / needs_person is the Main bot's note
+// (task.closeNote), written for the requester; end reasons without a note fall back to endReason.
+const zhRef = (task) => (task?.id ? `任务 ${task.id}` : '这个请求')
+const zhWhere = (task) => {
+  const extra = []
+  if (task?.jira?.key) extra.push(`Jira：${task.jira.key}${task.jira.url ? `（${task.jira.url}）` : ''}`)
+  if (task?.repo?.branch) extra.push(`分支：${task.repo.branch}`)
+  if (task?.mr?.url) extra.push(`Draft MR：${task.mr.url}`)
+  return extra.length > 0 ? `${extra.join('，')}。` : ''
+}
+const ZH_END_REASON = { task_timeout: '任务总时长超限', coding_timeout: '编码步骤超时', step_timeout: '某一步超时' }
+const zhReason = (task) => {
+  const raw = (task?.closeNote ?? task?.endReason ?? '').toString().trim()
+  return raw.replace(/[。.]+$/, '')
+}
+const zhReasonOf = (task) => { const r = zhReason(task); return ZH_END_REASON[r] ?? r }
+
+export const NOTICE_ZH = Object.freeze({
+  in_progress: (task) => `${zhRef(task)} 已经在处理这个讨论了。${zhWhere(task)}`,
+  queue_full: () => '修复队列已满，这次请求没有接收，请稍后再试。',
+  channel_not_bound: () => '这个频道还没有接入 Chat-to-Fix，这次请求没有接收。',
+  timed_out: (task) => `${zhRef(task)} 超时了${zhReasonOf(task) ? `（${zhReasonOf(task)}）` : ''}，已结束。${zhWhere(task)}`,
+  failed: (task) => {
+    if (task?.endReason === 'needs_person') {
+      const why = zhReason(task) === 'needs_person' ? '' : zhReason(task)
+      return `${zhRef(task)} 需要人来处理${why ? `：${why}` : ''}。${zhWhere(task)}`
+    }
+    const why = zhReasonOf(task)
+    return `${zhRef(task)} 没能自动修好${why ? `：${why}` : ''}。${zhWhere(task)}补充信息后可以用 /fix 重新提交。`
+  },
+  expired: (task) => `${zhRef(task)} 在队列里等太久，已过期。想继续的话，请用 /fix 重新提交。${zhWhere(task)}`,
+  stopped: (task) => `${zhRef(task)} 已停止。${zhWhere(task)}`,
+  resumed: (task) => `收到补充信息，${zhRef(task)} 重新开始处理。`,
+  no_open_task: () => '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。',
+  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? `（${task.jira.url}）` : ''}。`,
+  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开：${task?.mr?.url ?? ''}。`,
+  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `（${task.commitUrl}）` : ''}。`,
+  needs_info_resubmit: (task) => `${zhRef(task)} 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。`,
+})
+
+/** The notice text of `kind` for `task` in `language` ('zh' Chinese, anything else English). */
+export const noticeText = (language, kind, task) => {
+  const table = language === 'zh' ? NOTICE_ZH : NOTICE
+  const template = table[kind]
+  return template ? template(task).trim() : undefined
+}
 
 // ---------------------------------------------------------------------------------------------
 // CI wait (spec 7, 4.4 and 4.7). Messages to the Main bot are English like the nudges. The Slack
@@ -489,17 +545,18 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       try { await store.appendRecord(full.id, { type: 'system', run: null, text: `notice ${kind}: ${text}` }) } catch (error) { warn('chat-to-fix: monitor cannot record a notice: %s', error?.message ?? error) }
     }
     if (typeof send !== 'function') return
-    try { await send(full?.origin, text) } catch (error) { warn('chat-to-fix: system notice %s not sent: %s', kind, error?.message ?? error) }
+    try { await send(full?.origin, text, kind) } catch (error) { warn('chat-to-fix: system notice %s not sent: %s', kind, error?.message ?? error) }
   }
 
   async function notify(task, kind) {
-    const template = NOTICE[kind]
-    if (!template) { warn('chat-to-fix: monitor has no notice for kind %s', kind); return }
+    if (!NOTICE[kind]) { warn('chat-to-fix: monitor has no notice for kind %s', kind); return }
     let full = task
     if (task?.id && task.jira === undefined && task.repo === undefined) {
       try { full = { ...(await store.getTask(task.id)), ...task } } catch { /* the notice goes without them */ }
     }
-    await deliver(full, kind, template(full))
+    // A task ended as "needs a person" is state failed; the Slack side gets it as its own kind (docs/slack/slackbot.md 4.2(2)).
+    const sentKind = kind === 'failed' && full?.endReason === 'needs_person' ? 'needs_person' : kind
+    await deliver(full, sentKind, noticeText(language, kind, full))
   }
 
   // ---- lifecycle -----------------------------------------------------------------------------
