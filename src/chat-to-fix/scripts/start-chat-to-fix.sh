@@ -64,6 +64,31 @@ alive() {
   "$NODE" -e 'try { process.kill(-Number(process.argv[1]), 0) } catch (error) { if (error.code === "ESRCH") process.exit(1) }' "$pid"
 }
 if alive; then echo "start-chat-to-fix: already running (process group $(cat "$PIDFILE"))"; exit 0; fi
+
+# A missing PID file does not prove that the Agent stopped. Check the authenticated health
+# endpoint and the configured port before touching the log or launching another DSH process.
+port="$("$NODE" -e '
+  const c = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+  const port = c.httpPort ?? 3090;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error("start-chat-to-fix: invalid httpPort in configuration");
+    process.exit(1);
+  }
+  process.stdout.write(String(port));
+' "$CONFIG")"
+if CHAT_TO_FIX_DATA="$DATA" CHAT_TO_FIX_CONFIG="$CONFIG" "$NODE" "$ROOT/scripts/connected.ts" --running >/dev/null 2>&1; then
+  echo "start-chat-to-fix: Agent already running on 127.0.0.1:$port (PID file missing); log unchanged"
+  exit 0
+fi
+if [ "$port" -gt 0 ] && "$NODE" -e '
+  const socket = require("node:net").connect({ host: "127.0.0.1", port: Number(process.argv[1]) });
+  socket.on("connect", () => { socket.destroy(); process.exit(0) });
+  socket.on("error", () => process.exit(1));
+  socket.setTimeout(1500, () => { socket.destroy(); process.exit(1) });
+' "$port"; then
+  echo "start-chat-to-fix: 127.0.0.1:$port is occupied; not starting another Agent; log unchanged" >&2
+  exit 1
+fi
 rm -f "$PIDFILE"
 
 DSH_HOME_DIR="$DATA/dsh"

@@ -25,7 +25,27 @@ test('已运行 Agent 的有效 token 和健康接口可避免重复启动', asy
   try {
     assert.equal(await agentAlreadyRunning({ env: {}, dataRoot, port }), true)
     assert.equal(await agentAlreadyRunning({ env: { CHAT_TO_FIX_HTTP_TOKEN: 'wrong' }, dataRoot, port }), false)
-    writeFileSync(join(dataRoot, 'chat-to-fix.json'), JSON.stringify({ httpPort: port }))
+    const configPath = join(dataRoot, 'chat-to-fix.json')
+    writeFileSync(configPath, JSON.stringify({ httpPort: port }))
+    const runDir = join(dataRoot, 'run')
+    mkdirSync(runDir)
+    const logPath = join(runDir, 'chat-to-fix.log')
+    writeFileSync(logPath, '原有 Agent 日志\n')
+    const startScript = join(import.meta.dirname, '../scripts/start-chat-to-fix.sh')
+    const startEnv = { ...process.env, CHAT_TO_FIX_DATA: dataRoot, CHAT_TO_FIX_CONFIG: configPath }
+    const existing = await execFileAsync('sh', [startScript], {
+      env: { ...startEnv, CHAT_TO_FIX_HTTP_TOKEN: 'local-token' }, encoding: 'utf8',
+    })
+    assert.match(existing.stdout, /Agent already running.*PID file missing/)
+    assert.equal(readFileSync(logPath, 'utf8'), '原有 Agent 日志\n')
+    await assert.rejects(execFileAsync('sh', [startScript], {
+      env: { ...startEnv, CHAT_TO_FIX_HTTP_TOKEN: 'wrong' }, encoding: 'utf8',
+    }), (error: any) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /is occupied; not starting another Agent/)
+      return true
+    })
+    assert.equal(readFileSync(logPath, 'utf8'), '原有 Agent 日志\n')
     await assert.rejects(execFileAsync('sh', [join(import.meta.dirname, '../scripts/stop-chat-to-fix.sh')], {
       env: { ...process.env, CHAT_TO_FIX_DATA: dataRoot, CHAT_TO_FIX_HTTP_TOKEN: '' }, encoding: 'utf8',
     }), (error: any) => {

@@ -154,7 +154,8 @@ async function main() {
   const dataRoot = args.dataRoot ?? (text(env.CHAT_TO_FIX_DATA) ? env.CHAT_TO_FIX_DATA : join(ROOT, '.data', 'connected'))
   if (args.action === 'running') {
     let port = 3090
-    try { port = JSON.parse(readFileSync(join(resolve(dataRoot), 'chat-to-fix.json'), 'utf8')).httpPort ?? port }
+    const configPath = text(env.CHAT_TO_FIX_CONFIG) ? env.CHAT_TO_FIX_CONFIG : join(resolve(dataRoot), 'chat-to-fix.json')
+    try { port = JSON.parse(readFileSync(configPath, 'utf8')).httpPort ?? port }
     catch { /* Use the connected Agent's default port when its saved config is unavailable. */ }
     if (!Number.isInteger(port) || port < 1 || !await agentAlreadyRunning({ env, dataRoot, port })) process.exitCode = 1
     return
