@@ -1,6 +1,6 @@
 # Slack 应用配置：Chat-to-Fix
 
-本文记录 2026-11-11 在目标 Slack 工作区核对和修改的应用配置。本文不保存任何 token、secret、工作区 ID、App ID、回调地址或验证码。
+本文记录 2026-11-12 在目标 Slack 工作区核对和修改的应用配置。本文不保存任何 token、secret、工作区 ID、App ID、回调地址或验证码。
 
 ## 打开配置页面
 
@@ -14,23 +14,24 @@
 
 | 页面 | 已核对的状态 | 用途 |
 | --- | --- | --- |
-| `App Home` | `Messages` 标签页已开启；允许用户在此发送消息 | 用户直接私信 Bot |
+| `App Home` | `Messages` 标签页仍开启 | 待关闭；新入口不使用私信 |
 | `Socket Mode` | 已开启 | Bot 通过 WebSocket 接收 Slack 事件，无需公开 HTTP 接收地址 |
-| `Event Subscriptions` | 已开启；Bot 事件仅有 `message.im` | 接收发给 Bot 的私信 |
-| `OAuth & Permissions → Bot Token Scopes` | 仅有 `im:history`、`chat:write` | 读取 Bot 所在的私信，并以 Bot 身份回复 |
+| `Event Subscriptions` | 页面显示 Off；无 Bot 事件 | `/fix` 使用 Slash Commands，不订阅普通消息 |
+| `OAuth & Permissions → Bot Token Scopes` | 仅有 `commands`、`chat:write` | 接收 slash command，并以 Bot 身份回报 |
 | `OAuth & Permissions → User Token Scopes` | 无 | Bot 不代表用户访问 Slack |
-| `Install App` | 已显示 `Request to Workspace Install Submitted` | 安装申请已提交，等待工作区管理员批准；Bot OAuth token 尚未取得 |
+| `Slash Commands` | `/fix` 尚未创建 | 下一个配置步骤 |
+| `Install App` | 工作区和组织申请仍显示 `Request ... Submitted`；链接列出新 scopes | 等待审批；待审记录是否同步更新为新 scopes 尚未证实，Bot OAuth token 尚未取得 |
 
-频道 `@提及` 不属于当前入口。已删除 `app_mention` 事件和 `app_mentions:read` 权限。也已删除早期配置中的频道、群组、反应、用户资料和用户身份权限。
+目标入口改为指定频道内的 `/fix 问题描述`。频道类型和 ID 尚未确定。频道 `@提及`、普通频道消息和私信都不启动任务。应用不申请频道历史读取权限。完整目标行为见 [固定频道命令规格](../../spec/slack-fix-command.md)。
 
-`Event Subscriptions` 页面仍保留一个未响应的旧 Request URL，本文记为 `SLACK_EVENT_REQUEST_URL`。当前已启用 Socket Mode，因此不使用这个 URL。`OAuth & Permissions` 页面还保留旧的 OAuth Redirect URL，本文记为 `SLACK_OAUTH_CALLBACK_URL`。这两个 URL 未在本次配置中修改；如果以后改用 HTTP 或 OAuth 回调，必须先配置可用地址。
+在关闭事件订阅前，`Event Subscriptions` 页面保留过未响应的旧 Request URL，本文记为 `SLACK_EVENT_REQUEST_URL`。当前使用 Socket Mode，不使用该地址。`OAuth & Permissions` 页面还保留旧的 OAuth Redirect URL，本文记为 `SLACK_OAUTH_CALLBACK_URL`。这两个 URL 未在本次配置中修改；如果以后改用 HTTP 或 OAuth 回调，必须先配置可用地址。
 
 ## Token 与 OAuth
 
 | 凭据 | 权限 | 当前状态 | 程序变量 |
 | --- | --- | --- | --- |
 | App-level token，前缀 `xapp-` | 仅有 `connections:write` | 已生成并配置在本机 | `SLACK_APP_TOKEN` |
-| Bot User OAuth Access Token，前缀 `xoxb-` | `im:history`、`chat:write` | 等待安装批准，尚未取得 | `SLACK_BOT_TOKEN` |
+| Bot User OAuth Access Token，前缀 `xoxb-` | `commands`、`chat:write` | 等待安装批准，尚未取得 | `SLACK_BOT_TOKEN` |
 
 `connections:write` 是 App-level token 的权限，不属于 Bot Token Scopes。当前不需要 User OAuth token。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
@@ -42,19 +43,20 @@
 4. 删除 `app_mention` 事件和 `app_mentions:read`。保留发送进度消息所需的 `chat:write`。
 5. 再次核对：Bot 权限仅为 `im:history`、`chat:write`；User 权限为空；Bot 事件仅为 `message.im`。
 
-上述初次配置没有生成 token 或提交安装申请。后续已生成仅带 `connections:write` 的 App-level token，保存到本机 Mac 登录钥匙串，并提交工作区安装申请。Slack 页面确认申请已提交。尚未取得 Bot OAuth token，也没有运行 Bot 或发送测试私信。
+上述是 2026-11-11 的私信配置历史，不代表当前状态。后续已生成仅带 `connections:write` 的 App-level token，保存到本机 Mac 登录钥匙串，并提交工作区安装申请。
+
+2026-11-12，用户决定改为固定频道 `/fix`。在用户确认后，增加 Bot scope `commands`，删除 `message.im` 订阅并保存；刷新后 Events 页面显示 Off、无事件。随后删除 `im:history`。OAuth 页面核对到 Bot scopes 仅有 `commands` 和 `chat:write`，User scopes 仍为空；安装页仍显示工作区和组织申请已提交，链接中的 scopes 已变为新组合。页面没有证明审批人看到的待审记录已经更新。尚未创建 `/fix` 命令，也未取得 Bot OAuth token。
 
 ## 接下来的配置与验证
 
-1. 等待工作区管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
-2. 在仓库运行 `npm ci` 和 `npm start`。程序使用两个 token 连接 Socket Mode；Node.js 版本要求见本地环境变量配置。
-3. 给 `Chat-to-Fix` 发送一条测试私信。确认 Bot 只在原私信 thread 回复一次。当前回复会明确说明这是接入测试，不创建 Jira 工单或 GitLab MR。
-4. 模拟入口先用于后续任务开发。真实 Slack 安装获批后，将同一任务处理器接入 Bot，并验证工单、MR 和 CI 结果回到原 thread。
+1. 创建 `/fix` Slash Command，确定固定频道并让 Bot 加入。只允许该频道 ID 启动任务。
+2. 核对待审申请确实包含 `commands`、`chat:write`，如需重新提交则按新权限办理。等待管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
+3. 更新 Bot 和模拟入口的处理代码；当前 `npm start` 仍运行旧私信测试代码，不能用于新入口验收。
+4. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
 
-当前测试 Bot 的消息处理规则见 [Slack 私信入口规格](../../spec/slack-dm-entry.md)。
+旧私信测试 Bot 的行为保留在 [历史规格](../../spec/slack-dm-entry.md)。
 
 ## 参考
 
 - [Slack：Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/)
-- [Slack：App Home Messages 标签页](https://docs.slack.dev/surfaces/app-home/)
-- [Slack：`message.im` 事件](https://docs.slack.dev/reference/events/message.im/)
+- [Slack：Slash Commands](https://docs.slack.dev/interactivity/implementing-slash-commands/)

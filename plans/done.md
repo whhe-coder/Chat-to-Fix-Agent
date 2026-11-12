@@ -2,19 +2,24 @@
 
 更新日期：2026-11-12。本文只记录已落实并核对的事项。未完成工作和里程碑验收标准见 [实施计划](chat-to-fix-agent.md)。
 
-## M0 Slack 私信入口
+## M0 固定频道 `/fix` 配置
+
+- [x] 在 Slack 应用将 Bot scopes 调整为 `commands`、`chat:write`，User scopes 保持为空。删除 `message.im` Bot 事件和 `im:history`；刷新后 Events 页面显示 Off、无事件。
+- [x] 核对安装页仍显示工作区和组织申请已提交，申请链接列出新 scopes。待审记录是否同步更新尚未证实，命令和频道仍待配置。
+
+## 旧版 Slack 私信入口（历史配置与代码）
 
 - [x] 增加按服务分组的 `.env.example` 模板和统一的 [本地环境变量配置](../config/local-env/README.md)。用户确认后，已将现有 Slack App、GitLab 和 Jira token 复制到权限为 `600` 的本机 `.env.local`；Bot token 仍待工作区批准。
 - [x] 使用 `.env.local` 启动本地服务，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`。真实值未进入 Git 跟踪文件。
-- [x] `App Home` 的 `Messages` 标签页允许用户发送私信。
+- [x] `App Home` 的 `Messages` 标签页允许用户发送私信。当前页面仍开启，但私信不再是目标入口。
 - [x] Socket Mode 已开启。
-- [x] Events API 仅订阅 `message.im`。
-- [x] Bot Token Scopes 仅有 `im:history`、`chat:write`；User Token Scopes 为空。
+- [x] 曾将 Events API 配为仅订阅 `message.im`；该事件现已删除。
+- [x] 曾将 Bot Token Scopes 配为 `im:history`、`chat:write`；`im:history` 现已删除。User Token Scopes 始终为空。
 - [x] 生成仅带 `connections:write` 的 App-level token，并保存到本机 Mac 登录钥匙串。Git 历史不保存 token 值。
 - [x] 提交目标工作区安装申请；Slack 页面显示 `Request Submitted`。该申请尚不代表安装已获批准。
-- [x] 在 [`src/slackBot/`](../src/slackBot/) 编写最小私信测试 Bot；本地 4 项消息处理测试通过。尚未进行真实私信收发验证。
+- [x] 在 [`src/slackBot/`](../src/slackBot/) 编写最小私信测试 Bot；本地 4 项消息处理测试通过。代码尚未改为 `/fix`，未进行真实 Slack 收发验证。
 
-## M0a 模拟私信入口
+## M0a 旧版模拟私信入口
 
 - [x] 增加无需 Slack token 的本机模拟 Bot。它复用现有私信处理器，提供模拟私信提交和 thread 查询接口；相同事件并发重试只回复一次。接口和边界见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。
 - [x] 模拟 Bot 的 4 项自动测试通过，包括原 thread 回复、事件去重、可替换处理器和本机 HTTP 接口。未执行 Jira 或 GitLab 写入。

@@ -1,18 +1,18 @@
 # Chat-to-Fix Agent
 
-**在 Slack 私信描述问题，由本地 agent 创建 F2P 工单和 MR，并以 MR 的 pipeline 全部通过为目标持续修复。**
+**在指定 Slack 频道输入 `/fix 问题描述`，由本地 agent 创建 F2P 工单和 Draft MR，并以 MR 的 pipeline 全部通过为目标持续修复。**
 
-Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并将任务交给本地 agent 或服务。本地 agent 或服务在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。它继续观察该 MR 的 CI/CD pipeline：若检查失败，就读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，它再次检查结果，目标是让当前 MR 的相关检查全部通过。Slack Bot 将进度和结果发回原私信 thread。
+Chat-to-Fix Agent 以指定频道的 `/fix` 命令为入口。Slack Bot 接收命令，并将任务交给本地 agent 或服务。本地 agent 或服务在 Jira 的 `F2PGBA` 项目创建工单，在 GitLab 的 `account-platform/free-to-play-pc` 仓库修改代码并创建 Draft MR。它继续观察该 MR 的 CI/CD pipeline：若检查失败，就读取具体错误日志，针对失败原因修改代码，并在**原 MR 分支**追加新 commit。新 pipeline 完成后，它再次检查结果，目标是让当前 MR 的相关检查全部通过。Slack Bot 将进度和结果发回频道中任务消息的 thread。入口行为见 [固定频道命令规格](spec/slack-fix-command.md)。
 
 ## 当前状态
 
-截至 2026-11-12，模拟 Slack 私信入口已完成，可在本机提交测试消息并读取 thread 回复。真实 Slack 工作区安装申请仍待管理员批准；Bot OAuth token 尚未取得，也未完成真实私信验收。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。新的 Jira scoped token 已保存到本机钥匙串；本地服务已通过真实工单创建、评论新增和修改验证，目标 board 查询也返回该工单。创建工单需要配置 `Work type` 字段 ID。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。模拟入口尚未接入本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
+截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，但待审记录是否同步采用新 scopes 尚未证实；Bot OAuth token 尚未取得。现有真实 Bot 代码和模拟 Bot 仍实现旧私信测试流程，需要改造后才能验证新入口。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。Jira 写入已用真实工单和评论验证；创建工单需要配置 `Work type` 字段 ID。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。模拟入口尚未接入本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
 
 ## 目标流程
 
 ```mermaid
 flowchart LR
-    A[Slack 私信问题] --> B[Slack Bot 转交任务]
+    A[指定频道 /fix 问题描述] --> B[Slack Bot 转交任务]
     B --> C[本地 agent 创建 F2PGBA Jira 工单]
     C --> D[修改 F2P 仓库代码和相关单元测试]
     D --> E[创建 GitLab Draft MR]
@@ -29,8 +29,8 @@ flowchart LR
 
 | 交付物 | 作用 |
 | --- | --- |
-| Slack Bot | 接收问题消息，在原消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
-| 模拟 Slack Bot | 在真实 Slack 待审批期间提供本机私信和 thread，用于开发及验证后续任务链路。 |
+| Slack Bot | 接收指定频道的 `/fix` 命令，在任务消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
+| 模拟 Slack Bot | 当前提供旧私信和 thread 测试接口；需改为模拟 `/fix` 后再用于新入口的端到端验收。 |
 | 本地服务 | 提供健康检查、GitLab 只读检查、Jira board 读取，以及 `F2PGBA` 工单和评论写入接口；后续承接 Bot 任务。 |
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
 | 配置文档 | 记录 Slack、GitLab 和 Jira 的接入状态、权限与验证边界。文档不保存密钥值。 |
@@ -44,7 +44,7 @@ flowchart LR
 
 ## 目标 Slack 回传
 
-Bot 在发起任务的 Slack 消息 thread 中更新关键节点：
+Bot 在指定频道发布任务消息，并在该消息的 thread 中更新关键节点：
 
 | 节点 | 回复内容 |
 | --- | --- |
@@ -68,7 +68,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 ## 模拟 Slack Bot
 
-运行 `npm run start:mock-slack` 后，可向 `http://127.0.0.1:4001/messages` 提交测试私信。它无需 Slack token，不会访问 Jira 或 GitLab。请求格式、thread 查询和行为边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。真实 Slack 接入仍按原计划单独验收。
+运行 `npm run start:mock-slack` 后，可向 `http://127.0.0.1:4001/messages` 提交旧版测试私信。它无需 Slack token，不会访问 Jira 或 GitLab。请求格式和当前行为见 [模拟 Bot 规格](spec/mock-slack-bot.md)。该接口尚未模拟新 `/fix` 入口。
 
 ## 文档分工
 
@@ -76,8 +76,9 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | --- | --- | --- |
 | [Plan：实施计划](plans/chat-to-fix-agent.md) | 整体目标、里程碑、验收标准、未完成事项和当前阻塞。已完成的事项从待办中移走，验收标准仍保留。 | Feature 开始、范围或验收标准变化、待办或阻塞变化时。 |
 | [Done：已完成事项](plans/done.md) | 已落实并核对的配置、代码和验证结果。记录完成事实，不把待审批或未验证的工作写成完成。 | 一项工作完成且得到验证后，从 Plan 移入 Done。 |
-| [Spec：Slack 私信入口](spec/slack-dm-entry.md) | 一个 Feature 的行为约定，包括输入输出、接口、权限、错误路径和验收场景；区分待实现与已实现行为。其他 Feature 按需在 `spec/` 下建文档。 | 新增 Feature 或改变其行为约定时创建或更新。 |
-| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 本机模拟私信的接口、事件去重、thread 查询和与真实 Slack 的边界。 | 模拟入口行为改变时。 |
+| [Spec：固定频道 `/fix` 入口](spec/slack-fix-command.md) | 当前目标入口的行为、权限、状态和验收标准。其他 Feature 按需在 `spec/` 下建文档。 | 入口行为或验收标准变化时。 |
+| [Spec：旧私信入口](spec/slack-dm-entry.md) | 旧版 Bot 的行为和本地测试记录；不作为新入口的验收标准。 | 旧版代码或历史记录需要更正时。 |
+| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 当前旧版模拟私信的接口、事件去重和 thread 查询。 | 模拟入口行为改变时。 |
 | [Spec：GitLab 只读服务](spec/gitlab-readonly-server.md) | 本地服务的接口、凭据、错误路径和已验证范围。 | 服务行为改变时。 |
 | [Spec：GitLab 连接函数](spec/gitlab-connection.md) | 可复用连接函数、凭据来源、返回值和验证边界。 | GitLab 连接行为改变时。 |
 | [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |
