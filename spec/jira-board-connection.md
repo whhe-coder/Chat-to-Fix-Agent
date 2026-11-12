@@ -1,6 +1,6 @@
 # Jira board 连接规格
 
-状态：board 的只读连接函数、本地测试和真实读取已完成。个人账号的只读 Jira token 已保存到本机钥匙串。工单和评论写入接口已实现，但真实写入尚未验证，见 [写入接口规格](jira-write-server.md)。
+状态：board 的只读连接函数、本地测试和真实读取已完成。当前个人账号 Jira token 包含 board 读取和写入 API scopes，保存在本机钥匙串；旧只读 token 已撤销。工单和评论写入接口已实现，但真实写入尚未验证，见 [写入接口规格](jira-write-server.md)。
 
 ## 目标与入口
 
@@ -10,7 +10,7 @@
 
 ## 权限与安全
 
-读取单个 board 的 token scopes 为 `read:board-scope:jira-software` 和 `read:issue-details:jira`。身份还必须有查看该 board 的 Jira 权限。连接函数不返回 token，也不转发 Jira 错误正文。目标项目的创建工单和评论权限尚未配置或验证。
+读取单个 board 的 token scopes 为 `read:board-scope:jira-software` 和 `read:issue-details:jira`。身份还必须有查看该 board 的 Jira 权限。连接函数不返回 token，也不转发 Jira 错误正文。新 token 的写入 API scopes 已配置；目标项目的实际创建工单和评论权限尚未验证。
 
 ## 验证边界
 

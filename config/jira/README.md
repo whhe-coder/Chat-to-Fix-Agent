@@ -15,9 +15,9 @@
 
 scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 API。浏览器里的 board 页面地址不能直接用作 API 地址。不要把 token 写入仓库、命令参数、日志或聊天记录。
 
-## 当前最小只读权限
+## Board 读取权限
 
-`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。2026-11-12 已在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token，应用仅选 Jira，权限仅选上述两项，到期日为 2027-02-09。token 已保存到本机钥匙串，值未写入仓库。它不能用于写入。
+`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。这两项已包含在当前 `Chat-to-Fix-Jira-Issues-Comments` token 中。此前的 `Chat-to-Fix-Board-Read` 只读 token 已于 2026-11-12 撤销。
 
 ## 写入接口与待配置权限
 
@@ -37,7 +37,7 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 
 这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。新 token 还包含原有的 `read:board-scope:jira-software` 和 `read:issue-details:jira`，共 14 项 scopes。
 
-2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。用户已将新值保存到本机钥匙串；本地 API 检查后，Atlassian 列表显示新 token 被访问，旧 `Chat-to-Fix-Board-Read` 仍有效且等待撤销。F2PGBA 的可用 issue type、必填字段和 board 筛选规则仍待核对。
+2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。用户已将新值保存到本机钥匙串；本地 API 检查后，Atlassian 列表显示新 token 被访问。旧 `Chat-to-Fix-Board-Read` 已撤销；刷新后的列表只保留新的 Chat-to-Fix Jira token。F2PGBA 的可用 issue type、必填字段和 board 筛选规则仍待核对。
 
 ## 真实连接验证
 
