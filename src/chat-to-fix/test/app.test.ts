@@ -1,4 +1,4 @@
-// End to end through the whole task layer (src/app.ts) with the fake bot layer:
+// End to end through the whole task layer (core/app.ts) with the fake bot layer:
 // listener -> queue -> runner (five bots, one group) -> tools -> step checks -> recorder -> monitor -> end.
 // The Slack, Jira and GitLab tools are not built yet, so the test writes to the task what those
 // tools will write; everything else is the real code.
@@ -7,9 +7,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '../src/config.ts'
-import { createApp } from '../src/app.ts'
-import { ROLES } from '../src/task/contracts.ts'
+import { loadConfig } from '../core/config.ts'
+import { createApp } from '../core/app.ts'
+import { ROLES } from '../core/task/contracts.ts'
 import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 async function rig({ binding = {} }: any = {}) {
@@ -54,7 +54,7 @@ async function rig({ binding = {} }: any = {}) {
     throw new Error('condition was not reached')
   }
   const inState = (id, state) => until(async () => { const task = await app.store.getTask(id); return task?.state === state ? task : undefined })
-  return { app, botlayer, clock, changed, notices, warnings, post, inState }
+  return { app, botlayer, clock, changed, notices, warnings, post, inState, until }
 }
 
 const event = (eventId, threadTs) => ({ eventId, channel: 'C1', threadTs, messageTs: threadTs, user: { id: 'U1', name: 'tester' }, text: 'the button does nothing' })
@@ -71,6 +71,7 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   let task = await r.inState(id, 'running')
   const run = task.runs.at(-1)
   const bots = run.bots
+  await r.until(() => botlayer.posts.length === 1)
 
   // The system created the bots and the group; no bot did.
   assert.deepEqual(Object.keys(bots).sort(), [...ROLES].sort())

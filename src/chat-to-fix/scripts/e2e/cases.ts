@@ -36,7 +36,7 @@ export const SAMPLE_DISCOUNT_REPORT = '商店折扣价算错了：applyDiscount(
  *   requiresNewTest                       the report asks for a unit test: a new test must be added and fail on the base code
  *   injection                             { token }: the thread holds an injected instruction and a fake secret
  *   repoFrom, sample                      take the repository of another case / of scripts/make-test-repo.ts as the start
- *   ci                                    { jobs }: the simulated GitLab CI of the binding (ciJobs, see src/adapters/fake/ci.ts);
+ *   ci                                    { jobs }: the simulated GitLab CI of the binding (ciJobs, see core/adapters/fake/ci.ts);
  *                                         "{ci}" in a command is the folder the case's ci/ scripts are copied to (they are
  *                                         not in the repository). The case expects CI to fail once and the loop to fix it.
  *   inputMode, followUp                   inputMode 'command': the report is a /fix slash command (config.slack.inputMode =

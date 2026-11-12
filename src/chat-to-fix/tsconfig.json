@@ -19,5 +19,5 @@
       "@deepseek-ai/*": ["../../node_modules/@deepseek-ai/*"]
     }
   },
-  "include": ["src/**/*.ts", "bot/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "bot/test/**/*.ts"]
+  "include": ["core/**/*.ts", "bot/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "bot/test/**/*.ts"]
 }

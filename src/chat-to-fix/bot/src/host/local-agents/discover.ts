@@ -1,10 +1,10 @@
 // Finding agent CLIs: PATH plus the user's login-shell PATH plus the usual install
-// folders. The probes run with childEnv (src/engine/env.ts): only the named variables.
+// folders. The probes run with childEnv (core/engine/env.ts): only the named variables.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { childEnv } from '../../../../src/engine/env.ts'
+import { childEnv } from '../../../../core/engine/env.ts'
 
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.

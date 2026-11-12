@@ -1,8 +1,8 @@
-// The Claude Code engine of the local agents: one ClaudeSession (src/engine/claude.ts) per DSH
+// The Claude Code engine of the local agents: one ClaudeSession (core/engine/claude.ts) per DSH
 // Session. The driver itself lives in src/engine; this class only holds the sessions and builds
 // each process's executable, arguments and environment through `launch`, which the host
 // supplies (launch.js): launch(dshSessionId, openArgs) -> { args, env, permissionTimeoutMs }.
-import { ClaudeSession } from '../../../../src/engine/claude.ts'
+import { ClaudeSession } from '../../../../core/engine/claude.ts'
 
 export class ClaudeEngine {
   declare route: any
@@ -55,7 +55,7 @@ export class ClaudeEngine {
     this.sessions.delete(dshSessionId)
   }
 
-  // The aliases of the CLI, the full ids of the priced models (src/task/pricing.ts) and the configured Coding model.
+  // The aliases of the CLI, the full ids of the priced models (core/task/pricing.ts) and the configured Coding model.
   // A model the catalog does not list cannot be given to a bot (models.ts resolveModel refuses it, and a bot
   // whose model is not listed falls back to the default), so a pinned `claude-code/claude-sonnet-5-5` must be here.
   async listModels() {

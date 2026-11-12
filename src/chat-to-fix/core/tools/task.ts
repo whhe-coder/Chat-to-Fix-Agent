@@ -1,8 +1,8 @@
 // The task tools (spec 1 section 5): reading the task, reading the execution record, advancing a
 // step, closing the task, confirming missing information and reporting the review verdict. They
-// are thin calls to ctx.store and ctx.gate; the checks themselves live in src/task/gate.ts.
+// are thin calls to ctx.store and ctx.gate; the checks themselves live in core/task/gate.ts.
 // Purposes are from tools-and-limits.md section 2. Who has which tool is decided by the bot
-// registry (src/registry/bots.ts); the roles below must agree with it (the tests check this).
+// registry (core/registry/bots.ts); the roles below must agree with it (the tests check this).
 import { CLOSE_OUTCOMES, REVIEW_VERDICTS, STEP_IDS } from '../task/contracts.ts'
 
 const RECORDS_MAX = 200

@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { fmtTokens, fmtTps, fmtUsd } from '../src/task/usage.ts'
+import { fmtTokens, fmtTps, fmtUsd } from '../core/task/usage.ts'
 
 const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text)

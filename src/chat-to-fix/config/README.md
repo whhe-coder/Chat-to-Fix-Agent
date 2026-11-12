@@ -36,7 +36,7 @@ The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL 
 | 4 telemetry rows disabled | no OTel export | yes: the composed tree shows `disabled: true`; the process had no outward socket or proxy attempt |
 | 5 headless: web-startup, webserver, web-runtime, modules, client-hmr, session-log-download, ui-deliverables, directory-picker, open-in-app, office-to-pdf, harness-dev-context and workspace-changes disabled; `connection` restated without `inject: [webStartup]` | no web server, browser or desktop integration | yes: every row activated, and the only listener is the control interface on 127.0.0.1 |
 | 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly`; since the bot layer passes each bot's preset at every session it creates (own chat, group session, fresh part; the relay session prefers `readonly`), the shipped `standard` preset is unchanged and only the Coding bot uses it |
-| 7 plugin row `chat-to-fix/src/chat-to-fix/src/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
+| 7 plugin row `chat-to-fix/src/chat-to-fix/core/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
 
 Loader rules confirmed against the real runtime:
 

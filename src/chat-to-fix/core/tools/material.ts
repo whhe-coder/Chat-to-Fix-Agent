@@ -1,6 +1,6 @@
 // Helpers shared by the service tools (Slack, Jira, repository): text that came from outside the
 // system is cut to a limit and marked as material, so a bot does not take it for an instruction.
-// The markers are the ones the task message uses (src/task/runner.ts, taskMessage).
+// The markers are the ones the task message uses (core/task/runner.ts, taskMessage).
 
 const MATERIAL_BEGIN = '-----BEGIN MATERIAL-----'
 const MATERIAL_END = '-----END MATERIAL-----'

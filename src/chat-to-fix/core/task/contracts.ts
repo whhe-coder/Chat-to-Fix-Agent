@@ -23,7 +23,7 @@ export const REPLY_PURPOSES = Object.freeze(['ack', 'question', 'result'])
  * End reasons of a task that ended in state `done`. `completed` is the plain pass; the other three
  * say how the CI step ended (spec 7, 4.8). The MR stays a Draft and the fix commits stay in every case.
  * The Slack bot has already reported inside the flow for all of them, so the runner sends no
- * "ended" system notice for any of these (src/task/runner.ts end(), step 6).
+ * "ended" system notice for any of these (core/task/runner.ts end(), step 6).
  */
 export const DONE_END_REASONS = Object.freeze(['completed', 'completed_ci_failed', 'completed_ci_stopped', 'completed_no_ci'])
 
@@ -41,7 +41,7 @@ export const CI_STATUSES = Object.freeze(['pending', 'failed', 'passed'])
 
 /**
  * task.ci.outcome once task.ci.settled is true. (spec 7, 4.3; the end reason each gives is in
- * src/flow/steps.ts CI_END_REASONS)
+ * core/flow/steps.ts CI_END_REASONS)
  *   passed            the pipeline of the current commit passed        -> completed
  *   rounds_exhausted  ciMaxRounds fix commits and still failing        -> completed_ci_failed
  *   not_locatable     ci_stop: the log does not show the cause         -> completed_ci_stopped
@@ -112,7 +112,7 @@ export function newCi(sha: string, at: string, carry: { round?: number, waitedMs
 }
 
 /**
- * The four functions the `repo` adapter gets (spec 7, 4.5), in the fake (src/adapters/fake/ci.ts via
+ * The four functions the `repo` adapter gets (spec 7, 4.5), in the fake (core/adapters/fake/ci.ts via
  * fake/repo) and in the real one (gitlab-http.ts) with the same return shapes. Owner: package 3a.
  * Errors are Error objects with `code` and `retryable`, like the existing functions. The two write
  * functions send once and never retry.
@@ -150,8 +150,8 @@ export function newCi(sha: string, at: string, carry: { round?: number, waitedMs
  */
 
 /**
- * The tools spec 7 adds (4.6), in the parameter-table form of the tool registry (src/tools/register.ts).
- * `step` is where the gate lets a write tool run. Behaviour owner: package 3b (src/tools/ci.ts).
+ * The tools spec 7 adds (4.6), in the parameter-table form of the tool registry (core/tools/register.ts).
+ * `step` is where the gate lets a write tool run. Behaviour owner: package 3b (core/tools/ci.ts).
  *
  *   ci_read_log   pipeline  read   any step   job (name or id; must be in task.ci.failedJobs). Returns the log tail
  *                                              (limits.ciLogMaxChars) marked as material; sets ci.logRead = true.
@@ -180,7 +180,7 @@ export const CI_TOOL_PARAMETERS = Object.freeze({
 })
 
 /**
- * Configuration of spec 7 (4.9). `limits.*` live in src/config.ts DEFAULT_LIMITS (package 3c adds them and
+ * Configuration of spec 7 (4.9). `limits.*` live in core/config.ts DEFAULT_LIMITS (package 3c adds them and
  * `stepMinutes.ci`); binding keys are read by the fake GitLab only (package 3a).
  *   limits.ciPollSeconds   15     polling interval of getChecks
  *   limits.ciWaitMinutes   30     longest wait for one commit's pipeline
@@ -198,7 +198,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
 })
 
 /**
- * I1 bot-layer facade — src/task/botlayer.ts (spec 5, section 3)
+ * I1 bot-layer facade — core/task/botlayer.ts (spec 5, section 3)
  * @typedef {object} BotLayer
  * @property {(def: {name: string, label: string, instructions: string, model: string, permission: string, preset?: string}) => Promise<string>} createBot
  * @property {(def: {name: string, memberIds: string[], adminId: string, notice: string}) => Promise<string>} createGroup
@@ -288,7 +288,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  */
 
 /**
- * I2 task store — src/task/store.ts (spec 2, 3.1)
+ * I2 task store — core/task/store.ts (spec 2, 3.1)
  * @typedef {object} TaskStore
  * @property {(eventId: string) => (string | undefined)} knownEvent
  * @property {(origin: object, binding: object) => Promise<object>} createTask
@@ -304,7 +304,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  */
 
 /**
- * I3 step checks — src/task/gate.ts (spec 1, sections 3 and 4)
+ * I3 step checks — core/task/gate.ts (spec 1, sections 3 and 4)
  * @typedef {object} Gate
  * @property {(taskId: string, toStep: string) => Promise<{ok: true} | {ok: false, missing: string[]}>} advance
  * @property {(taskId: string, toolName: string, purpose?: string) => Promise<{ok: true} | {ok: false, reason: string}>} allow
@@ -313,7 +313,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  */
 
 /**
- * I4 tool definition — src/tools/register.ts (spec 4, 2.1)
+ * I4 tool definition — core/tools/register.ts (spec 4, 2.1)
  * @typedef {object} RoleTool
  * @property {string} name
  * @property {string[] | 'all'} roles
@@ -336,7 +336,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  */
 
 /**
- * I5 adapters — src/adapters/ (spec 4, 2.2). Every adapter has a fake and a real implementation.
+ * I5 adapters — core/adapters/ (spec 4, 2.2). Every adapter has a fake and a real implementation.
  * @typedef {object} Adapters
  * @property {{readThread: Function, reply: Function}} slack
  * @property {{createIssue: Function, getIssue: Function, addComment: Function, transition: Function}} jira
@@ -344,7 +344,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  */
 
 /**
- * I7 bot registry and flow definition — src/registry/bots.ts, src/flow/steps.ts (spec 1, 2.2 and 2.3)
+ * I7 bot registry and flow definition — core/registry/bots.ts, core/flow/steps.ts (spec 1, 2.2 and 2.3)
  * @typedef {object} BotDef
  * @property {string} role
  * @property {string} name          Name prefix; the task number is appended when the bot is created.

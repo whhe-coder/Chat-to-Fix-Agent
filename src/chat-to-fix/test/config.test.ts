@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, bindingOf, secret, DEFAULT_SLASH_COMMAND } from '../src/config.ts'
+import { loadConfig, bindingOf, secret, DEFAULT_SLASH_COMMAND } from '../core/config.ts'
 
 const base = () => ({
   dataDir: '/d', worktreesDir: '/d/w', httpPort: 3090, apiModel: 'anthropic/x',

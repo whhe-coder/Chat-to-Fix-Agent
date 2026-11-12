@@ -15,8 +15,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { connection } from './show-task.ts'
-import { ROLES, STEP_IDS } from '../src/task/contracts.ts'
-import { STEPS } from '../src/flow/steps.ts'
+import { ROLES, STEP_IDS } from '../core/task/contracts.ts'
+import { STEPS } from '../core/flow/steps.ts'
 
 const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
 export const HEAD_ROWS = 7

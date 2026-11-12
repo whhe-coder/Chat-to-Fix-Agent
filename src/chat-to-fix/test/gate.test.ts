@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createGate } from '../src/task/gate.ts'
-import { createFlow, STEPS, UNBOUND_WRITE_TOOLS, validateFlow } from '../src/flow/steps.ts'
-import { allBotDefs } from '../src/registry/bots.ts'
+import { createGate } from '../core/task/gate.ts'
+import { createFlow, STEPS, UNBOUND_WRITE_TOOLS, validateFlow } from '../core/flow/steps.ts'
+import { allBotDefs } from '../core/registry/bots.ts'
 
 const merge = (target, patch) => {
   for (const [key, value] of Object.entries(patch)) {

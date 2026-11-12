@@ -17,6 +17,8 @@
 
 状态：设计文档最初写于 2026-11-11 开工前。software-spec、tools-and-limits、spec-1 至 spec-7 都已按代码（提交 192a721，八步、CI 修复循环、计费）更新，代码还没做到的标“未实现”。入口改为 `/fix` 是 2026-11-12 定的，代码还在实现，相关文字标了“实现中”。implementation-guide 和 kickoff-plan 是历史文档；decision-record 和 questions-for-colleagues 开头加了说明。
 
+目录说明：本文档组中指向 Agent 源码的旧 `src/...` 路径，在当前仓库对应 `src/chat-to-fix/core/...`。历史方案的路径保留原文。
+
 ## 已知缺口（2026-11-12）
 
 文档里标“未实现”的地方中，下面几项 Zihui 已经定了处理方式：

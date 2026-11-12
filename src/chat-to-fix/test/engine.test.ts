@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { claudeArgs, cliMode, codingArgs, CODING_TOOLS, testRules } from '../src/engine/args.ts'
-import { ancestorDirs, authEnv, childEnv, isolationSettings, memoryExcludes, userConfigHome } from '../src/engine/env.ts'
+import { claudeArgs, cliMode, codingArgs, CODING_TOOLS, testRules } from '../core/engine/args.ts'
+import { ancestorDirs, authEnv, childEnv, isolationSettings, memoryExcludes, userConfigHome } from '../core/engine/env.ts'
 import { matchesGlob } from 'node:path'
-import { ClaudeSession } from '../src/engine/claude.ts'
+import { ClaudeSession } from '../core/engine/claude.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.ts', import.meta.url))
 const BASE = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompt-tool', 'stdio']

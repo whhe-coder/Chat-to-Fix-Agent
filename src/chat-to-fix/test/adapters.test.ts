@@ -6,9 +6,9 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createAdapters } from '../src/adapters/index.ts'
-import { runGit } from '../src/adapters/git.ts'
-import { createHttp } from '../src/task/http.ts'
+import { createAdapters } from '../core/adapters/index.ts'
+import { runGit } from '../core/adapters/git.ts'
+import { createHttp } from '../core/task/http.ts'
 import { createTestRepo } from '../scripts/make-test-repo.ts'
 import { sendFakeEvent } from '../scripts/fake-event.ts'
 
@@ -357,13 +357,13 @@ test('repo.openDraftMR: commitMessage is used as given, derived from the title o
   }
   assert.equal((await git(['rev-parse', p.branch], made.remote)).trim(), pushed)
   // the git layer itself refuses a message with a body
-  const { createGit } = await import('../src/adapters/git.ts')
+  const { createGit } = await import('../core/adapters/git.ts')
   const raw = createGit({ worktreesDir: join(p.dir, '..'), commitAuthor: { name: 'x', email: 'x@example.com' } })
   await assert.rejects(raw.commitAll(p.dir, { message: 'fix: a\n\nbody' }), (e: any) => e.code === 'bad_message')
 })
 
 test('commit message helpers: the Conventional Commit line check and the derived message', async () => {
-  const { isCommitMessage, commitMessageFromTitle } = await import('../src/adapters/git.ts')
+  const { isCommitMessage, commitMessageFromTitle } = await import('../core/adapters/git.ts')
   for (const ok of ['feat: x', 'fix(a): x', 'fix(a-b/c.d)!: x', 'chore!: x', 'revert: x y z', `fix: ${'x'.repeat(95)}`]) assert.equal(isCommitMessage(ok), true, ok)
   for (const bad of ['', 'fix', 'fix:', 'fix: ', 'fix:x', 'Fix: x', 'bug: x', 'fix(): x', 'fix(a b): x', 'fix (a): x', 'fix: x\n', 'fix: x\ny', `fix: ${'x'.repeat(96)}`, undefined, 7]) assert.equal(isCommitMessage(bad), false, String(bad))
   assert.equal(commitMessageFromTitle('Fix price'), 'fix: Fix price')

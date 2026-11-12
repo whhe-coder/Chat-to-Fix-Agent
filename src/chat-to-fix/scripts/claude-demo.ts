@@ -6,13 +6,13 @@
 // (--print is accepted, a no-op). Only project settings are loaded (--setting-sources project).
 // Plain mode: permission requests are denied, the run is cut off after 30 s.
 // --unattended: the Coding bot's argument list (codingArgs): no permission prompts, the reviewer
-// subagent (prompt from src/prompts/reviewer.md), the stdio MCP server given by --mcp-server as
+// subagent (prompt from core/prompts/reviewer.md), the stdio MCP server given by --mcp-server as
 // `chat-to-fix` offering review_report, 180 s limit; every driver event is printed on one line.
 import { parseArgs } from 'node:util'
-import { claudeArgs, codingArgs } from '../src/engine/args.ts'
-import { childEnv } from '../src/engine/env.ts'
-import { ClaudeSession } from '../src/engine/claude.ts'
-import { loadPrompt } from '../src/prompts/index.ts'
+import { claudeArgs, codingArgs } from '../core/engine/args.ts'
+import { childEnv } from '../core/engine/env.ts'
+import { ClaudeSession } from '../core/engine/claude.ts'
+import { loadPrompt } from '../core/prompts/index.ts'
 
 // --mcp-server: the stdio MCP server script that offers review_report (needed with --unattended).
 

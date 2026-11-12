@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '../../src/config.ts'
-import { createApp } from '../../src/app.ts'
-import { connectTaskLayer, createRuntime, defineTool, runtimeOf } from '../../src/bot/index.ts'
+import { loadConfig } from '../../core/config.ts'
+import { createApp } from '../../core/app.ts'
+import { connectTaskLayer, createRuntime, defineTool, runtimeOf } from '../../core/bot/index.ts'
 import { fakeContext } from '../../bot/test/fake-ctx.ts'
 
 export async function start(t, config: any = {}) {
@@ -142,7 +142,7 @@ export const settle = async (check) => {
   assert.ok(check(), 'condition not reached')
 }
 
-// The task layer (src/app.ts) on a host, as in role-tools.test.js, with the Claude Code driver
+// The task layer (core/app.ts) on a host, as in role-tools.test.js, with the Claude Code driver
 // pointed at `cli` ({ command, args }: the fake CLI, or a wrapper of the real one). `runtime` is
 // extra runtime configuration (testCommands, permissionTimeoutMs, ...). Returns the host and
 // the app; `post(text)` starts a task and resolves with the running task and its bots.

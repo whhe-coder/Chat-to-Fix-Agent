@@ -2,8 +2,8 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createOutboxSlack, createRealSlack, createSlackAdapter, commandDiscussion } from '../src/adapters/slack.ts'
-import { neutralizeBroadcasts, retryAfterMs } from '../src/adapters/slack-http.ts'
+import { createOutboxSlack, createRealSlack, createSlackAdapter, commandDiscussion } from '../core/adapters/slack.ts'
+import { neutralizeBroadcasts, retryAfterMs } from '../core/adapters/slack-http.ts'
 
 const TOKEN = 'xoxb-test-secret-token-123'
 const ORIGIN = { channel: 'C0123ABC', threadTs: '1731377400.000100', eventId: 'Ev1', messageTs: '1731377400.000100', user: { id: 'U1' }, text: 'x' }

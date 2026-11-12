@@ -288,7 +288,7 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     })
   }
 
-  // Adds one usage record to the running summary of the task (task.usage, src/task/usage.ts). It runs
+  // Adds one usage record to the running summary of the task (task.usage, core/task/usage.ts). It runs
   // inside the task's queue, so two records arriving together both count. A task that is gone is
   // logged and skipped: billing must never stop a task.
   async function addUsageRecord(id, record) {

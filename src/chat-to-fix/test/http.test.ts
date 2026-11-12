@@ -1,8 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHttp } from '../src/task/http.ts'
-import { createQueue } from '../src/task/queue.ts'
-import { createOutbox } from '../src/task/outbox.ts'
+import { createHttp } from '../core/task/http.ts'
+import { createQueue } from '../core/task/queue.ts'
+import { createOutbox } from '../core/task/outbox.ts'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -276,7 +276,7 @@ test('slash: the opening message quotes every line and neutralises broadcasts', 
 })
 
 test('slash: openingMessage names the command it is given (config.slack.slashCommand, default /fix)', async () => {
-  const text = (await import('../src/task/http.ts')).openingMessage('/repair', 'U9', 'x')
+  const text = (await import('../core/task/http.ts')).openingMessage('/repair', 'U9', 'x')
   assert.match(text, /^<@U9> 用 \/repair 提了/)
 })
 

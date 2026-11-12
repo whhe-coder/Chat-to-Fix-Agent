@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
-import { createStore } from '../src/task/store.ts'
+import { createStore } from '../core/task/store.ts'
 
 const dirs = []
 async function fresh() {

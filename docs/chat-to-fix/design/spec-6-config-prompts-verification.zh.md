@@ -238,7 +238,7 @@ DSH 以无界面方式运行，用 `runtime/` 里自带的 DSH 0.2.2-rc.1（不�
 | 4 遥测 | 关闭 `session-telemetry-otel`、`desktop-product-telemetry`、`product-analytics`；启动脚本同时设置 `DSH_TELEMETRY_DISABLED=1` | 不向外发遥测 |
 | 5 无界面 | 关闭 `web-startup`、`webserver`、`web-runtime`、`modules`、`client-hmr`、`session-log-download`、`ui-deliverables`、`directory-picker`、`open-in-app`、`office-to-pdf`、`harness-dev-context`、`workspace-changes`；重写 `connection`，去掉它对 web-startup 的注入 | 没有 web 服务、浏览器、桌面集成。唯一的监听口是控制接口，在 127.0.0.1 上 |
 | 6 `preset-readonly` | 一个新的 agent 预设 `readonly`：文件工具保留读和读图片，关掉写、改、apply_patch；搜索工具只读；不含命令行、网页、子 agent、计划工具 | 走 API 的四个 bot 用它。每个 bot 的会话都指定自己的预设（`src/task/runner.ts`）；只有 coding bot 用 `standard`，它的线路（Claude Code）自带工具 |
-| 7 `chat-to-fix` | 加载 `chat-to-fix/src/plugin.ts`；它的配置传入 `claudeCommand`（来自 `CLAUDE_BIN`） | 启动 bot 层和任务层 |
+| 7 `chat-to-fix` | 加载 `src/chat-to-fix/core/plugin.ts`；它的配置传入 `claudeCommand`（来自 `CLAUDE_BIN`） | 启动 bot 层和任务层 |
 
 没有网页界面可以看群里的对话，改用查看工具（都是只读的，只向控制接口发 GET 请求）：`scripts/flow-page.ts`（左边是实时时序图，右边是手机样式的群聊，用 `scripts/debug-ui/` 生成）、`scripts/watch.ts`（终端视图）、`scripts/show-task.ts`（打印任务和执行记录）。
 

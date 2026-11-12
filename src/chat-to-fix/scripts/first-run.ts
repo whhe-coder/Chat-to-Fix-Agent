@@ -22,7 +22,7 @@ import { createServer } from 'node:net'
 import { homedir, userInfo } from 'node:os'
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig } from '../src/config.ts'
+import { loadConfig } from '../core/config.ts'
 import { createTestRepo } from './make-test-repo.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')

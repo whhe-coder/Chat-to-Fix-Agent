@@ -9,7 +9,7 @@ import { createSlackAdapter } from './slack.ts'
 export { AdapterError } from './errors.ts'
 
 /**
- * @param {object} config  The loaded configuration (src/config.ts).
+ * @param {object} config  The loaded configuration (core/config.ts).
  * @param {{ env?: object, warn?: Function, outbox?: object }} [options]  `env` and `warn` are passed on to the real implementations; `outbox` is the shared outbox of adapters.slack "outbox".
  * @returns {{ slack: object, jira: object, repo: object }}
  */

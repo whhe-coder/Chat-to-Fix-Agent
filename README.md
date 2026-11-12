@@ -8,6 +8,22 @@ Chat-to-Fix Agent 以指定频道的 `/fix` 命令为入口。Slack Bot 接收�
 
 截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。根目录的旧私信测试 Bot 和模拟 Bot 仍是历史测试工具。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但只在本机模拟服务上验证。根目录的 `package.json` 统一管理 Agent 的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量；真实三方链路尚未验收。早期本地 Node.js 服务曾验证 Jira 工单和评论写入，现已删除；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
 
+## 代码目录
+
+```text
+src/
+├── chat-to-fix/
+│   ├── core/       Agent 主代码：应用、任务流程、适配器和工具
+│   ├── bot/src/    从 DS Bot 引入的 Bot 层，保留其内部目录
+│   ├── scripts/    启动、调试和验证脚本
+│   ├── test/       Agent 测试
+│   └── config/     DSH 配置
+├── gitlab/、jira/   Agent 接入准备时使用的连接函数
+└── slackBot/       待接入的 Slack Bot 和旧测试入口
+```
+
+Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/`。设计规格和历史资料位于 [文档目录](docs/chat-to-fix/README.md)。
+
 ## 目标流程
 
 ```mermaid

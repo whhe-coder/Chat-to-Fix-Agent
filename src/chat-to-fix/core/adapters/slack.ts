@@ -200,7 +200,7 @@ export function createRealSlack(config, options: any = {}) {
 /**
  * The discussion in command mode, where there is no history scope: the messages of an earlier task in the same
  * discussion (origin.earlier), the slash command text, and the requester's @ follow-ups the system stored on the
- * task (origin.followUps, src/task/http.ts). Used by the real and the fake adapter alike.
+ * task (origin.followUps, core/task/http.ts). Used by the real and the fake adapter alike.
  */
 export function commandDiscussion(origin) {
   if (typeof origin?.text !== 'string' || origin.text.trim() === '') throw new AdapterError('bad_origin', 'the slash command has no text')
@@ -222,7 +222,7 @@ export function commandDiscussion(origin) {
  * The outbox adapter (adapters.slack "outbox", spec slackbot.md 4.3): the company Slack Bot is the only program
  * connected to Slack. readThread is the discussion the task holds (the /fix text and the stored follow-ups);
  * reply appends to the outbox, which the Slack Bot polls (GET /outbox) and posts. No token, no Slack call.
- * `options.outbox` is the one created by the app (src/app.ts), shared with the HTTP interface.
+ * `options.outbox` is the one created by the app (core/app.ts), shared with the HTTP interface.
  */
 export function createOutboxSlack(_config, options: any = {}) {
   const outbox = options.outbox

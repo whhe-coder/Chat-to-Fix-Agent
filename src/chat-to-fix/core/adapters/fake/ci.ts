@@ -14,7 +14,7 @@
 // Without ciJobs (and without ciNone) a push produces a pipeline with no job, which passes at once.
 //
 // The functions getChecks, getJobLog and retryJobs have the shapes of the real adapter
-// (src/adapters/gitlab-http.ts; documented in src/task/contracts.ts, CiRepoAdapter).
+// (core/adapters/gitlab-http.ts; documented in core/task/contracts.ts, CiRepoAdapter).
 //
 // Jobs run in the background of this process. A job that was left "running" by a process that has
 // since died (nothing in memory runs it) is reported as failed, so the monitor never waits for it.

@@ -1,5 +1,5 @@
 // Step checks (I3, spec 1 sections 3 and 4). The gate holds no flow knowledge of its own: the
-// order of steps, evidence, allowed tools and close rules all come from src/flow/steps.ts, and
+// order of steps, evidence, allowed tools and close rules all come from core/flow/steps.ts, and
 // one evaluator (evaluate) turns an evidence string into met / not met.
 
 import { closeEndReason, createFlow, OUTCOME_RULES, TOOL_EXTRA_EVIDENCE } from '../flow/steps.ts'

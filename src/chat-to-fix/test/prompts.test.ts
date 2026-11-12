@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allBotDefs, toolsOfRole } from '../src/registry/bots.ts'
-import { STEPS } from '../src/flow/steps.ts'
-import { loadPrompt, groupNotice, PROMPT_NAMES } from '../src/prompts/index.ts'
-import { CI_STOP_REASONS, REVIEW_VERDICTS } from '../src/task/contracts.ts'
+import { allBotDefs, toolsOfRole } from '../core/registry/bots.ts'
+import { STEPS } from '../core/flow/steps.ts'
+import { loadPrompt, groupNotice, PROMPT_NAMES } from '../core/prompts/index.ts'
+import { CI_STOP_REASONS, REVIEW_VERDICTS } from '../core/task/contracts.ts'
 
 // Tools every bot has besides its own: task_read and the DS Bot team tools the bot keeps.
 const SHARED = ['task_read', 'list_bots', 'message_bot', 'post_to_group', 'stop_bot']

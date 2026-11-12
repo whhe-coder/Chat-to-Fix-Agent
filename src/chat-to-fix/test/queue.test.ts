@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createQueue } from '../src/task/queue.ts'
+import { createQueue } from '../core/task/queue.ts'
 
 function setup({ maxConcurrent = 1, queueMax = 20, queueWaitHours = 4 } = {}) {
   const tasks = new Map()

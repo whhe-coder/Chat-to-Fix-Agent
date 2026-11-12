@@ -2,8 +2,8 @@
 // A real createMonitor with an in-memory store and a stub repo adapter; the clock is injected.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMonitor, ciNoticeText, CI_NOTICE_KINDS } from '../src/task/monitor.ts'
-import { newCi } from '../src/task/contracts.ts'
+import { createMonitor, ciNoticeText, CI_NOTICE_KINDS } from '../core/task/monitor.ts'
+import { newCi } from '../core/task/contracts.ts'
 
 const MIN = 60_000
 const T0 = Date.parse('2026-11-12T02:00:00Z')

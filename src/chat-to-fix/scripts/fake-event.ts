@@ -15,8 +15,8 @@
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { updateJson } from '../src/adapters/fake/files.ts'
-import { threadFile } from '../src/adapters/slack.ts'
+import { updateJson } from '../core/adapters/fake/files.ts'
+import { threadFile } from '../core/adapters/slack.ts'
 import { slashCommandToEvent, slashFeedback } from './slack-forwarder.ts'
 
 let counter = 0

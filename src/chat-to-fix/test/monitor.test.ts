@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMonitor, NOTICE_KINDS } from '../src/task/monitor.ts'
+import { createMonitor, NOTICE_KINDS } from '../core/task/monitor.ts'
 
 const LIMITS = {
   taskMinutes: 80,

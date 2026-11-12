@@ -1,15 +1,15 @@
-// The real GitLab merge-request half (src/adapters/gitlab-http.ts) against a local node:http stub, and
-// git authentication for https remotes (src/adapters/git.ts gitAuthEnv). No real GitLab host is used.
+// The real GitLab merge-request half (core/adapters/gitlab-http.ts) against a local node:http stub, and
+// git authentication for https remotes (core/adapters/git.ts gitAuthEnv). No real GitLab host is used.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRepoAdapter } from '../src/adapters/repo.ts'
-import { createAdapters } from '../src/adapters/index.ts'
-import { createRealGitlab, draftTitle, isDraftTitle, retryAfterMs } from '../src/adapters/gitlab-http.ts'
-import { gitAuthEnv, gitEnv, runGit } from '../src/adapters/git.ts'
+import { createRepoAdapter } from '../core/adapters/repo.ts'
+import { createAdapters } from '../core/adapters/index.ts'
+import { createRealGitlab, draftTitle, isDraftTitle, retryAfterMs } from '../core/adapters/gitlab-http.ts'
+import { gitAuthEnv, gitEnv, runGit } from '../core/adapters/git.ts'
 import { createTestRepo } from '../scripts/make-test-repo.ts'
 
 const TOKEN = 'glpat-SECRET-TOKEN-0123456789'

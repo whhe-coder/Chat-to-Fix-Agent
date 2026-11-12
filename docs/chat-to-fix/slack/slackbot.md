@@ -3,7 +3,7 @@
 > 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。
 
 - 日期：2026-11-12
-- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/src/task/outbox.ts`、`http.ts`、`src/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
+- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/core/task/outbox.ts`、`http.ts`、`core/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
 - 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 [设计文档](../design/README.zh.md)。
 
 ## 1. 问题
@@ -41,8 +41,8 @@
 
 ### 4.1 现成实现和取舍
 
-- **控制接口沿用，不另起服务**：Chat-to-Fix 已有 `POST /events`、`GET /tasks`、`GET /tasks/<号>`、`POST /tasks/<号>/stop`、`GET /health`，令牌头是 `x-chat-to-fix-token`（`chat-to-fix/src/task/http.ts` 的 `route`）。
-- **适配器加一种，bot 不用改**：适配器层已经把读讨论、回复、开讨论串抽成 `readThread`、`reply`、`startThread`（`chat-to-fix/src/adapters/slack.ts`）。新加一种 `outbox`，五个 bot 的工具和提示词都不用改。
+- **控制接口沿用，不另起服务**：Chat-to-Fix 已有 `POST /events`、`GET /tasks`、`GET /tasks/<号>`、`POST /tasks/<号>/stop`、`GET /health`，令牌头是 `x-chat-to-fix-token`（`src/chat-to-fix/core/task/http.ts` 的 `route`）。
+- **适配器加一种，bot 不用改**：适配器层已经把读讨论、回复、开讨论串抽成 `readThread`、`reply`、`startThread`（`src/chat-to-fix/core/adapters/slack.ts`）。新加一种 `outbox`，五个 bot 的工具和提示词都不用改。
 - **讨论内容不读 Slack 历史**：讨论 = `/fix` 原文，加上存在任务上的补充。`commandDiscussion` 和 `store.addFollowUp` 已写，未提交。
 - **Slack Bot 侧照搬现成写法**：Logan 的 `createDmHandler`（`src/slackBot/slack-message.js`）里的去重办法可以照搬，按事件编号、保留一小时；用 Bolt 的 `app.command` 和 `app.event('app_mention')`。
 - **出站选“拉”，不选“推”**：
@@ -137,13 +137,13 @@
   - `readThread` 返回讨论：`/fix` 原文加讨论串里的补充。
   - `reply` 往发件箱追加一条。
   - `startThread` 不支持：任务消息由 Slack Bot 发，`source: "slash"`（服务端自己开讨论串）的路径在这个模式下不用。
-- **新模块 `chat-to-fix/src/task/outbox.ts`**：`append` 分配 `seq` 并按讨论串补上 `taskId`；`read(after, limit)`。
-- **`chat-to-fix/src/task/http.ts`**：
+- **新模块 `src/chat-to-fix/core/task/outbox.ts`**：`append` 分配 `seq` 并按讨论串补上 `taskId`；`read(after, limit)`。
+- **`src/chat-to-fix/core/task/http.ts`**：
   - 加 `GET /outbox`。
   - `POST /events` 认 `source: "fix"` 和 `source: "mention"`。
   - 补充信息存进任务（`store.addFollowUp`，已写未提交）。
   - 不带 `source` 的旧格式照旧，测试和模拟用例在用。
-- **系统通知**：`chat-to-fix/src/task/monitor.ts` 的 `NOTICE` 和 CI 通知都经 `reply(origin, 'system', text)` 发出，自然进发件箱，并带上 `kind`。中文模板和“需要人处理”的原因（`closeNote`）在做。
+- **系统通知**：`src/chat-to-fix/core/task/monitor.ts` 的 `NOTICE` 和 CI 通知都经 `reply(origin, 'system', text)` 发出，自然进发件箱，并带上 `kind`。中文模板和“需要人处理”的原因（`closeNote`）在做。
 - **进度通知**：建单（`jira_create_issue`）、开 MR（`mr_open_draft`）、CI 修复推送（`mr_push_fix`）成功时，工具直接发系统通知，不经过模型。建单和开 MR 每个任务只发一次，重跑不重复（`task.notified`）。对应 Logan README“目标 Slack 回传”里的“工单已创建”“MR 已创建”和 CI 的“新 commit 链接”。
 - **讨论串补充的开关 `slack.mentions`**：默认开。关的时候，任务以“缺信息”结束后系统再发一条 `needs_info_resubmit`，请用户补全后重新 `/fix`。
 - **`GET /health`**：加 `queueMax`、`queueFull`。

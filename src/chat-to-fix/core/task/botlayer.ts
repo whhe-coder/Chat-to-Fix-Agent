@@ -62,7 +62,7 @@ export function createBotLayer(rt) {
   // usage is the difference between the read at its turn/start and the read at its turn/end, and one
   // usage event is fired per round, just before the round-end event. The speed is derived from them
   // (decodeTokens / decodeMs, the very quotient of DSH's stats table); nothing is recomputed from streams.
-  // DSH reports no cost, so the task layer prices the tokens from its table (src/task/pricing.ts).
+  // DSH reports no cost, so the task layer prices the tokens from its table (core/task/pricing.ts).
   // The Coding bot is not read here: its CLI turn is reported by reportEngineUsage below with the CLI's cost.
   // Not counted: model calls DSH keeps out of the session log (a session title, a compaction summary).
   const READ_MS = 5000
@@ -173,7 +173,7 @@ export function createBotLayer(rt) {
   })
 
   // The Coding bot's turn as the Claude Code CLI reports it (bot/src/host/local-agents/adapter.ts
-  // reportUsage; src/engine/claude.ts for the event). One UsageEvent per model of the turn, so the
+  // reportUsage; core/engine/claude.ts for the event). One UsageEvent per model of the turn, so the
   // reviewer subagent's model is a row of its own; the cost is the CLI's costUSD. Speed is derived:
   // output tokens of the turn over duration_api_ms (the time spent in API calls) when the CLI gives
   // it, else over duration_ms (the whole turn, tools included, so lower). With no per-model rows

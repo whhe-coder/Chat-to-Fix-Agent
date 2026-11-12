@@ -3,7 +3,7 @@
 // What it does that a bare fetch does not:
 //   - every request has its own timeout and the whole call has a deadline, both below the tool
 //     layer's limit (limits.toolTimeoutSeconds, default 30 s), because the tool layer does not abort
-//     the losing call (src/tools/register.ts) and a slow chat.postMessage could post later unseen;
+//     the losing call (core/tools/register.ts) and a slow chat.postMessage could post later unseen;
 //   - Slack answers HTTP 200 with { ok: false, error } for most failures: the error string is mapped
 //     to an AdapterError code;
 //   - retries only for reads (`read: true`): network errors, timeouts, 5xx and HTTP 429 (waiting for

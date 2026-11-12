@@ -1,4 +1,4 @@
-// The engine a local agent runs on: Claude Code (stream-json, src/engine/claude.ts). The entry
+// The engine a local agent runs on: Claude Code (stream-json, core/engine/claude.ts). The entry
 // names its route, its display name and how it starts. `args` run verbatim (no shell), ahead of
 // the arguments launch.js builds.
 export const KINDS = ['claude']

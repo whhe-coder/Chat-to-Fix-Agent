@@ -8,7 +8,7 @@
 //     DSH reports one `cacheWriteTokens` figure without the TTL, so the 5-minute rate is used for it.
 //   - claude-haiku-5-5 is listed at its price for prompts up to 100K tokens.
 //   - The Coding bot's cost does not come from this table: Claude Code reports its own costUSD per
-//     model (src/engine/claude.ts), which is authoritative. The table prices the four API bots, and
+//     model (core/engine/claude.ts), which is authoritative. The table prices the four API bots, and
 //     the Coding bot only when the CLI sent no cost.
 // A model that is not in the table has no price: the cost is null and the record is marked unpriced.
 // A price is never guessed.

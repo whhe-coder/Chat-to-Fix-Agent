@@ -6,10 +6,10 @@
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { authEnv, childEnv, isolationSettings, userConfigHome } from '../../../../src/engine/env.ts'
-import { claudeArgs, codingArgs } from '../../../../src/engine/args.ts'
-import { botDef } from '../../../../src/registry/bots.ts'
-import { loadPrompt } from '../../../../src/prompts/index.ts'
+import { authEnv, childEnv, isolationSettings, userConfigHome } from '../../../../core/engine/env.ts'
+import { claudeArgs, codingArgs } from '../../../../core/engine/args.ts'
+import { botDef } from '../../../../core/registry/bots.ts'
+import { loadPrompt } from '../../../../core/prompts/index.ts'
 
 // A reviewer needs a description; the registry holds only its name, prompt file and tools.
 const REVIEWER_DESCRIPTION = 'Read-only reviewer of a code change. Call it once the change is made and the tests pass; give it the task summary and a description of the change. It answers pass or not pass.'
@@ -18,7 +18,7 @@ const REVIEWER_DESCRIPTION = 'Read-only reviewer of a code change. Call it once 
 export const PERMISSION_TIMEOUT_MS = 5 * 60_000
 
 // The test commands, named in the system text so the Coding bot runs them as the allow-list has them
-// (an exact rule and a prefix rule, see testRules in src/engine/args.ts). The first real run (T-1)
+// (an exact rule and a prefix rule, see testRules in core/engine/args.ts). The first real run (T-1)
 // had its test run refused with no trace of what the model had typed.
 export function withTestCommands(system, testCommands) {
   const commands = testCommands.map(command => String(command).trim()).filter(command => command !== '')
@@ -32,7 +32,7 @@ export function withTestCommands(system, testCommands) {
 // out of a bot. The second real run showed the Coding bot reading them although the arguments
 // say `--setting-sources project`: the CLI also reads the instruction files of every ancestor
 // directory of the working directory, and the worktree lives under the owner's home (the full
-// finding is in src/engine/env.ts). Two layers, both per process:
+// finding is in core/engine/env.ts). Two layers, both per process:
 //  1. `--settings` with `claudeMdExcludes`: every instruction file above the working directory and
 //     the user's config home are excluded; the repository's own files in the working directory stay.
 //  2. engineAuth 'apiKey': a private CLAUDE_CONFIG_DIR inside the data folder, so the CLI's own
@@ -45,7 +45,7 @@ export function withTestCommands(system, testCommands) {
 //     on layer 1 plus `--setting-sources project` (no user settings, hooks, plugins or MCP servers);
 //     auto memory is switched off for it (CLAUDE_CODE_DISABLE_AUTO_MEMORY) so a bot never writes into
 //     ~/.claude. Use 'apiKey' where full isolation matters.
-// rt.config.engineConfigRoot (set by src/plugin.ts: <dataDir>/engine-config) is the parent of the
+// rt.config.engineConfigRoot (set by core/plugin.ts: <dataDir>/engine-config) is the parent of the
 // private directories; without it (a bare test runtime) they go under the OS temp folder.
 export function isolatedConfigDir(config, sessionId) {
   const root = typeof config.engineConfigRoot === 'string' && config.engineConfigRoot !== '' ? config.engineConfigRoot : undefined
@@ -79,11 +79,11 @@ export function bridgeNames(rt, sessionId, requested = []) {
 // open: { cwd, mcp (a LoopbackMcp), resumeId, preset, model, system, toolNames }
 // -> { args, env, permissionTimeoutMs, resumed }
 //
-// rt.config (from the plugin config, see src/plugin.ts): engineAuth ('login' | 'apiKey'),
+// rt.config (from the plugin config, see core/plugin.ts): engineAuth ('login' | 'apiKey'),
 // engineApiKey (only with 'apiKey'), engineConfigRoot (parent of the private config dirs, see isolatedConfigDir), engineMaxTurns, codingEffort (--effort of the Coding bot and its reviewer; unset: the CLI's own default), testCommands (the plugin-level list of shell
 // commands the coding bot may run besides git status / git diff; the fallback), permissionTimeoutMs.
 // The task's own list comes first: rt.taskLayer.codingOptions(taskId).testCommands is the
-// `testCommands` of the task's binding (src/task/runner.ts), so each channel names its own.
+// `testCommands` of the task's binding (core/task/runner.ts), so each channel names its own.
 export function launchFor(rt, sessionId, open) {
   const config = rt.config ?? {}
   const auth = authEnv({ engineAuth: config.engineAuth ?? 'login', apiKey: config.engineApiKey } as any)

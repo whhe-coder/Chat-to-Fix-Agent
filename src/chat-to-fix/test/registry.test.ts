@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allBotDefs, botDef, toolsOfRole, validateRegistry } from '../src/registry/bots.ts'
-import { STEPS, stepDef, nextStep, stepOfWriteTool, stepsOfWriteTool, validateFlow, createFlow, closeEndReason, CI_END_REASONS } from '../src/flow/steps.ts'
-import { ROLES, STEP_IDS, RECORD_TYPES, CI_OUTCOMES, CI_STOP_REASONS, CI_TOOL_PARAMETERS, DONE_END_REASONS, newCi } from '../src/task/contracts.ts'
-import { ciTools } from '../src/tools/ci.ts'
+import { allBotDefs, botDef, toolsOfRole, validateRegistry } from '../core/registry/bots.ts'
+import { STEPS, stepDef, nextStep, stepOfWriteTool, stepsOfWriteTool, validateFlow, createFlow, closeEndReason, CI_END_REASONS } from '../core/flow/steps.ts'
+import { ROLES, STEP_IDS, RECORD_TYPES, CI_OUTCOMES, CI_STOP_REASONS, CI_TOOL_PARAMETERS, DONE_END_REASONS, newCi } from '../core/task/contracts.ts'
+import { ciTools } from '../core/tools/ci.ts'
 
 test('five bots with the spec fields', () => {
   const defs = allBotDefs()

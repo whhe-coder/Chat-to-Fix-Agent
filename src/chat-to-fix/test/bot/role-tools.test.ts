@@ -1,6 +1,6 @@
 // The role tools on the real bot layer: after connectTaskLayer, the tool preparation of DS Bot
 // (bot/src/host/tools.ts shareBotTools) hands each Agent to the task layer's attachRoleTools.
-// The task layer is src/app.ts on the fake DSH context of host.js; the tools come from the
+// The task layer is core/app.ts on the fake DSH context of host.js; the tools come from the
 // registry, defined with DSH's own defineTool.
 //
 // Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/role-tools.test.ts
@@ -9,10 +9,10 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { loadConfig } from '../../src/config.ts'
-import { createApp } from '../../src/app.ts'
-import { ROLES } from '../../src/task/contracts.ts'
-import { connectTaskLayer, defineTool } from '../../src/bot/index.ts'
+import { loadConfig } from '../../core/config.ts'
+import { createApp } from '../../core/app.ts'
+import { ROLES } from '../../core/task/contracts.ts'
+import { connectTaskLayer, defineTool } from '../../core/bot/index.ts'
 import { start } from './host.ts'
 
 async function rig(t) {

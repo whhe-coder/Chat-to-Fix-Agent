@@ -1,6 +1,6 @@
 // CI loop tools (spec 7, 4.6): ci_read_log, mr_push_fix and ci_stop (all three belong to the pipeline bot, the sole owner of the CI step).
 // The waiting, the polling, the automatic re-run and the round count belong to the monitor
-// (src/task/monitor.ts); these tools only read a log, append a fix commit, or record a stop, and
+// (core/task/monitor.ts); these tools only read a log, append a fix commit, or record a stop, and
 // each one checks for itself what the gate's evidence evaluator cannot (spec 7, 6).
 import { CI_CONFIG_DEFAULTS, CI_STOP_REASONS, CI_TOOL_PARAMETERS, newCi } from '../task/contracts.ts'
 import { announce, commitUrlOf, cutText, material } from './material.ts'

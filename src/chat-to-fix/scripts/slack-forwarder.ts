@@ -20,7 +20,7 @@
 // (defaults for --url and --token, as in scripts/fake-event.ts). No token is ever printed.
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, DEFAULT_SLASH_COMMAND } from '../src/config.ts'
+import { loadConfig, DEFAULT_SLASH_COMMAND } from '../core/config.ts'
 
 const DEFAULT_API_BASE = 'https://slack.com/api'
 const IGNORED_SUBTYPES = new Set(['bot_message', 'message_changed', 'message_deleted', 'message_replied'])

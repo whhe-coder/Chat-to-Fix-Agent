@@ -22,7 +22,7 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/
 const COMMENT_PAGE = 100
 const COMMENT_PAGES_MAX = 10
-/** Stays well below the tool layer's 30 s (src/tools/register.ts) so a late reply cannot outlive its tool call. */
+/** Stays well below the tool layer's 30 s (core/tools/register.ts) so a late reply cannot outlive its tool call. */
 const REAL_TIMEOUT_MS = 20_000
 
 /** Jira text is a string in REST v2; flattens an Atlassian document (v3 style) if one ever shows up. */

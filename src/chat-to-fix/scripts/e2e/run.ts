@@ -21,15 +21,15 @@ import { userInfo } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { updateJson } from '../../src/adapters/fake/files.ts'
-import { threadFile } from '../../src/adapters/slack.ts'
+import { updateJson } from '../../core/adapters/fake/files.ts'
+import { threadFile } from '../../core/adapters/slack.ts'
 import { DEFAULT_KEYCHAIN_SERVICE, keychainHas } from '../first-run.ts'
 import { sendFakeEvent, sendFakeSlash } from '../fake-event.ts'
 import { ALL_CASE_IDS, DEFAULT_CASE_IDS, loadCase } from './cases.ts'
 import { runChecks, summarize } from './checks.ts'
 import { loadManifest, prepareE2e, ROOT } from './prepare.ts'
 import { collectEvidence, inspectWorkspace } from './workspace.ts'
-import { fmtTokens, fmtTps, fmtUsd, mergeUsage, TPS_BASIS_LABEL } from '../../src/task/usage.ts'
+import { fmtTokens, fmtTps, fmtUsd, mergeUsage, TPS_BASIS_LABEL } from '../../core/task/usage.ts'
 
 const exec = promisify(execFile)
 export const END_STATES = ['done', 'failed', 'stopped', 'timed_out', 'needs_info', 'expired']
@@ -178,7 +178,7 @@ export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60
 
 const mark = (ok) => (ok ? '[x]' : '[ ]')
 
-// ---- token billing in the report (task.usage, src/task/usage.ts)
+// ---- token billing in the report (task.usage, core/task/usage.ts)
 const costCell = (usage) => (usage && usage.calls > 0 ? `${fmtUsd(usage.totalUsd)}${usage.unpriced ? '（含未定价）' : ''}` : '-')
 const tokenText = (b) => `输入 ${fmtTokens(b.input)} / 输出 ${fmtTokens(b.output)} / 缓存读 ${fmtTokens(b.cacheRead)} / 缓存写 ${fmtTokens(b.cacheWrite)}`
 // 速度的来源：DSH 自己的算法（API bot），或由 CLI 结果推算（修复 bot）

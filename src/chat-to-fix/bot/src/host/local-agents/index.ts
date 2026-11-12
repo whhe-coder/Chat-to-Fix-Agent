@@ -12,7 +12,7 @@ import { ClaudeEngine } from './claude-engine.ts'
 import { bridgeNames, launchFor } from './launch.ts'
 import { ENGINES, isLocalAgentRoute } from './engines.ts'
 import { findExecutable, probeVersion, refreshSearchDirs } from './discover.ts'
-import { childEnv } from '../../../../src/engine/env.ts'
+import { childEnv } from '../../../../core/engine/env.ts'
 
 const SIGN_IN = {
   'claude-code': 'claude',
@@ -73,7 +73,7 @@ export function install(rt) {
     rt,
     findExecutable,
     engineOf,
-    // The CLI's per-turn usage reaches the task layer through the facade (src/task/botlayer.ts).
+    // The CLI's per-turn usage reaches the task layer through the facade (core/task/botlayer.ts).
     reportUsage: report => rt.botlayer?.reportEngineUsage?.(report),
     spawnEngine,
     record: sessionId => store().sessions[sessionId],

@@ -6,12 +6,12 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '../src/config.ts'
-import { createStore } from '../src/task/store.ts'
-import { createGate } from '../src/task/gate.ts'
-import { createToolRegistry } from '../src/tools/register.ts'
-import { registerAllTools } from '../src/tools/index.ts'
-import { newCi } from '../src/task/contracts.ts'
+import { loadConfig } from '../core/config.ts'
+import { createStore } from '../core/task/store.ts'
+import { createGate } from '../core/task/gate.ts'
+import { createToolRegistry } from '../core/tools/register.ts'
+import { registerAllTools } from '../core/tools/index.ts'
+import { newCi } from '../core/task/contracts.ts'
 
 const ROLES = ['main', 'slack', 'jira', 'pipeline', 'coding']
 const JOBS = [

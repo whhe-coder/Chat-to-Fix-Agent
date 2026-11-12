@@ -82,11 +82,11 @@ Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读；`first-run.ts` 也能
 
 | 目录 | 内容 |
 |---|---|
-| `src/task/` | 监听、队列、建群和收尾、监控、记录、任务存储、门禁、计费 |
-| `src/flow/`、`src/registry/` | 七步流程表、五个 bot 的注册表 |
-| `src/tools/`、`src/adapters/` | bot 的工具；Slack、Jira、GitLab 适配器（模拟和真实） |
-| `src/engine/` | Claude Code 驱动 |
-| `src/prompts/` | 各 bot 和评审的指令 |
-| `bot/` | 从 DS Bot 裁剪来的 bot 层 |
+| `core/` | Agent 主代码；`app.ts` 和 `plugin.ts` 是应用与 DSH 入口 |
+| `core/task/` | 监听、队列、建群和收尾、监控、记录、任务存储、门禁、计费 |
+| `core/flow/`、`core/registry/` | 八步流程表、五个 bot 的注册表 |
+| `core/tools/`、`core/adapters/` | bot 的工具；Slack、Jira、GitLab 适配器（模拟和真实） |
+| `core/engine/`、`core/prompts/` | Claude Code 驱动与各 bot 的指令 |
+| `bot/src/` | 从 DS Bot 裁剪并保留内部结构的 Bot 层，由 `core/bot/` 接入 Agent |
 | `scripts/` | 启动停止、冒烟、首跑、调试页、端到端测试集 |
 | `config/` | DSH 配置补丁和说明 |

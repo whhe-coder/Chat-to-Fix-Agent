@@ -1,7 +1,7 @@
 // Two settings of the Claude Code driver, checked through the whole path on the real bot layer
 // (the CLI is the fake of test/fixtures/fake-claude.ts, `[echo]` answers with its argv and env):
 //  - a binding's testCommands reach the Coding bot's allow-list (the plugin-level list is the fallback);
-//  - engineAuth "apiKey": configuration -> src/plugin.ts engineSettings -> launch.ts -> the CLI's
+//  - engineAuth "apiKey": configuration -> core/plugin.ts engineSettings -> launch.ts -> the CLI's
 //    environment as ANTHROPIC_API_KEY. The key is a fake value; no real CLI or model runs.
 //
 // Run: node --import ./bot/test/harness-resolve.ts --test --test-force-exit test/bot/engine-binding.test.ts
@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { loadConfig } from '../../src/config.ts'
-import { engineSettings } from '../../src/plugin.ts'
+import { loadConfig } from '../../core/config.ts'
+import { engineSettings } from '../../core/plugin.ts'
 import { startApp } from './host.ts'
 
 const FAKE = fileURLToPath(new URL('../fixtures/fake-claude.ts', import.meta.url))

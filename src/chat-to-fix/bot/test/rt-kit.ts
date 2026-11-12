@@ -1,10 +1,10 @@
 // Test kit for the restored DS Bot tests. DS Bot's own tests built the runtime through its entry
 // (bot/index.js, which also registered the `POST /api/bot` web route) and drove it through that
 // route. chat-to-fix has no web channel, so this kit builds the runtime through OUR entry
-// (src/bot/index.ts createRuntime + runtimeOf) and gives `call(endpoint, payload)` the same
+// (core/bot/index.ts createRuntime + runtimeOf) and gives `call(endpoint, payload)` the same
 // answer shape the route had ({ ok, value } / { ok: false, error: { code, message } }), each
 // endpoint calling the runtime function it reached in bot/src/host/channel.js (commit 263a272).
-import { createRuntime as makeBotLayer, runtimeOf } from '../../src/bot/index.ts'
+import { createRuntime as makeBotLayer, runtimeOf } from '../../core/bot/index.ts'
 
 // The internal runtime object (what DS Bot's `createRuntime` returned), built through the task layer's entry.
 export function createRuntime(ctx, config: any = {}) {

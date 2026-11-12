@@ -1,5 +1,5 @@
 // The bot group chat for the debug UI (right pane): the task group's conversation as the bots saw it,
-// turned from a task's execution records (src/task/recorder.ts) into chat messages.
+// turned from a task's execution records (core/task/recorder.ts) into chat messages.
 //
 //   buildChat(records, task) -> { title, state, step, members, messages }   (pure, node-testable)
 //   CHAT_CSS / CHAT_JS                                                      (browser code the page inlines)
@@ -10,7 +10,7 @@
 // window.highlightChat(container, recordIds). It uses no external resource, no import and no build step.
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
-import { roundView, summarize, usageView } from '../../src/task/usage.ts'
+import { roundView, summarize, usageView } from '../../core/task/usage.ts'
 
 export const CHAT_CSS: string = readFileSync(new URL('./chat.css', import.meta.url), 'utf8')
 export const CHAT_JS: string = readFileSync(new URL('./chat-client.js', import.meta.url), 'utf8')
@@ -23,7 +23,7 @@ const ROLE_COLOR = { main: '#4d6bfe', slack: '#ec2f6b', jira: '#2563eb', pipelin
 const STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', ci: 'CI', writeback: '回写', close: '结束' }
 const stepLabel = (id) => STEP_LABEL[id] ?? id
 
-// usage: what the bot cost so far (src/task/usage.ts usageView byRole): model, cost, tokens and the latest speed with its source tag
+// usage: what the bot cost so far (core/task/usage.ts usageView byRole): model, cost, tokens and the latest speed with its source tag
 export type ChatMember = { role: string, name: string, color: string, usage?: any }
 export type ChatMessage = {
   id: string, recordIds: number[], at: string | null, step: string | null, role: string | null, botId: string | null,

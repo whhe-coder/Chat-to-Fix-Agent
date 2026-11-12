@@ -3,7 +3,7 @@
 
 // chat-to-fix: the rules every bot of a task group gets. Only tools that exist here are named
 // (list_bots, message_bot, stop_bot, post_to_group, read_own_chat, read_group_chat; the role tools
-// are described in src/prompts). Who may call whom is set by the group notice (src/prompts/group-notice.md).
+// are described in src/prompts). Who may call whom is set by the group notice (core/prompts/group-notice.md).
 const PROGRESS_RULE = '- In a group chat, the group sees what you write while you work, not only your final reply. For work that takes more than a quick look, start with one short sentence on what you will do, in the same response as your first tool call. After that, write only when you find something the group should know or finish a part of the work, in a sentence or two, not at every step. End with the result. Simple answers need no updates.'
 const MESSAGE_RULE = '- For "[Message from …]" or "[Reply from …]" messages, do not write plans or progress updates: use tools silently, then reply with the answer. Simple answers do not need progress messages.'
 
@@ -23,7 +23,7 @@ const TEAM_RULES = [
 ].join('\n')
 
 // The Coding bot runs in Claude Code, which brings its own tools and gets this text after its own prompt.
-// The team tools reach it as MCP tools of the server chat-to-fix (src/prompts/coding.md says how to load them).
+// The team tools reach it as MCP tools of the server chat-to-fix (core/prompts/coding.md says how to load them).
 const LOCAL_RULES = [
   '## How your Bot team works',
   '- You are one of the bots that work together in one group chat on one task. Your turn arrives as a "[Group chat …]" message, and your final answer is posted to the group and is your handoff.',

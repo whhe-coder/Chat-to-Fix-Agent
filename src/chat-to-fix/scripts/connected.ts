@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createGitlabConnection } from '../../gitlab/connection.js'
 import { createJiraConnection } from '../../jira/connection.js'
-import { loadConfig } from '../src/config.ts'
+import { loadConfig } from '../core/config.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PROJECT_ROOT = resolve(ROOT, '../..')

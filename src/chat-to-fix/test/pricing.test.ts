@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_PRICING, costOf, normalizeModel, priceOf, priceTable, pricingProblems } from '../src/task/pricing.ts'
-import { addUsage, blankUsage, fmtTokens, fmtTps, fmtUsd, summarize, tpsOf, usageLine } from '../src/task/usage.ts'
+import { DEFAULT_PRICING, costOf, normalizeModel, priceOf, priceTable, pricingProblems } from '../core/task/pricing.ts'
+import { addUsage, blankUsage, fmtTokens, fmtTps, fmtUsd, summarize, tpsOf, usageLine } from '../core/task/usage.ts'
 
 test('the default table holds the three models at the cached list prices', () => {
   assert.deepEqual({ ...DEFAULT_PRICING['claude-sonnet-5-5'] }, { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 })

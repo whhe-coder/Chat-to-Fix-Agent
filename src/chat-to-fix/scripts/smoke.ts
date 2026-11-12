@@ -225,7 +225,7 @@ async function main() {
 
   // The Main bot's model request carrying the task message. The pi-ai route sends no session
   // header, so the request is attributed by its tools: task_advance is a role tool of `main`
-  // (src/registry/bots.ts), attached only to sessions of the bot bound to that role.
+  // (core/registry/bots.ts), attached only to sessions of the bot bound to that role.
   let mainCall
   try {
     mainCall = await until('a model request with the task message', () => mockLog().find((e) => String(e.allUserText ?? '').includes(`Task ${taskId}`)), 60_000)

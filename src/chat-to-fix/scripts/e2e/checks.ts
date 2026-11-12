@@ -4,7 +4,7 @@
 // `evidence` holds the results of the commands that were run in copies of it (collectEvidence()). A check
 // returns { ok, detail }; runChecks() adds the id and the Chinese title. A missing piece of the context makes the
 // check fail with a reason, it never throws.
-import { isCommitMessage } from '../../src/adapters/git.ts'
+import { isCommitMessage } from '../../core/adapters/git.ts'
 import { isAllowedFile } from './cases.ts'
 
 export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> ci', 'ci -> writeback', 'writeback -> close']

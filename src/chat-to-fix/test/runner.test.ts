@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createStore } from '../src/task/store.ts'
-import { createRunner, taskMessage } from '../src/task/runner.ts'
-import { allBotDefs } from '../src/registry/bots.ts'
+import { createStore } from '../core/task/store.ts'
+import { createRunner, taskMessage } from '../core/task/runner.ts'
+import { allBotDefs } from '../core/registry/bots.ts'
 import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 const ORIGIN = { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'tester' }, text: 'the button does nothing', permalink: 'https://example.slack.com/archives/C1/p11' }

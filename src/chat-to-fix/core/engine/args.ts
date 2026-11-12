@@ -53,7 +53,7 @@ function toolList(name, list) {
 //   persist: false              -> --no-session-persistence
 //   settings: { ... } | 'json'  -> --settings (extra settings for this process only; used for the
 //                                  claudeMdExcludes that keep personal instruction files out, see
-//                                  src/engine/env.ts)
+//                                  core/engine/env.ts)
 // }
 export function claudeArgs(options: any = {}) {
   const {
@@ -142,7 +142,7 @@ function mcpServerEntry(mcp) {
 //    (spec 5 section 4.9: "permission prompts none" refuses whatever would prompt; allow rules decide first).
 // So each test command is allowed as an exact rule and as a prefix rule (trailing arguments), but a
 // command that is itself compound or has a wildcard gets the exact rule only. The Coding bot is
-// told to run the command exactly as given (src/prompts/coding.md and launch.ts), from its working folder.
+// told to run the command exactly as given (core/prompts/coding.md and launch.ts), from its working folder.
 const SHELL_OPERATOR = /&&|\|\||[;|&<>`\n]|\$\(/
 const WILDCARD = /\*/
 export function testRules(command) {

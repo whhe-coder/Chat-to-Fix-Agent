@@ -1,4 +1,4 @@
-// The task layer (src/app.ts) on the real bot layer (DS Bot's modules through src/bot/index.ts),
+// The task layer (core/app.ts) on the real bot layer (DS Bot's modules through core/bot/index.ts),
 // running on DS Bot's fake DSH context with a hand-driven model. This is the sample of the
 // whole framework: a Slack @ arrives at the listener, the system creates five DS Bot bots and an
 // admin-mode group, the task reaches only the Main bot, the Main bot uses a task tool, the
@@ -10,9 +10,9 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { loadConfig } from '../../src/config.ts'
-import { createApp } from '../../src/app.ts'
-import { ROLES } from '../../src/task/contracts.ts'
+import { loadConfig } from '../../core/config.ts'
+import { createApp } from '../../core/app.ts'
+import { ROLES } from '../../core/task/contracts.ts'
 import { start, settle } from './host.ts'
 
 async function rig(t) {

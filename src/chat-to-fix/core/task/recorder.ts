@@ -17,7 +17,7 @@ const argsText = (value) => {
 
 /**
  * @param {{ store: import('./contracts.ts').TaskStore, botlayer: import('./contracts.ts').BotLayer, pricing?: object, warn?: (...args: any[]) => void }} deps
- *   `pricing`: the configuration's `pricing` rows over the default price table (src/task/pricing.ts).
+ *   `pricing`: the configuration's `pricing` rows over the default price table (core/task/pricing.ts).
  * @returns {{ start: () => void, stop: () => void, flush: () => Promise<void> }}
  *   `flush()` resolves when every event received so far has been written (used by tests).
  */
@@ -127,7 +127,7 @@ export function createRecorder({ store, botlayer, pricing = undefined, warn = (.
   // One usage record per model call (API bots) or per model of a CLI turn (Coding bot), and the same record
   // added to the task's running summary. The cost of an API call is computed from the price table; the CLI's
   // own cost wins for the Coding bot. A model with no price gets costUsd null and unpriced true (never a guess).
-  // Fields: see src/task/usage.ts.
+  // Fields: see core/task/usage.ts.
   async function onUsage(e) {
     const found = await ofSession(e.sessionId)
     if (found === undefined) return

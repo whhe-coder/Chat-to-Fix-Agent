@@ -1,10 +1,10 @@
-// The outbox (src/task/outbox.ts): append-only <dataDir>/outbox.jsonl, global seq, paging, taskId from the thread.
+// The outbox (core/task/outbox.ts): append-only <dataDir>/outbox.jsonl, global seq, paging, taskId from the thread.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createOutbox } from '../src/task/outbox.ts'
+import { createOutbox } from '../core/task/outbox.ts'
 
 const dir = () => mkdtemp(join(tmpdir(), 'chat-to-fix-outbox-'))
 const msg = (o = {}) => ({ channel: 'C1', threadTs: '1.1', purpose: 'ack', text: 'hi', ...o })
@@ -92,8 +92,8 @@ test('append refuses a message without channel, threadTs or text', async () => {
 // ---- the whole chain: POST /events -> task layer -> monitor -> outbox adapter -> GET /outbox ----
 
 test('adapters.slack "outbox" in the app: fix, mention (in progress, no task) and a bound-channel refusal reach GET /outbox', async (t) => {
-  const { loadConfig } = await import('../src/config.ts')
-  const { createApp } = await import('../src/app.ts')
+  const { loadConfig } = await import('../core/config.ts')
+  const { createApp } = await import('../core/app.ts')
   const { createFakeBotLayer } = await import('./helpers/fake-botlayer.ts')
   const root = await dir()
   const configPath = join(root, 'config.json')

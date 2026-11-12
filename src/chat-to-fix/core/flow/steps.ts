@@ -1,7 +1,7 @@
 // Flow definition (I7, spec 1 section 2.3). Everything about the order of the steps, who is in
 // charge, what counts as done, and which write tools are allowed lives in this file as data.
 // Changing the role in charge of a step, or swapping two steps, is an edit here only: the gate
-// (src/task/gate.ts) reads the table and evaluates the evidence with one evaluator.
+// (core/task/gate.ts) reads the table and evaluates the evidence with one evaluator.
 //
 // Evidence strings (evaluated by gate.js against the task):
 //   "<path>"            the field at <path> (dotted, on the task) has a value / is true

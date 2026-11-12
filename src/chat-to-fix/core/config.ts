@@ -55,7 +55,7 @@ const isPositive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
 const PLACEHOLDER = 'CHANGE-ME'
 // A key that looks like it holds a credential; credentials are read from the environment only.
 const CREDENTIAL_KEY = /token|secret|password|passwd|api[-_]?key/i
-// What the Claude Code allow-list cannot take (src/engine/args.ts): a comma, or a rule for every command.
+// What the Claude Code allow-list cannot take (core/engine/args.ts): a comma, or a rule for every command.
 const unusableCommand = (v) => v.includes(',') || v === '*' || v === ':*'
 
 const isHttpUrl = (v) => {
@@ -190,7 +190,7 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   // codingEffort: --effort of the Coding bot and its reviewer (low, medium, high, xhigh, max).
   const codingEffort = raw.codingEffort ?? DEFAULTS.codingEffort
   if (!EFFORT_LEVELS.includes(codingEffort)) problems.push(`codingEffort must be one of ${EFFORT_LEVELS.join(', ')}`)
-  // pricing: rows of the price table (USD per million tokens) that replace or add to src/task/pricing.ts.
+  // pricing: rows of the price table (USD per million tokens) that replace or add to core/task/pricing.ts.
   problems.push(...pricingProblems(raw.pricing))
 
   // bindings

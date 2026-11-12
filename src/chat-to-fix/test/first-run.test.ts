@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { loadConfig } from '../src/config.ts'
+import { loadConfig } from '../core/config.ts'
 import { prepareFirstRun, DEFAULT_KEYCHAIN_SERVICE, SAMPLE_REPORT } from '../scripts/first-run.ts'
 import { connection, formatRecord, formatTask, showTask } from '../scripts/show-task.ts'
 

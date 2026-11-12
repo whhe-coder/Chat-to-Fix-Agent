@@ -1,5 +1,5 @@
 // Prompt loader (D2). Reads each prompt file once and keeps the text. The file names are the
-// ones the registry (src/registry/bots.ts) names in `instructions` and in the coding
+// ones the registry (core/registry/bots.ts) names in `instructions` and in the coding
 // `reviewer.instructions`; the group notice is the shared text every member sees.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

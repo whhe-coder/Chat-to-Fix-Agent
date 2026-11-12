@@ -1,7 +1,7 @@
 // The CI half of the repository adapter (spec 7, 4.5 and section 5 "adapters"):
-//  - the real GitLab implementation (src/adapters/gitlab-http.ts) against a local node:http stub,
+//  - the real GitLab implementation (core/adapters/gitlab-http.ts) against a local node:http stub,
 //  - pushFix / push_rejected on real git,
-//  - the simulated CI of the fake GitLab (src/adapters/fake/ci.ts).
+//  - the simulated CI of the fake GitLab (core/adapters/fake/ci.ts).
 // No real GitLab host is used.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -10,9 +10,9 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRepoAdapter } from '../src/adapters/repo.ts'
-import { cleanJobLog, createRealGitlab } from '../src/adapters/gitlab-http.ts'
-import { runGit } from '../src/adapters/git.ts'
+import { createRepoAdapter } from '../core/adapters/repo.ts'
+import { cleanJobLog, createRealGitlab } from '../core/adapters/gitlab-http.ts'
+import { runGit } from '../core/adapters/git.ts'
 import { createTestRepo } from '../scripts/make-test-repo.ts'
 
 const TOKEN = 'glpat-SECRET-TOKEN-0123456789'

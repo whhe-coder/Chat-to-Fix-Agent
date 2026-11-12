@@ -20,7 +20,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { connection } from './show-task.ts'
 import { buildChat, CHAT_CSS, CHAT_JS } from './debug-ui/chat.ts'
-import { fmtUsd, roundView, usageView } from '../src/task/usage.ts'
+import { fmtUsd, roundView, usageView } from '../core/task/usage.ts'
 
 export const DEFAULT_PORT = 3092
 export const LABEL_MAX = 200 // a safety cap only: the page cuts a label to the room it has between its lifelines
@@ -78,7 +78,7 @@ function mainText(value) {
 }
 
 /**
- * Turns execution records (src/task/recorder.ts, gate.ts, monitor.ts, runner.ts) into diagram arrows.
+ * Turns execution records (core/task/recorder.ts, gate.ts, monitor.ts, runner.ts) into diagram arrows.
  * Pure: no I/O. Never throws on an odd record: it becomes a grey self-loop on its role's lane.
  *
  * @param {any[]} records the records of one task, in file order
@@ -229,7 +229,7 @@ function buildDetailed(records, task) {
     else if (isLane(r.role)) arrow = push(r, { from: r.role, to: callerOf[r.role] ?? 'main', kind: 'reply', label: text, detail: text, failed: Boolean(r.failed) })
     else arrow = grey(r, text)
     if (isLane(r.role)) lastRoundArrow[r.role] = arrow
-    // what this round cost: the usage records the bot wrote since its previous round end (src/task/usage.ts roundView)
+    // what this round cost: the usage records the bot wrote since its previous round end (core/task/usage.ts roundView)
     const usage = isLane(r.role) ? roundView(roundUsage[r.role]) : null
     if (usage !== null) arrow.usage = usage
     if (isLane(r.role)) delete roundUsage[r.role]
@@ -324,7 +324,7 @@ function buildDetailed(records, task) {
           push(r, { from: 'gate', to, kind: 'reply', label: `拒绝: ${r.text ?? ''}`, detail: String(r.text ?? ''), failed: true, ok: false })
           break
         }
-        // A tool use refused or failed inside Claude Code (src/task/recorder.ts onEngineLines):
+        // A tool use refused or failed inside Claude Code (core/task/recorder.ts onEngineLines):
         // a red self-loop on the bot's lane, labelled with the attempted command.
         case 'refusal':
         case 'tool_error': {

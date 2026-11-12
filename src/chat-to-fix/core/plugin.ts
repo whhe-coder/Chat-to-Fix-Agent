@@ -1,5 +1,5 @@
-// The DSH plugin entry of chat-to-fix: the bot layer (DS Bot's modules, src/bot/index.ts) plus the
-// task layer (src/app.ts), connected in one process.
+// The DSH plugin entry of chat-to-fix: the bot layer (DS Bot's modules, core/bot/index.ts) plus the
+// task layer (core/app.ts), connected in one process.
 //
 // A DSH profile loads this file as a plugin row (config/cordis.patch.yml). Configuration:
 //   CHAT_TO_FIX_CONFIG       path of the configuration file (or `configPath` in the plugin row)
@@ -15,10 +15,10 @@ export const inject = botInject
 /**
  * What the Claude Code driver reads from rt.config (bot/src/host/local-agents/launch.ts). The key is
  * given only when engineAuth is 'apiKey' (it then reaches the CLI as ANTHROPIC_API_KEY through
- * src/engine/env.ts authEnv); with 'login' no key goes to the child process. The key is taken from
+ * core/engine/env.ts authEnv); with 'login' no key goes to the child process. The key is taken from
  * the environment here and is not part of `config`, so it is never written or logged by this layer.
  * Personal-instruction isolation (claudeMdExcludes, a private config dir for 'apiKey') is explained in
- * src/engine/env.ts and launch.ts.
+ * core/engine/env.ts and launch.ts.
  * The per-binding test commands are not here: the launcher asks the task layer for them.
  */
 export function engineSettings(config, env = process.env) {

@@ -2,8 +2,8 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createJiraAdapter, createRealJira } from '../src/adapters/jira.ts'
-import { retryAfterMs } from '../src/adapters/jira-http.ts'
+import { createJiraAdapter, createRealJira } from '../core/adapters/jira.ts'
+import { retryAfterMs } from '../core/adapters/jira-http.ts'
 
 const TOKEN = 'tok-SECRET-12345'
 const servers = []

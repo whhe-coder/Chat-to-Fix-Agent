@@ -7,9 +7,9 @@
 //     tpsBasis: 'dsh-decode' | 'cli-api' | 'cli-wall' | null, tpsTokens?, failed?, text }
 // where `input` is the uncached input only. Where the figures come from:
 //   source 'dsh': DSH's own per-session projections (tokenUsage and sessionStats, read at the start and the end of a
-//                 round, see src/task/botlayer.ts), one record per round; the cost is computed from the price table
+//                 round, see core/task/botlayer.ts), one record per round; the cost is computed from the price table
 //                 (DSH reports none). `tpsTokens` is DSH's decodeTokens, the output tokens of the timed span.
-//   source 'cli': the Claude Code `result` event (src/engine/claude.ts); the cost is the CLI's own costUSD, and the
+//   source 'cli': the Claude Code `result` event (core/engine/claude.ts); the cost is the CLI's own costUSD, and the
 //                 speed is output tokens / duration_api_ms (cli-api) or / duration_ms (cli-wall), derived here.
 //
 // The summary kept on the task (task.usage) is updated as records arrive (store.addUsage):
