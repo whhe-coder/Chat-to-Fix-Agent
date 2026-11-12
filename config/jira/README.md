@@ -4,7 +4,7 @@
 
 ## 当前实现
 
-[`src/jira/connection.js`](../../src/jira/connection.js) 提供独立的 `createJiraConnection()`。`npm run check:jira` 读取一个 board 的元数据；`npm run start:server` 启动本地 HTTP 服务，提供 board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。写入方法已通过真实调用验证。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
+[`src/jira/connection.js`](../../src/jira/connection.js) 提供独立的 `createJiraConnection()`。`npm run check:jira` 读取一个 board 的元数据；Agent 的连接准备脚本直接检查 board；任务运行时由 Agent 自己的 Jira 适配器执行写入。此前的本地 HTTP 服务已删除，但连接函数的写入方法曾通过真实调用验证。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
 scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 API。浏览器里的 board 页面地址不能直接用作 API 地址。
 
@@ -12,15 +12,9 @@ scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 A
 
 `GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。这两项已包含在当前 `Chat-to-Fix-Jira-Issues-Comments` token 中。此前的 `Chat-to-Fix-Board-Read` 只读 token 已于 2026-11-12 撤销。
 
-## 写入接口与权限
+## 写入权限
 
-本地服务只监听 `127.0.0.1:4000`，可用 `PORT` 修改端口。接口说明见 [Jira 写入接口规格](../../spec/jira-write-server.md)。以下示例会在目标项目真实创建工单和评论，运行时须使用实际任务内容：
-
-```sh
-curl -X POST http://127.0.0.1:4000/jira/issues -H 'Content-Type: application/json' -d '{"summary":"Fix checkout","description":"Problem details","issueTypeName":"Task","workType":"Tech Research"}'
-curl -X POST http://127.0.0.1:4000/jira/issues/F2PGBA-123/comments -H 'Content-Type: application/json' -d '{"body":"Investigation started"}'
-curl -X PUT http://127.0.0.1:4000/jira/issues/F2PGBA-123/comments/456 -H 'Content-Type: application/json' -d '{"body":"Investigation updated"}'
-```
+外围 HTTP 服务的接口已删除。此前的接口和验证结果保存在 [历史规格](../../docs/archive/legacy-local-server/jira-write-server.md)。Agent 通过自己的 Jira 适配器创建工单和写评论。
 
 Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments 和 Edit own comments 项目权限。当前只计划修改该账号自己创建的评论。Atlassian 官方 OpenAPI 对创建工单、新增评论和修改评论三个接口列出的 granular OAuth scope 并集如下；它属于接口文档中的 Beta granular 清单，创建 scoped API token 时仍需核对管理页面实际提供的选项：
 
@@ -46,7 +40,7 @@ env JIRA_CLOUD_ID='<cloud-id>' JIRA_BOARD_ID='<board-id>' JIRA_EMAIL='<account-e
 
 ## 后续授权
 
-优先使用只能访问目标项目的专用服务账号。当前登录的个人账号无法从已访问的组织管理入口管理该组织的服务账号；是否可使用现有 `F2P Jira Fix Agent` 身份仍待核实。用户已选择暂用个人 scoped token，且真实 Jira 写入已通过。该 token 的 scopes 不能限制到单一项目；实际读写范围取决于个人账号在各项目的权限。当前本地服务在代码中把写入目标限制到 `F2PGBA`，但这不限制 token 本身在其他客户端中的用途。服务账号路径尚未验证。
+优先使用只能访问目标项目的专用服务账号。当前登录的个人账号无法从已访问的组织管理入口管理该组织的服务账号；是否可使用现有 `F2P Jira Fix Agent` 身份仍待核实。用户已选择暂用个人 scoped token，且真实 Jira 写入已通过。该 token 的 scopes 不能限制到单一项目；实际读写范围取决于个人账号在各项目的权限。Agent 的目标项目由绑定配置指定为 `F2PGBA`，但这不限制 token 本身在其他客户端中的用途。服务账号路径尚未验证。
 
 ## 参考
 

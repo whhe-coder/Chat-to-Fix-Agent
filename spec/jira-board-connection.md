@@ -1,6 +1,6 @@
 # Jira board 连接规格
 
-状态：board 的只读连接函数、本地测试和真实读取已完成。当前个人账号 Jira token 包含 board 读取和写入 API scopes，保存在本机钥匙串；旧只读 token 已撤销。工单和评论写入也已通过真实验证，见 [写入接口规格](jira-write-server.md)。
+状态：board 的只读连接函数、本地测试和真实读取已完成。当前个人账号 Jira token 包含 board 读取和写入 API scopes，保存在本机钥匙串；旧只读 token 已撤销。工单和评论写入也已通过真实验证，见 [已归档的写入接口规格](../docs/archive/legacy-local-server/jira-write-server.md)。
 
 ## 目标与入口
 

@@ -4,12 +4,12 @@
 
 ## 整体目标
 
-用户在指定 Slack 频道输入 `/fix 问题描述`。Slack Bot 将命令交给本地 agent 或服务。Agent 在 Jira `F2PGBA` 项目创建工单，修改 GitLab `account-platform/free-to-play-pc` 仓库代码，创建 Draft MR，并观察该 MR 的 CI/CD pipeline。失败时，Agent 读取具体日志，针对失败原因在原 MR 分支追加修复 commit，最多自动修复 3 轮。Agent 将关键进度和最终结果发回频道中任务消息的 thread，并更新 Jira 工单。团队审查和合并 MR。入口规则见 [固定频道命令规格](../spec/slack-fix-command.md)。
+用户在指定 Slack 频道输入 `/fix 问题描述`。Slack Bot 将命令交给 Chat-to-Fix Agent。Agent 在 Jira `F2PGBA` 项目创建工单，修改 GitLab `account-platform/free-to-play-pc` 仓库代码，创建 Draft MR，并观察该 MR 的 CI/CD pipeline。失败时，Agent 读取具体日志，针对失败原因在原 MR 分支追加修复 commit，最多自动修复 3 轮。Agent 将关键进度和最终结果发回频道中任务消息的 thread，并更新 Jira 工单。团队审查和合并 MR。入口规则见 [固定频道命令规格](../spec/slack-fix-command.md)。
 
 ```mermaid
 flowchart LR
     U[指定频道 /fix 命令] --> B[Slack Bot]
-    B --> R[本地 agent 或服务]
+    B --> R[Chat-to-Fix Agent]
     R --> J[Jira F2PGBA 工单]
     J --> K[修改 F2P 代码与测试]
     K --> G[GitLab Draft MR]
@@ -21,7 +21,7 @@ flowchart LR
     B --> T[任务消息 thread 的进度与结果]
 ```
 
-Slack Bot 负责接收 `/fix`、提交任务和发送进度。本地 agent 或服务负责 Jira、GitLab、代码修改与 CI 轮询。Jira 和 GitLab 使用各自的授权；Slack OAuth 权限不授予这些系统的访问权。
+Slack Bot 负责接收 `/fix`、提交任务和发送进度。Chat-to-Fix Agent 负责 Jira、GitLab、代码修改与 CI 轮询。Jira 和 GitLab 使用各自的授权；Slack OAuth 权限不授予这些系统的访问权。
 
 ## 里程碑
 
@@ -60,11 +60,11 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。本地 agent 或�
 
 ## 待确定的实施接口
 
-- M1 需确定本地 agent 的调用方式：进程、HTTP 服务或任务队列。
+- M1 已选择本机 HTTP `POST /events` 接收任务、`GET /outbox` 回传消息；Slack Bot 一侧尚待接入和验收。
 - 长任务状态与去重记录的存储位置。
 - M2 的 Jira 接口已用个人账号的新 token 验证：真实创建 `Task` 工单、新增并修改自身评论、回读评论，以及在目标 board 查到工单。`Work type` 必填，启动服务时需配置其字段 ID，任务输入需提供合适的值。M2 还需接入 Slack 任务去重、创建失败处理和工单链接回报。正式服务身份仍待确定。见 [Jira 接入记录](../config/jira/README.md)。
 - GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
-- M3 的本地 agent 直接复用独立的 `createGitlabConnection()`；还需验证 agent 到 GitLab 的调用链。当前 HTTP 服务不是写入入口。
+- Agent 的连接准备脚本复用 `createGitlabConnection()` 做只读检查；任务运行时使用自己的 GitLab 适配器。真实 GitLab 写入链路仍待验证。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
 
 这些事项在对应里程碑开始前确定并验证。真实 Slack 的当前目标是 [固定频道 `/fix` 入口](../spec/slack-fix-command.md)。
