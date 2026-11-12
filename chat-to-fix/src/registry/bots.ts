@@ -55,7 +55,7 @@ const BOTS = deepFreeze([
     instructions: 'pipeline.md',
     model: 'apiModel',
     permission: 'read-only',
-    tools: ['repo_prepare', 'repo_diff', 'repo_read_file', 'repo_log', 'mr_open_draft', 'mr_get'],
+    tools: ['repo_prepare', 'repo_diff', 'repo_read_file', 'repo_log', 'mr_open_draft', 'mr_get', 'ci_read_log', 'mr_push_fix', 'ci_stop'],
   },
   {
     role: 'coding',

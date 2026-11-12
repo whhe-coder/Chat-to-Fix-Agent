@@ -5,7 +5,7 @@
 //        [--claude-bin <path>] [--keychain-service chat-to-fix-anthropic] [--poll-seconds 3]
 //
 // Each case is a bug report in a bound Slack channel against a small throwaway front-end repository; it is
-// expected to go through all seven steps in one run (no needs_info, no rerun). The runner
+// expected to go through all eight steps in one run (no needs_info, no rerun). The runner
 //  1. prepares ONE run folder (default ~/chat-to-fix-runs/e2e-<timestamp>) with all case repositories and ONE
 //     chat-to-fix.json with one binding per case (a folder that already holds a prepared run is used as it is);
 //  2. with --prepare-only stops here and prints the commands: nothing is started, no model is called;

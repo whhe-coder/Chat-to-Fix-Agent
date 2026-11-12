@@ -2,6 +2,8 @@
 // Enforces the time limits, nudges a quiet group, rejects approvals and sends system notices.
 // It never reads a DS Bot or DSH object directly: only the I1 facade events and the I2 store.
 
+import { newCi } from './contracts.ts'
+
 // ---------------------------------------------------------------------------------------------
 // Templates. Nudges go to the Main bot as the user; notices go to the original Slack discussion.
 // ---------------------------------------------------------------------------------------------
@@ -11,6 +13,10 @@ export const NUDGE = Object.freeze({
     `[system] Step "${step}" has taken more than ${minutes} minutes. Finish it now, or tell me what is blocking it. If it is not finished after another ${minutes} minutes the task is ended.`,
   quiet: (minutes) =>
     `[system] Nobody in the group has done anything for ${minutes} minutes. Continue with the current step by calling the right bot, or close the task if it cannot go on.`,
+  ciQuiet: (minutes) =>
+    `[system] Nobody in the group has done anything for ${minutes} minutes. Continue this CI round: read the log, ask the Coding bot to fix it, push the fix with mr_push_fix, or stop the loop with ci_stop.`,
+  ciEngineSilent: (minutes) =>
+    `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
   engineSilent: (minutes) =>
     `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
 })
@@ -21,7 +27,7 @@ const where = (task) => {
   if (task?.repo?.branch) extra.push(`Branch: ${task.repo.branch}`)
   return extra.length > 0 ? ` ${extra.join(', ')}.` : ''
 }
-const ref = (task) => (task?.id ? `Task ${task.id}` : 'This request')
+const ref = (task, zh = false) => (zh ? (task?.id ? `任务 ${task.id}：` : '') : (task?.id ? `Task ${task.id}` : 'This request'))
 
 export const NOTICE = Object.freeze({
   in_progress: (task) => `${ref(task)} is already in progress for this discussion.${where(task)}`,
@@ -34,6 +40,56 @@ export const NOTICE = Object.freeze({
 })
 
 export const NOTICE_KINDS = Object.freeze(Object.keys(NOTICE))
+
+// ---------------------------------------------------------------------------------------------
+// CI wait (spec 7, 4.4 and 4.7). Messages to the Main bot are English like the nudges. The Slack
+// progress notices follow the configuration `language` (zh: Chinese, anything else: English); they
+// hold links and job names only, never a log. They are separate from NOTICE so that NOTICE_KINDS
+// stays the list of the discussion-level notices.
+// ---------------------------------------------------------------------------------------------
+
+const jobNames = (ci) => (ci?.failedJobs ?? []).map((j) => j.name).join(', ') || '-'
+const jobLinks = (ci, sep) => (ci?.failedJobs ?? []).map((j) => (j.url ? `${j.name} (${j.url})` : j.name)).join(sep) || '-'
+const pipelineLink = (ci, zh) => (ci?.pipelineUrl ? `${zh ? 'Pipeline：' : 'Pipeline: '}${ci.pipelineUrl}` : '')
+
+// The audience of `failed` is the Pipeline bot, which leads a fix round (it reads the log, asks the Coding bot
+// through message_bot, pushes with mr_push_fix or stops with ci_stop). `settled` goes to the Main bot, which
+// hands over at the start of step ci and advances at its end.
+const SETTLED_WHY = {
+  passed: (ci) => `the pipeline passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}`,
+  rounds_exhausted: (ci) => `CI still fails after ${ci.round} fix round(s) (${jobNames(ci)})`,
+  no_pipeline: (ci) => `there is no CI result (${ci.note ?? 'no pipeline'})`,
+  not_locatable: (ci) => `the Pipeline bot stopped the loop: the log does not show the cause${ci.note ? ` (${ci.note})` : ''}`,
+  out_of_scope: (ci) => `the Pipeline bot stopped the loop: the fix is outside the ticket${ci.note ? ` (${ci.note})` : ''}`,
+  not_fixable: (ci) => `the Pipeline bot stopped the loop: the Coding bot cannot fix it${ci.note ? ` (${ci.note})` : ''}`,
+  branch_changed: (ci) => `someone else pushed to the task branch, so the fix was not pushed${ci.note ? ` (${ci.note})` : ''}`,
+}
+
+export const CI_NUDGE = Object.freeze({
+  failed: (ci, max) =>
+    `[system] CI failed (round ${ci.round + 1} of ${max}) in: ${jobNames(ci)}. The system already re-ran the failed jobs once. You lead this round: read the log with ci_read_log and summarise the failure, ask the Coding bot (message_bot) to fix it and have the fix reviewed, then push it with mr_push_fix once the review passed. If the log does not show the cause, the fix is outside the ticket, or the Coding bot says it cannot fix it, stop the loop with ci_stop. The system waits for the next pipeline after the push.`,
+  settled: (ci) =>
+    `[system] The CI outcome is in (${ci.outcome}): ${(SETTLED_WHY[ci.outcome] ?? (() => 'the CI step is settled'))(ci)}. Advance to writeback and report it as it is.`,
+})
+
+const CI_NOTICE_TEXT = {
+  zh: {
+    ci_passed: (task, ci) => `${ref(task, true)}CI 通过${ci.round > 0 ? `（修复 ${ci.round} 轮后）` : ''}。${pipelineLink(ci, true)}`,
+    ci_failed: (task, ci) => `${ref(task, true)}CI 第 ${ci.round + 1} 轮失败：${jobLinks(ci, '、')}。${pipelineLink(ci, true)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task, true)}CI 修了 ${ci.round} 轮后仍未通过，没过的 job：${jobLinks(ci, '、')}。Draft MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
+    ci_no_pipeline: (task, ci) => `${ref(task, true)}没有拿到 CI 结果（${ci.waitTimedOut ? '等待超时' : '没有触发 pipeline'}）。MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
+  },
+  en: {
+    ci_passed: (task, ci) => `${ref(task)}: CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}. ${pipelineLink(ci, false)}`,
+    ci_failed: (task, ci) => `${ref(task)}: CI failed in round ${ci.round + 1}: ${jobLinks(ci, ', ')}. ${pipelineLink(ci, false)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task)}: CI still fails after ${ci.round} fix round(s): ${jobLinks(ci, ', ')}. The draft MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
+    ci_no_pipeline: (task, ci) => `${ref(task)}: no CI result (${ci.waitTimedOut ? 'the wait timed out' : 'no pipeline was triggered'}). The MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
+  },
+}
+
+export const CI_NOTICE_KINDS = Object.freeze(Object.keys(CI_NOTICE_TEXT.en))
+
+export const ciNoticeText = (language, kind, task, ci) => (CI_NOTICE_TEXT[language === 'zh' ? 'zh' : 'en'][kind])(task, ci).trim()
 
 // The idle-relay pause as the group shows it. Source: DSB:src/host/groups.js:90 (noticeText for
 // reason 'paused' with idle), emitted at groups.js:723. The ordinary relay-limit pause says
@@ -49,7 +105,7 @@ const TURN_END = 'turn/end'
 
 const MINUTE = 60_000
 
-export function createMonitor({ store, botlayer, limits, end, send, now = () => Date.now(), warn = (...a) => console.warn(...a), intervalMs = 5000 }) {
+export function createMonitor({ store, botlayer, limits, end, send, repo, language = 'en', now = () => Date.now(), warn = (...a) => console.warn(...a), intervalMs = 5000 }: any) {
   /** @type {Map<string, object>} */
   const watched = new Map()
   let unsubscribers = []
@@ -129,6 +185,7 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
   function adopt(w, task) {
     const run = task.runs?.findLast?.((r) => r.endedAt === null) ?? task.runs?.at?.(-1)
     w.runNo = run?.no ?? null
+    w.taskNo = task.no ?? null
     w.groupId = run?.groupId ?? w.groupId
     w.bots = run?.bots ?? w.bots
     w.step = task.step ?? null
@@ -146,9 +203,10 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     const t = now()
     const w: any = {
       taskId, watchedAt: t, baseAt: opts.restarted ? t : 0, restarted: !!opts.restarted,
-      groupId: null, bots: {}, runNo: null, step: null, stepKey: undefined, stepStart: t, runStart: t,
+      groupId: null, bots: {}, runNo: null, taskNo: null, lead: 'main', step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,
       lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, idleRelay: false, ended: false,
+      ciPolledAt: 0, ciPhaseKey: null,
     }
     watched.set(taskId, w)
     subscribe()
@@ -167,9 +225,12 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     await store.appendRecord(w.taskId, { type: 'limit', run: w.runNo, step: w.step, check, action, text: `${check} at step ${w.step ?? '-'}: ${action}` })
   }
 
-  async function nudge(w, text, kind) {
+  // `to` is the bot that leads the step. Without a mention the group's opener (the Main bot) answers; for the
+  // Pipeline bot the text carries its "@Name" (the bots are named `<Name>-<task no>`, runner.ts).
+  async function nudge(w, text, kind, to = 'main') {
     const requestId = `${w.taskId}:${kind}:${now()}`
-    await botlayer.postTask(w.groupId, text, requestId)
+    const body = to === 'pipeline' && w.taskNo !== null && w.taskNo !== undefined ? text.replace(/^\[system\] /, `[system] @Pipeline-${w.taskNo} `) : text
+    await botlayer.postTask(w.groupId, body, requestId)
   }
 
   // Ends the task at most once: the flag is set before anything is awaited.
@@ -181,19 +242,175 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     watched.delete(w.taskId)
   }
 
-  // One pass of the seven checks over one task. Returns after the first check that ends the task.
+  // ---- CI wait (spec 7, 4.4): the eighth check ------------------------------------------------
+
+  const iso = (ms) => new Date(ms).toISOString()
+  const ms = (iso) => { const v = Date.parse(iso); return Number.isFinite(v) ? v : null }
+
+  // Writes a change of task.ci (and optionally clears the review) and one `ci` record. Returns the new ci.
+  async function commitCi(w, ci, patch, text, { clearReview = false } = {}) {
+    const next = { ...ci, ...patch }
+    await store.patchTask(w.taskId, { ci: patch, ...(clearReview ? { review: null } : {}) })
+    try { await store.appendRecord(w.taskId, { type: 'ci', run: w.runNo, step: 'ci', text }) } catch (error) { warn('chat-to-fix: monitor cannot record a ci change: %s', error?.message ?? error) }
+    return next
+  }
+
+  // The Slack notice (and, for a failed round, the message to the Pipeline bot that leads it); a failure of
+  // either only warns (the state is already written). The Main bot is told when task.ci becomes settled, see
+  // ciSettledNotice.
+  async function ciAnnounce(w, task, ci, kind, pipelineText = '', extra = {}) {
+    try { await deliver({ ...task, ci }, `ci_${kind}`, ciNoticeText(language, `ci_${kind}`, task, { ...ci, ...extra })) } catch (error) { warn('chat-to-fix: monitor cannot send the CI notice: %s', error?.message ?? error) }
+    if (pipelineText) {
+      try { await nudge(w, pipelineText, 'ci', 'pipeline') } catch (error) { warn('chat-to-fix: monitor cannot tell the Pipeline bot about the CI: %s', error?.message ?? error) }
+    }
+  }
+
+  async function ciPassed(w, task, ci, t) {
+    const waitedMs = ci.waitedMs + Math.max(0, t - (ms(ci.since) ?? t))
+    const next = await commitCi(w, ci, { status: 'passed', failedJobs: [], settled: true, outcome: 'passed', waitedMs, phaseAt: iso(t) }, `CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}`)
+    await ciAnnounce(w, task, next, 'passed')
+    return next
+  }
+
+  async function ciFailed(w, task, ci, checks, t) {
+    const waitedMs = ci.waitedMs + Math.max(0, t - (ms(ci.since) ?? t))
+    const exhausted = ci.round >= limits.ciMaxRounds
+    const patch = {
+      status: 'failed', failedJobs: checks.failedJobs ?? [], logRead: false, waitedMs, phaseAt: iso(t),
+      ...(exhausted ? { settled: true, outcome: 'rounds_exhausted' } : {}),
+    }
+    // The review verdict is cleared: what mr_push_fix and ci_stop need can only come from this round.
+    const next = await commitCi(w, ci, patch, `CI failed in round ${ci.round + 1}: ${jobNames({ failedJobs: patch.failedJobs })}${exhausted ? ' (rounds exhausted)' : ''}`, { clearReview: true })
+    if (exhausted) await ciAnnounce(w, task, next, 'rounds_exhausted')
+    else await ciAnnounce(w, task, next, 'failed', CI_NUDGE.failed(next, limits.ciMaxRounds))
+    return next
+  }
+
+  async function ciNoPipeline(w, task, ci, t, waitTimedOut, note) {
+    const waitedMs = ci.waitedMs + Math.max(0, t - (ms(ci.since) ?? t))
+    const next = await commitCi(w, ci, { settled: true, outcome: 'no_pipeline', note, waitedMs, phaseAt: iso(t) }, `no CI result: ${note}`)
+    await ciAnnounce(w, task, next, 'no_pipeline', undefined, { waitTimedOut })
+    return next
+  }
+
+  // The first failure of a commit: re-run the failed jobs once. No round, no model call, no message to the Main bot.
+  // `retried` is written before the call, so a restart in between never sends the write twice.
+  async function ciRetry(w, task, ci, checks) {
+    const jobs = checks.failedJobs ?? []
+    const next = await commitCi(w, ci, { retried: true }, `CI failed: re-running ${jobs.length} failed job(s) once: ${jobNames({ failedJobs: jobs })}`)
+    if (jobs.length > 0) {
+      try { await repo.retryJobs(task.binding, jobs) } catch (error) {
+        warn('chat-to-fix: monitor cannot re-run the failed CI jobs of %s: %s', w.taskId, error?.message ?? error)
+        try { await store.appendRecord(w.taskId, { type: 'ci', run: w.runNo, step: 'ci', text: `re-running the failed jobs failed: ${error?.message ?? error}` }) } catch { /* the warning above is enough */ }
+      }
+    }
+    return next
+  }
+
+  // Once task.ci is settled, for any reason (the monitor's own pass, rounds or timeout, or a tool: ci_stop,
+  // mr_push_fix branch_changed), the Main bot is told once to advance to writeback. `mainNotified` is written first
+  // (with `phaseAt`, the start of the Main bot's turn), so a restart in between never posts it twice.
+  async function ciSettledNotice(w, ci) {
+    if (!ci?.settled || ci.mainNotified) return ci
+    const phaseAt = iso(now())
+    await store.patchTask(w.taskId, { ci: { mainNotified: true, phaseAt } })
+    const next = { ...ci, mainNotified: true, phaseAt }
+    try { await store.appendRecord(w.taskId, { type: 'ci', run: w.runNo, step: 'ci', text: `CI settled (${ci.outcome}); told the Main bot to advance to writeback` }) } catch (error) { warn('chat-to-fix: monitor cannot record a ci change: %s', error?.message ?? error) }
+    try { await nudge(w, CI_NUDGE.settled(next), 'ci-settled', 'main') } catch (error) { warn('chat-to-fix: monitor cannot tell the Main bot about the CI: %s', error?.message ?? error) }
+    return next
+  }
+
+  /**
+   * Called by check() while the task is in step ci. Initialises task.ci, polls getChecks every
+   * ciPollSeconds while the status is pending, and settles on pass, round failure, or a wait that is too long.
+   * Returns the current task.ci.
+   */
+  async function ciCheck(w, task) {
+    let ci = task.ci
+    const t = now()
+    if (!ci) ci = await commitCi(w, {}, newCi(task.mr?.sha, iso(t)), 'waiting for the pipeline of the merge request')
+    if (ci.settled || ci.status !== 'pending') return ci
+
+    const since = ms(ci.since) ?? t
+    if (t - w.ciPolledAt >= limits.ciPollSeconds * 1000) {
+      w.ciPolledAt = t
+      let checks
+      try {
+        if (typeof repo?.getChecks !== 'function') throw new Error('the repository adapter has no getChecks')
+        if (!task.binding) throw new Error('the task has no channel binding')
+        checks = await repo.getChecks(task.binding, task.mr?.iid)
+      } catch (error) { warn('chat-to-fix: monitor cannot read the CI checks of %s: %s', w.taskId, error?.message ?? error) }
+      if (checks) {
+        // A tool may have changed task.ci while the request was out (mr_push_fix, ci_stop): act only on what is still true.
+        const fresh = await store.getTask(w.taskId)
+        if (!fresh || fresh.state !== 'running' || !fresh.ci || fresh.ci.settled || fresh.ci.status !== 'pending' || fresh.ci.sha !== ci.sha) return fresh?.ci ?? ci
+        ci = fresh.ci
+        // Only the pipeline of the commit being waited for counts; an older one is ignored.
+        if (!ci.sha || checks.sha === ci.sha) {
+          const patch: any = {}
+          if (!ci.sha && checks.sha) patch.sha = checks.sha
+          if (checks.pipelineUrl && checks.pipelineUrl !== ci.pipelineUrl) patch.pipelineUrl = checks.pipelineUrl
+          if (Object.keys(patch).length > 0) ci = await commitCi(w, ci, patch, `pipeline: ${checks.pipelineUrl ?? '-'}`)
+          if (checks.status === 'passed') return ciPassed(w, task, ci, now())
+          if (checks.status === 'failed') {
+            if (!ci.retried) return ciRetry(w, task, ci, checks)
+            return ciFailed(w, task, ci, checks, now())
+          }
+        }
+      }
+    }
+
+    // Waiting too long: for this commit (ciWaitMinutes) or over all rounds (ciTotalMinutes).
+    const t2 = now()
+    const waited = ci.waitedMs + Math.max(0, t2 - since)
+    if (t2 - since > limits.ciWaitMinutes * MINUTE || waited > limits.ciTotalMinutes * MINUTE) {
+      const timedOut = !!ci.pipelineUrl || waited > limits.ciTotalMinutes * MINUTE
+      const note = timedOut ? 'wait timed out' : `no pipeline was triggered within ${limits.ciWaitMinutes} minutes`
+      return ciNoPipeline(w, task, ci, t2, timedOut, note)
+    }
+    return ci
+  }
+
+  // One pass of the eight checks over one task. Returns after the first check that ends the task.
   // (The seventh check, approvals, is event driven: see onApproval.)
   async function check(w) {
     const task = await store.getTask(w.taskId)
     if (!task || task.state !== 'running') { watched.delete(w.taskId); return }
     adopt(w, task)
-    const t = now()
+    let t = now()
 
     // 5. Idle-relay pause.
     if (w.idleRelay) return endTask(w, 'failed', 'idle_relay', 'idle_relay', 'ended the task (failed)')
 
-    // 1. Total task time, counted from the start of this run.
-    if (t - w.runStart > limits.taskMinutes * MINUTE) {
+    // 8. CI wait (spec 7, 4.4). While the status is pending the system is waiting for a pipeline, not a bot:
+    // the step limit and the quiet-group check are skipped and the waiting time is not task time. While the bots
+    // fix a failed round the usual limits apply, counted from that failure.
+    let waiting = false
+    let waited = 0
+    w.lead = 'main'
+    if (w.step === 'ci') {
+      let ci = await ciCheck(w, task)
+      ci = await ciSettledNotice(w, ci)
+      t = now()
+      waiting = !!ci && !ci.settled && ci.status === 'pending'
+      waited = (ci?.waitedMs ?? 0) + (waiting ? Math.max(0, t - (ms(ci.since) ?? t)) : 0)
+      // The Pipeline bot leads a fix round; once settled it is the Main bot's turn to advance.
+      if (ci && !ci.settled) w.lead = 'pipeline'
+      // The phase starts at the failure; once settled, at the message to the Main bot (phaseAt is rewritten then).
+      const phaseAtText = ci?.phaseAt
+      const phaseKey = waiting ? `wait:${ci.since}` : (phaseAtText ?? null)
+      if (phaseKey !== w.ciPhaseKey) { // a new phase: the step timer, the nudge flag and the quiet nudges start afresh
+        w.ciPhaseKey = phaseKey
+        w.stepNudgedAt = null
+        w.quietNudges = 0
+      }
+      const phaseAt = waiting ? null : ms(phaseAtText)
+      if (phaseAt !== null) w.stepStart = Math.max(w.stepStart, phaseAt)
+      if (waiting) w.quietSince = null
+    } else w.ciPhaseKey = null
+
+    // 1. Total task time, counted from the start of this run (the time spent waiting for CI is not counted).
+    if (t - w.runStart - waited > limits.taskMinutes * MINUTE) {
       return endTask(w, 'timed_out', 'task_timeout', 'task_timeout', 'ended the task (timed_out)')
     }
 
@@ -207,13 +424,13 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     }
 
     // 2. Step time limit (other than coding): nudge once, then end after one more limit.
-    const minutes = w.step && w.step !== 'code' ? stepMinutes(w.step) : undefined
+    const minutes = w.step && w.step !== 'code' && !waiting ? stepMinutes(w.step) : undefined
     if (minutes !== undefined) {
       if (w.stepNudgedAt === null) {
         if (t - w.stepStart > minutes * MINUTE) {
           w.stepNudgedAt = t
-          await record(w, 'step_timeout', `posted a message to the Main bot about step ${w.step}`)
-          await nudge(w, NUDGE.stepTimeout(w.step, minutes), 'step')
+          await record(w, 'step_timeout', `posted a message to the ${w.lead === 'pipeline' ? 'Pipeline' : 'Main'} bot about step ${w.step}`)
+          await nudge(w, NUDGE.stepTimeout(w.step, minutes), 'step', w.lead)
         }
       } else if (t - w.stepNudgedAt > minutes * MINUTE) {
         return endTask(w, 'failed', 'step_timeout', 'step_timeout', 'ended the task (failed) after the nudge')
@@ -228,20 +445,20 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
       }
       w.turnRunning = false
       w.lastCodingEventAt = t
-      await record(w, 'engine_silent', 'stopped the Coding bot and asked the Main bot to call it again')
+      await record(w, 'engine_silent', `stopped the Coding bot and asked the ${w.lead === 'pipeline' ? 'Pipeline' : 'Main'} bot to call it again`)
       try { if (w.bots.coding) await botlayer.stopBot(w.bots.coding) } catch (error) { warn('chat-to-fix: monitor cannot stop the Coding bot: %s', error?.message ?? error) }
-      await nudge(w, NUDGE.engineSilent(limits.engineSilentMinutes), 'engine')
+      await nudge(w, w.lead === 'pipeline' ? NUDGE.ciEngineSilent(limits.engineSilentMinutes) : NUDGE.engineSilent(limits.engineSilentMinutes), 'engine', w.lead)
     }
 
-    // 4. Group quiet.
-    if (w.groupId && botlayer.isQuiet(w.groupId)) {
+    // 4. Group quiet (not while waiting for CI).
+    if (!waiting && w.groupId && botlayer.isQuiet(w.groupId)) {
       if (w.quietSince === null) w.quietSince = t
       else if (t - w.quietSince > limits.quietMinutes * MINUTE) {
         if (w.quietNudges < limits.quietNudges) {
           w.quietNudges += 1
           w.quietSince = t
-          await record(w, 'stalled', `posted nudge ${w.quietNudges} of ${limits.quietNudges} to the Main bot`)
-          await nudge(w, NUDGE.quiet(limits.quietMinutes), 'quiet')
+          await record(w, 'stalled', `posted nudge ${w.quietNudges} of ${limits.quietNudges} to the ${w.lead === 'pipeline' ? 'Pipeline' : 'Main'} bot`)
+          await nudge(w, w.lead === 'pipeline' ? NUDGE.ciQuiet(limits.quietMinutes) : NUDGE.quiet(limits.quietMinutes), 'quiet', w.lead)
         } else {
           return endTask(w, 'failed', 'stalled', 'stalled', 'ended the task (failed) after the nudges')
         }
@@ -266,6 +483,15 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
 
   // ---- system notices (spec 4.6) -------------------------------------------------------------
 
+  // Writes the `system` record and sends the text to the original discussion; a failure only warns.
+  async function deliver(full, kind, text) {
+    if (full?.id) {
+      try { await store.appendRecord(full.id, { type: 'system', run: null, text: `notice ${kind}: ${text}` }) } catch (error) { warn('chat-to-fix: monitor cannot record a notice: %s', error?.message ?? error) }
+    }
+    if (typeof send !== 'function') return
+    try { await send(full?.origin, text) } catch (error) { warn('chat-to-fix: system notice %s not sent: %s', kind, error?.message ?? error) }
+  }
+
   async function notify(task, kind) {
     const template = NOTICE[kind]
     if (!template) { warn('chat-to-fix: monitor has no notice for kind %s', kind); return }
@@ -273,12 +499,7 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     if (task?.id && task.jira === undefined && task.repo === undefined) {
       try { full = { ...(await store.getTask(task.id)), ...task } } catch { /* the notice goes without them */ }
     }
-    const text = template(full)
-    if (full?.id) {
-      try { await store.appendRecord(full.id, { type: 'system', run: null, text: `notice ${kind}: ${text}` }) } catch (error) { warn('chat-to-fix: monitor cannot record a notice: %s', error?.message ?? error) }
-    }
-    if (typeof send !== 'function') return
-    try { await send(full?.origin, text) } catch (error) { warn('chat-to-fix: system notice %s not sent: %s', kind, error?.message ?? error) }
+    await deliver(full, kind, template(full))
   }
 
   // ---- lifecycle -----------------------------------------------------------------------------

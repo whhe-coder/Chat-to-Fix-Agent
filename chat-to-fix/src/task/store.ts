@@ -18,6 +18,9 @@ const ID_PATTERN = /^T-[1-9]\d*$/
 // timeout and queue reasons below.
 const STATE_OF_REASON = Object.freeze({
   completed: 'done',
+  completed_ci_failed: 'done',
+  completed_ci_stopped: 'done',
+  completed_no_ci: 'done',
   needs_info: 'needs_info',
   needs_person: 'failed',
   step_timeout: 'failed',
@@ -69,6 +72,7 @@ function blankTask(id, no, now) {
     repo: { dir: null, branch: null, base: null },
     review: null,
     mr: null,
+    ci: null,
     needsInfo: { main: null, coding: null },
     runs: [],
     usage: blankUsage(),
@@ -224,7 +228,7 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     return update(id, task => merge(task, rest))
   }
 
-  // A new run: step back to fetch; needsInfo, review and stepResults cleared; jira, repo, mr
+  // A new run: step back to fetch; needsInfo, review, ci and stepResults cleared; jira, repo, mr
   // and slack.sent.ack kept (spec 1, 4.5). slack.readAt and the question/result flags are
   // cleared too, since the discussion is read again and the new run asks and reports afresh.
   function startRun(id, { groupId, bots }) {
@@ -239,6 +243,8 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
         stepAt: at,
         stepResults: {},
         review: null,
+        // A new run waits for CI afresh (spec 7): a settled ci of the previous run must not satisfy the step.
+        ci: null,
         needsInfo: { main: null, coding: null },
         slack: { readAt: null, sent: { ack: task.slack?.sent?.ack ?? false, question: false, result: false } },
         runs: [...(task.runs ?? []), run],

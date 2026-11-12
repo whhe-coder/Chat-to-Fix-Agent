@@ -223,9 +223,13 @@ test('end: even when endRun and notify throw, release and dispatch still run', a
   assert.ok(kinds(r.log).includes('queue.dispatch'))
 })
 
-test('end: notices only when the end reason is neither completed nor needs_info', async () => {
+test('end: notices only when the end reason is neither a done reason (completed, completed_ci_*, completed_no_ci) nor needs_info', async () => {
   const cases = [
     ['done', 'completed', null],
+    // Spec 7, 4.8: every CI ending of state done was already reported inside the flow.
+    ['done', 'completed_ci_failed', null],
+    ['done', 'completed_ci_stopped', null],
+    ['done', 'completed_no_ci', null],
     ['needs_info', 'needs_info', null],
     ['failed', 'needs_person', 'failed'],
     ['failed', 'a free explanation from the main bot', 'failed'],
