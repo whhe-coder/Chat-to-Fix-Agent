@@ -92,3 +92,95 @@ test('Jira 失败响应不输出凭据或上游正文', async () => {
     return true;
   });
 });
+
+test('创建工单固定到 F2PGBA，并把多行描述转为 ADF', async () => {
+  let request;
+  const connection = createJiraConnection({
+    token: 'test-token', cloudId, boardId: 42,
+    fetchImpl: async (url, options) => {
+      request = { url, ...options };
+      return new Response(JSON.stringify({ id: '901', key: 'F2PGBA-12' }), { status: 201 });
+    },
+  });
+
+  const result = await connection.createIssue({
+    summary: 'Fix checkout', description: 'First line\nSecond line', issueTypeName: 'Bug',
+  });
+  assert.equal(request.url, `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue`);
+  assert.equal(request.method, 'POST');
+  assert.deepEqual(JSON.parse(request.body), {
+    fields: {
+      project: { key: 'F2PGBA' },
+      issuetype: { name: 'Bug' },
+      summary: 'Fix checkout',
+      description: {
+        type: 'doc', version: 1,
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'First line' }] },
+          { type: 'paragraph', content: [{ type: 'text', text: 'Second line' }] },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(result, { id: '901', key: 'F2PGBA-12' });
+  assert.ok(!JSON.stringify(result).includes('test-token'));
+});
+
+test('创建工单要求显式 issue type，且不依赖 board ID', async () => {
+  let writes = 0;
+  const connection = createJiraConnection({
+    token: 'test-token', cloudId,
+    fetchImpl: async () => {
+      writes += 1;
+      return new Response(JSON.stringify({ id: '901', key: 'F2PGBA-12' }), { status: 201 });
+    },
+  });
+  await assert.rejects(connection.createIssue({ summary: 'Fix checkout', description: 'Details' }),
+    /Issue type 必须/);
+  assert.equal(writes, 0);
+  assert.deepEqual(await connection.createIssue({
+    summary: 'Fix checkout', description: 'Details', issueTypeName: 'Bug',
+  }), { id: '901', key: 'F2PGBA-12' });
+});
+
+test('新增和更新评论只操作 F2PGBA 工单', async () => {
+  const requests = [];
+  const connection = createJiraConnection({
+    token: 'test-token', cloudId, boardId: 42,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, method: options.method, body: JSON.parse(options.body) });
+      return new Response(JSON.stringify({ id: '55' }), { status: options.method === 'POST' ? 201 : 200 });
+    },
+  });
+
+  assert.deepEqual(await connection.addComment({ issue: 'f2pgba-12', body: 'Started' }), {
+    issue: 'F2PGBA-12', id: '55',
+  });
+  assert.deepEqual(await connection.updateComment({ issue: 'F2PGBA-12', id: '55', body: 'Done' }), {
+    issue: 'F2PGBA-12', id: '55',
+  });
+  assert.deepEqual(requests.map(({ url, method }) => [method, url]), [
+    ['POST', `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/F2PGBA-12/comment`],
+    ['PUT', `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/F2PGBA-12/comment/55`],
+  ]);
+  assert.deepEqual(requests[0].body.body, {
+    type: 'doc', version: 1,
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Started' }] }],
+  });
+  await assert.rejects(connection.addComment({ issue: 'OTHER-12', body: 'No' }), /只允许操作 F2PGBA/);
+  await assert.rejects(connection.updateComment({ issue: 'F2PGBA-12', id: '../55', body: 'No' }), /Comment ID 无效/);
+  assert.equal(requests.length, 2);
+});
+
+test('写入失败时不回传 Jira 错误正文', async () => {
+  const connection = createJiraConnection({
+    token: 'test-token', cloudId, boardId: 42,
+    fetchImpl: async () => new Response('secret test-token', { status: 403 }),
+  });
+  await assert.rejects(connection.createIssue({ summary: 'Test', description: 'Body', issueTypeName: 'Bug' }), (error) => {
+    assert.ok(error instanceof JiraApiError);
+    assert.equal(error.status, 403);
+    assert.equal(error.message, 'Jira 返回 403');
+    return true;
+  });
+});

@@ -1,6 +1,6 @@
 # GitLab 只读服务规格
 
-状态：已实现。重构前的服务通过真实 GitLab 只读连接验证；改用独立连接函数后的服务已通过本地测试，尚未重启做真实连接复测。服务尚未接收 Slack 任务。
+状态：GitLab 只读接口已实现。重构前的服务通过真实 GitLab 只读连接验证；改用独立连接函数后的服务已通过本地测试，尚未重启做真实连接复测。当前同一 Node.js 服务还提供 Jira 接口，见 [Jira 写入接口规格](jira-write-server.md)。服务尚未接收 Slack 任务。
 
 ## 接口
 
@@ -9,8 +9,8 @@
 | `GET /health` | 返回 `200` 和 `{"ok":true}`，不访问 GitLab。 |
 | `GET /gitlab/status` | 读取配置的项目和分支，返回项目路径、分支名称与当前 commit ID。 |
 | `GET /gitlab/merge-requests/:iid/checks` | 返回 MR 当前 commit 对应的主 pipeline、已发现的下游 pipeline、失败 job 和严格检查状态；不返回 job 日志正文。 |
-| 其他路径 | 返回 `404`。 |
-| 非 `GET` 请求 | 返回 `405`。 |
+| 其他 GitLab 路径 | 返回 `404`。 |
+| 已知 GitLab 只读路径的非 `GET` 请求 | 返回 `405`。 |
 
 服务仅监听 `127.0.0.1`。默认端口为 `4000`，可通过 `PORT` 指定。服务不接收请求参数来更换 GitLab 项目或分支。
 
@@ -23,4 +23,4 @@
 
 ## 范围
 
-HTTP 服务只提供上述读取接口，并把读取操作交给独立连接对象。该对象还提供 Draft MR 创建与更新、job trace 读取方法，供后续 agent 调用；HTTP 服务不开放这些写入方法，也不返回日志正文。客户端规则见 [GitLab MR 客户端规格](gitlab-mr-client.md)。实际 MR 写入尚未验证。
+GitLab HTTP 路径只提供上述读取接口，并把读取操作交给独立连接对象。该对象还提供 Draft MR 创建与更新、job trace 读取方法，供后续 agent 调用；HTTP 服务不开放这些 GitLab 写入方法，也不返回日志正文。客户端规则见 [GitLab MR 客户端规格](gitlab-mr-client.md)。实际 MR 写入尚未验证。

@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并
 
 ## 当前状态
 
-截至 2026-11-12，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。独立的本地 Node.js 服务此前已通过 GitLab 仓库、MR 和 CI 的只读连接验证；连接逻辑现已抽成可供本地 agent 复用的函数，本次重构后尚未做真实连接复测。Jira board 的独立只读连接函数已通过本地测试和真实 API 验证；个人账号的只读 token 保存在本机钥匙串。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。服务尚未接入 Slack Bot 或本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
+截至 2026-11-12，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。Jira 写入接口已通过本地模拟测试，尚未取得写入权限或做真实写入验证。个人账号的现有 Jira token 只验证了 board 读取。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。服务尚未接入 Slack Bot 或本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
 
 ## 目标流程
 
@@ -30,9 +30,9 @@ flowchart LR
 | 交付物 | 作用 |
 | --- | --- |
 | Slack Bot | 接收问题消息，在原消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
-| 本地服务 | 当前提供健康检查、GitLab 仓库连接检查，以及 MR 当前 commit 的 CI 检查结果；后续承接 Bot 任务。 |
+| 本地服务 | 提供健康检查、GitLab 只读检查、Jira board 读取，以及 `F2PGBA` 工单和评论写入接口；后续承接 Bot 任务。 |
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
-| 配置文档 | 当前记录 Slack、GitLab 和 Jira board 的接入状态；后续补齐 Jira 工单和 CI 的接入步骤与验证流程。文档不保存密钥值。 |
+| 配置文档 | 记录 Slack、GitLab 和 Jira 的接入状态、权限与验证边界。文档不保存密钥值。 |
 
 ## 目标任务输出
 
@@ -72,8 +72,9 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Spec：GitLab 连接函数](spec/gitlab-connection.md) | 可复用连接函数、凭据来源、返回值和验证边界。 | GitLab 连接行为改变时。 |
 | [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |
 | [Spec：Jira board 连接](spec/jira-board-connection.md) | 独立只读连接函数、凭据方式和验证边界。 | Jira 连接行为改变时。 |
+| [Spec：Jira 写入接口](spec/jira-write-server.md) | 工单创建、评论新增和修改的输入输出、安全边界和验证状态。 | Jira 写入行为改变时。 |
 | [配置记录](config/slack/README.md) | Slack 等外部系统的实际设置、凭据取得位置和验证步骤；不保存凭据值。 | 外部配置、权限、安装状态或启动方法变化后立即更新。 |
 | [GitLab 接入记录](config/gitlab/README.md) | GitLab 当前连接方式、已配置的凭据能力和待验证的写入操作；不保存凭据值。 | GitLab 授权或接入方式变化后立即更新。 |
-| [Jira 接入记录](config/jira/README.md) | Jira board 当前读取方式、所需权限和待完成的授权；不保存凭据值。 | Jira 授权或接入方式变化后立即更新。 |
+| [Jira 接入记录](config/jira/README.md) | Jira 读取与写入接口的凭据方式、所需权限和待完成的授权；不保存凭据值。 | Jira 授权或接入方式变化后立即更新。 |
 
 每次 Feature 的代码或配置发生变化，都检查并更新受影响的 Plan、Done、Spec 和配置记录。代码与文档尽量在同一次提交中更新；外部系统的独立操作完成后，立即更新并提交文档。功能目标、流程或文档入口变化时，也更新本 README。未验证的结果保留在 Plan，不移入 Done。

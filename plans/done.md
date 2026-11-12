@@ -29,3 +29,5 @@
 - [x] 在 [`src/jira/`](../src/jira/) 实现独立只读连接函数与检查命令。模拟服务账号 Bearer、个人账号 Basic、钥匙串读取、错误脱敏的本地测试通过；当前完整本地测试为 19 项。
 - [x] 在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token；应用仅选 Jira，权限仅选 `read:board-scope:jira-software` 和 `read:issue-details:jira`，到期日为 2027-02-09。token 已保存到本机钥匙串。
 - [x] 用该 token 通过目标 board 的真实只读 API 验证。返回名称为 `F2PGBA board`；响应未给出项目 key。工单创建和评论尚未验证。
+- [x] 在本地 Node.js 服务增加 `GET /jira/board`、`POST /jira/issues`、`POST /jira/issues/:key/comments`、`PUT /jira/issues/:key/comments/:id`。工单固定在 `F2PGBA` 项目；评论路径仅接受该项目的工单 key。
+- [x] Jira 连接函数新增工单创建、评论新增和评论修改方法。普通文本转为 ADF；工单类型必须显式提供。本地模拟测试和服务路由测试通过；完整测试共 27 项通过。真实 Jira 写入和 board 展示仍待验证。
