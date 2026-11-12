@@ -23,6 +23,14 @@ scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 A
 
 2026-11-12 用本机钥匙串 token 执行 `npm run check:jira`。请求成功返回目标 board 的 ID 和名称 `F2PGBA board`。响应没有项目 key，因此连接函数返回 `projectKey: null`。这次检查只验证了 board 读取；没有创建工单或验证写入权限。Cloud ID、board ID 和个人邮箱只在本地执行时提供，仓库不记录其值。
 
+复测时，从 `https://<site>.atlassian.net/_edge/tenant_info` 读取 Cloud ID，从目标 board 页面 URL 读取 board ID。个人 token 需要该 Atlassian 账号的邮箱。仓库不记录这些实际值。运行：
+
+```sh
+env JIRA_CLOUD_ID='<cloud-id>' JIRA_BOARD_ID='<board-id>' JIRA_EMAIL='<account-email>' npm run check:jira
+```
+
+命令从钥匙串读取 token，只输出 board 元数据。使用服务账号 token 时，不设置 `JIRA_EMAIL`；服务账号路径尚未做真实验证。
+
 ## 后续授权
 
 优先使用只能访问目标项目的专用服务账号。当前登录的个人账号无法从已访问的组织管理入口管理该组织的服务账号；是否可使用现有 `F2P Jira Fix Agent` 身份仍待核实。用户已选择在专用账号不可用时，先用个人 scoped token 验证只读连接。该 token 的 scopes 不能限制到单一项目；它可读取个人账号有权访问的其他 board 和 issue。此验证不代表最终 agent 身份或写入权限已经配置。

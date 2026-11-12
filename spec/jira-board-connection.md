@@ -15,3 +15,7 @@
 ## 验证边界
 
 本地测试覆盖服务账号 Bearer、个人账号 Basic、目标 board 路径、钥匙串读取和错误脱敏。2026-11-12 用个人账号 scoped token 成功读取目标 board 的 ID 与名称；响应未给出项目 key，返回值为 `null`。服务账号的实际权限及 Jira 写入均未验证。
+
+## 后续扩展约束
+
+`checkBoard()` 成功只证明当前身份能读取该 board。M2 创建工单和评论时，必须分别核对目标 API 的 scopes 与 `F2PGBA` 项目权限，并做真实写入验证。不能用 `projectKey: null` 推断 board 不属于目标项目，也不能把 board 读取成功当作工单写入验收。

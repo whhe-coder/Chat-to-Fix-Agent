@@ -55,7 +55,7 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 - 本地 agent 的调用方式：进程、HTTP 服务或任务队列。
 - 长任务状态与去重记录的存储位置。
-- Jira board 的独立只读连接函数已完成本地测试，并用个人账号的只读 scoped token 通过目标 board 的真实 API 验证。正式服务身份仍待确定，见 [Jira 接入记录](../config/jira/README.md)。M2 创建工单与评论的 scopes 另行核对。
+- M2 前确定正式 Jira 服务身份，并核对创建工单与评论所需的最小 scopes 和项目权限。当前个人账号 token 只验证了 board 读取，不能据此确认写入能力，见 [Jira 接入记录](../config/jira/README.md)。
 - GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
 - M3 的本地 agent 直接复用独立的 `createGitlabConnection()`；还需验证 agent 到 GitLab 的调用链。当前 HTTP 服务不是写入入口。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
