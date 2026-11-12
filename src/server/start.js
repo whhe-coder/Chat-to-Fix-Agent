@@ -1,3 +1,4 @@
+import '../config/load-local-env.js';
 import { createGitlabConnection } from '../gitlab/connection.js';
 import { createLocalServer } from './local-server.js';
 

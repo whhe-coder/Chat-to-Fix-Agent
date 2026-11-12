@@ -61,6 +61,10 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 当前先打通最小业务闭环。非阻断的细节问题记录后处理，不让局部优化打断主链路。
 
+## 本地环境变量
+
+本机变量使用 [`.env.example`](.env.example) 模板。变量来源、保存方式、优先级和验证结果统一记录在 [本地环境变量配置](config/local-env/README.md)。
+
 ## 文档分工
 
 | 文档 | 记录内容 | 更新时机 |
@@ -73,7 +77,8 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |
 | [Spec：Jira board 连接](spec/jira-board-connection.md) | 独立只读连接函数、凭据方式和验证边界。 | Jira 连接行为改变时。 |
 | [Spec：Jira 写入接口](spec/jira-write-server.md) | 工单创建、评论新增和修改的输入输出、安全边界和验证状态。 | Jira 写入行为改变时。 |
-| [配置记录](config/slack/README.md) | Slack 等外部系统的实际设置、凭据取得位置和验证步骤；不保存凭据值。 | 外部配置、权限、安装状态或启动方法变化后立即更新。 |
+| [本地环境变量配置](config/local-env/README.md) | 统一记录变量来源、保存方式、读取优先级和本机验证。 | 新增变量或改变本地凭据加载方式时。 |
+| [Slack 配置记录](config/slack/README.md) | Slack 应用权限、安装状态和验证步骤；不保存凭据值。 | Slack 配置、权限或安装状态变化后立即更新。 |
 | [GitLab 接入记录](config/gitlab/README.md) | GitLab 当前连接方式、已配置的凭据能力和待验证的写入操作；不保存凭据值。 | GitLab 授权或接入方式变化后立即更新。 |
 | [Jira 接入记录](config/jira/README.md) | Jira 读取与写入接口的凭据方式、所需权限和待完成的授权；不保存凭据值。 | Jira 授权或接入方式变化后立即更新。 |
 

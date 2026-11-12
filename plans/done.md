@@ -4,11 +4,13 @@
 
 ## M0 Slack 私信入口
 
+- [x] 增加按服务分组的 `.env.example` 模板和统一的 [本地环境变量配置](../config/local-env/README.md)。用户确认后，已将现有 Slack App、GitLab 和 Jira token 复制到权限为 `600` 的本机 `.env.local`；Bot token 仍待工作区批准。
+- [x] 使用 `.env.local` 启动本地服务，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`。真实值未进入 Git 跟踪文件。
 - [x] `App Home` 的 `Messages` 标签页允许用户发送私信。
 - [x] Socket Mode 已开启。
 - [x] Events API 仅订阅 `message.im`。
 - [x] Bot Token Scopes 仅有 `im:history`、`chat:write`；User Token Scopes 为空。
-- [x] 生成仅带 `connections:write` 的 App-level token，并保存到本机 Mac 登录钥匙串。仓库不保存 token 值。
+- [x] 生成仅带 `connections:write` 的 App-level token，并保存到本机 Mac 登录钥匙串。Git 历史不保存 token 值。
 - [x] 提交目标工作区安装申请；Slack 页面显示 `Request Submitted`。该申请尚不代表安装已获批准。
 - [x] 在 [`src/slackBot/`](../src/slackBot/) 编写最小私信测试 Bot；本地 4 项消息处理测试通过。尚未进行真实私信收发验证。
 

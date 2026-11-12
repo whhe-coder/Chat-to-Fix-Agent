@@ -1,3 +1,4 @@
+import '../config/load-local-env.js';
 import { execFileSync } from 'node:child_process';
 import { App, LogLevel } from '@slack/bolt';
 import { createDmHandler } from './slack-message.js';
