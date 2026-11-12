@@ -1,12 +1,13 @@
-// The Slack adapter (spec 4, section 2.2, I5). Two functions only:
+// The Slack adapter (spec 4, section 2.2, I5). Three functions:
 //   readThread(origin)               -> [{ user: { id, name }, at, text, files }]
 //   reply(origin, purpose, text)     -> the identifier of the message sent (string)
+//   startThread(channel, text)       -> { ts, permalink } (opening message of a /fix discussion; permalink may be null)
 // `origin` is the task's origin ({ channel, threadTs, ... }); the adapter can reach only that
 // discussion. The fake keeps its files under <dataDir>/fake/slack/ (spec 4, section 2.3).
 import { join } from 'node:path'
 import { REPLY_PURPOSES } from '../task/contracts.ts'
 import { AdapterError } from './errors.ts'
-import { appendJsonLine, fakeRoot, readJson } from './fake/files.ts'
+import { appendJsonLine, fakeRoot, readJson, updateJson } from './fake/files.ts'
 import { DEFAULT_API_BASE, createSlackClient, neutralizeBroadcasts } from './slack-http.ts'
 
 const SAFE_ID = /^[A-Za-z0-9._-]+$/
@@ -42,6 +43,11 @@ function checkSlackOrigin(origin) {
   if (typeof channel !== 'string' || !SLACK_CHANNEL.test(channel)) throw new AdapterError('bad_origin', 'origin.channel is missing or is not a Slack channel id')
   if (typeof threadTs !== 'string' || !SLACK_TS.test(threadTs)) throw new AdapterError('bad_origin', 'origin.threadTs is missing or is not a Slack timestamp')
   return { channel, threadTs }
+}
+
+function checkSlackChannel(channel) {
+  if (typeof channel !== 'string' || !SLACK_CHANNEL.test(channel)) throw new AdapterError('bad_origin', 'channel is missing or is not a Slack channel id')
+  return channel
 }
 
 const unescapeSlack = (text) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
@@ -154,6 +160,27 @@ export function createRealSlack(config, options: any = {}) {
       if (typeof data.ts !== 'string') throw new AdapterError('slack_bad_response', 'Slack accepted the reply but returned no message id')
       return data.ts
     },
+
+    // The opening message of a /fix discussion: no thread_ts, sent once (a repeated post would open two
+    // discussions). The permalink is best effort: the task works without it.
+    async startThread(channel, text) {
+      checkSlackChannel(channel)
+      if (typeof text !== 'string' || text.trim() === '') throw new AdapterError('bad_text', 'the opening message text is empty')
+      let safe = neutralizeBroadcasts(text)
+      if (safe.length > REPLY_MAX_CHARS) safe = `${safe.slice(0, REPLY_MAX_CHARS - 1)}…`
+      const data = await client.call('chat.postMessage', {
+        json: { channel, text: safe, parse: 'none', unfurl_links: false, unfurl_media: false },
+      })
+      if (typeof data.ts !== 'string') throw new AdapterError('slack_bad_response', 'Slack accepted the message but returned no message id')
+      let permalink = null
+      try {
+        const link = await client.call('chat.getPermalink', { query: { channel, message_ts: data.ts }, read: true })
+        if (typeof link.permalink === 'string') permalink = link.permalink
+      } catch (error: any) {
+        warn('chat-to-fix: slack: no permalink for the opening message %s/%s: %s', channel, data.ts, error.message)
+      }
+      return { ts: data.ts, permalink }
+    },
   }
 }
 
@@ -187,6 +214,23 @@ export function createFakeSlack(config) {
         id, at: new Date().toISOString(), channel: origin.channel, threadTs: origin.threadTs, purpose, text,
       })
       return id
+    },
+
+    // Writes the opening message as the first message of a new discussion, so readThread and the task's
+    // thread lookup find it exactly like a real one.
+    async startThread(channel, text) {
+      if (typeof text !== 'string' || text.trim() === '') throw new AdapterError('bad_text', 'the opening message text is empty')
+      let ts
+      let file
+      // A ts that no discussion file uses yet (the clock may not have moved since the last call).
+      for (;;) {
+        ts = `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, '0')}${String(++sequence % 1000).padStart(3, '0')}`
+        file = threadFile(dataDir, channel, ts) // validates the channel
+        if (await readJson(file, undefined) === undefined) break
+      }
+      const message = { ts, user: { id: 'U-BOT', name: 'chat-to-fix' }, at: new Date().toISOString(), text, files: [] }
+      await updateJson(file, [], (messages) => ({ value: [...messages, message], result: undefined }))
+      return { ts, permalink: `fake://slack/${channel}/${ts}` }
     },
   }
 }

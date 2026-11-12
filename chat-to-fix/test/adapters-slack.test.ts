@@ -253,3 +253,63 @@ test('neutralizeBroadcasts and retryAfterMs', () => {
   assert.equal(retryAfterMs(null), 1000)
   assert.equal(retryAfterMs('soon'), 1000)
 })
+
+test('startThread posts without thread_ts, neutralises broadcasts, fetches the permalink', async () => {
+  const { base, requests } = await stub((req, res) => {
+    if (req.path === '/api/chat.postMessage') return send(res, { ok: true, channel: req.json.channel, ts: '1731378000.000500' })
+    if (req.path === '/api/chat.getPermalink') return send(res, { ok: true, channel: req.query.channel, permalink: `https://x.slack.com/archives/${req.query.channel}/p1731378000000500` })
+    send(res, { ok: false, error: 'unknown_method' })
+  })
+  const { slack } = make(base)
+  const out = await slack.startThread('C0123ABC', '<@U1> 用 /fix 提了一个修复请求：\n> hi <!channel> @here\n进度会回在这条消息的讨论串里。')
+  assert.deepEqual(out, { ts: '1731378000.000500', permalink: 'https://x.slack.com/archives/C0123ABC/p1731378000000500' })
+  const post = requests[0]
+  assert.equal(post.path, '/api/chat.postMessage')
+  assert.equal(post.method, 'POST')
+  assert.equal(post.headers.authorization, `Bearer ${TOKEN}`)
+  assert.equal(post.json.channel, 'C0123ABC')
+  assert.equal('thread_ts' in post.json, false)
+  assert.equal(post.json.parse, 'none')
+  assert.ok(!/<!channel>|(^|[^\w])@here\b/.test(post.json.text))
+  assert.match(post.json.text, /^<@U1> 用 \/fix/) // the requester mention is kept
+  assert.equal(requests[1].path, '/api/chat.getPermalink')
+  assert.deepEqual(requests[1].query, { channel: 'C0123ABC', message_ts: '1731378000.000500' })
+  assert.ok(requests.every((r) => !r.raw.includes(TOKEN) && !r.path.includes(TOKEN)))
+  const long = await slack.startThread('C0123ABC', 'y'.repeat(9000))
+  assert.equal(long.ts, '1731378000.000500')
+  assert.equal(requests.filter((r) => r.path === '/api/chat.postMessage').at(-1).json.text.length, 4000)
+})
+
+test('startThread: the permalink is best effort; the post is sent once and its errors keep the Slack code', async () => {
+  const { base, requests } = await stub((req, res) => {
+    if (req.path === '/api/chat.getPermalink') return send(res, { ok: false, error: 'message_not_found' })
+    send(res, { ok: true, ts: '1.1' })
+  })
+  const { slack, warnings } = make(base)
+  assert.deepEqual(await slack.startThread('C1', 'x'), { ts: '1.1', permalink: null })
+  assert.equal(warnings.length, 1)
+  assert.ok(!warnings[0].includes(TOKEN))
+
+  // not_in_channel is what a missing invite looks like: raised with its code, one attempt only
+  const denied = await stub((req, res) => send(res, { ok: false, error: 'not_in_channel' }))
+  const d = make(denied.base)
+  await assert.rejects(d.slack.startThread('C1', 'x'), (e: any) => e.code === 'not_in_channel' && !e.message.includes(TOKEN))
+  assert.equal(denied.requests.length, 1)
+  // 5xx on the post is not repeated (a repeat could open two discussions)
+  const down = await stub((req, res) => send(res, { error: 'boom' }, 502))
+  await assert.rejects(make(down.base).slack.startThread('C1', 'x'), (e: any) => e.code === 'slack_unavailable')
+  assert.equal(down.requests.length, 1)
+  // no ts in the answer
+  const odd = await stub((req, res) => send(res, { ok: true }))
+  await assert.rejects(make(odd.base).slack.startThread('C1', 'x'), (e: any) => e.code === 'slack_bad_response')
+  assert.equal(odd.requests.length, 1)
+  assert.ok(requests.length >= 2)
+})
+
+test('startThread rejects a bad channel or empty text before any request', async () => {
+  const { base, requests } = await stub((req, res) => send(res, { ok: true, ts: '1.1' }))
+  const { slack } = make(base)
+  for (const channel of [undefined, '', '../x', 'C1/..', 'C 1']) await assert.rejects(slack.startThread(channel, 'x'), (e: any) => e.code === 'bad_origin')
+  for (const text of [undefined, '', '   ']) await assert.rejects(slack.startThread('C1', text), (e: any) => e.code === 'bad_text')
+  assert.equal(requests.length, 0)
+})

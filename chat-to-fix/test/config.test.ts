@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, bindingOf, secret } from '../src/config.ts'
+import { loadConfig, bindingOf, secret, DEFAULT_SLASH_COMMAND } from '../src/config.ts'
 
 const base = () => ({
   dataDir: '/d', worktreesDir: '/d/w', httpPort: 3090, apiModel: 'anthropic/x',
@@ -189,6 +189,15 @@ test('slack.apiBase is an optional http(s) URL without credentials and is passed
   assert.equal((load({ ...base(), slack: { apiBase: 'http://127.0.0.1:9999/api' } }) as any).slack.apiBase, 'http://127.0.0.1:9999/api')
   assert.throws(() => load({ ...base(), slack: { apiBase: 'nope' } }), /slack\.apiBase must be an http\(s\) URL/)
   assert.throws(() => load({ ...base(), slack: { apiBase: 'https://u:hunter2@slack.example.com' } }), (e: any) => /slack\.apiBase must not contain/.test(e.message) && !/hunter2/.test(e.message))
+})
+
+test('slack.slashCommand is optional, looks like /fix, and is passed through', () => {
+  assert.equal(DEFAULT_SLASH_COMMAND, '/fix')
+  assert.equal((load(base()) as any).slack.slashCommand, undefined) // the default is applied by the forwarder
+  assert.equal((load({ ...base(), slack: { slashCommand: '/fix-it' } }) as any).slack.slashCommand, '/fix-it')
+  for (const bad of ['fix', '/', '/Fix', '/a b', '', 3, '/' + 'x'.repeat(33)]) {
+    assert.throws(() => load({ ...base(), slack: { slashCommand: bad } }), /slack\.slashCommand must look like \/fix/, String(bad))
+  }
 })
 
 test('codingEffort defaults to high and is checked; pricing rows are checked and passed on', () => {

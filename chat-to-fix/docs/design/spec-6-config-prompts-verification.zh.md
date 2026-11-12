@@ -253,7 +253,7 @@ DSH 以无界面方式运行，用 `runtime/` 里自带的 DSH 0.2.2-rc.1（不�
 ### 4.3b 本机路径和 README
 
 - 机器相关的路径已移出仓库（提交 3f6806a、db267ea）：`scripts/dev-env.sh` 不再写死任何路径。它先读 `scripts/dev-env.local.sh`（在 `.gitignore` 里，不进 git；可设 `CHAT_TO_FIX_NODE_BIN`、`CLAUDE_BIN`），Node 24 取自 `CHAT_TO_FIX_NODE_BIN` 或 `PATH`，`DSH_HARNESS` 默认是项目根的 `runtime`，`CLAUDE_BIN` 没设时取 `PATH` 上的 `claude`。项目根取 `CHAT_TO_FIX_ROOT`，否则从当前目录往上找含 `scripts/dev-env.sh` 的目录，所以在 `bot/` 等子目录也能用；启动脚本调用它时会带上 `CHAT_TO_FIX_ROOT`。
-- 代码仓库根目录有了 `README.zh.md`：一页说明做什么、七步（现为八步，README 的更新不归本文管）、bot 分工、做到哪、怎么跑。设计文档仍以本文件夹为准。
+- 代码仓库根目录有了 `README.zh.md`：一页说明做什么、七步（README 在提交 192a721 里仍写七步，落后于代码的八步）、bot 分工、做到哪、怎么跑。设计文档仍以本文件夹为准。
 
 ### 4.4 历史工单评测（E2）
 

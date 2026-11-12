@@ -5,6 +5,7 @@
 - 上位文档：[tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节；[software-spec.zh.md](software-spec.zh.md) 5.6、7.5。
 - 角色标识、步骤、放行规则见规格 1；任务字段见规格 2；bot 层门面见规格 5。任务工具（`task_read` 等六个）在规格 1 第 5 节。加上本规格的十六个工具（含 CI 的三个），注册表里共定义 22 个工具。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
+- 2026-11-12 起入口改为 Slack 斜杠命令 `/fix`（设计已定，实现中，代码还没提交）：见第 2.2 节的 `startThread` 和第 4.9 节。
 - CI 修复循环（流程第 6 步 `ci`，由 Git Pipeline bot 负责）的细节在 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)；本文只写它在工具和适配器上的部分（4.5、4.7、4.9）。
 
 ## 1. 范围
@@ -39,6 +40,7 @@
 |---|---|---|
 | `slack` | `readThread(origin)` | 消息列表，每条有 `user`（`id`、`name`）、`at`、`text`、`files` |
 | `slack` | `reply(origin, purpose, text)` | 发出的消息的标识。`purpose` 取 `ack`、`question`、`result`，或 `system`（系统自己发的通知；bot 的工具不提供它） |
+| `slack` | `startThread(channel, text)` | `{ ts, permalink }`。在频道发一条开头消息，它的 `ts` 就是 `/fix` 任务的讨论串；只给服务端用，bot 的工具不提供它。设计已定，实现中 |
 | `jira` | `createIssue(binding, { title, description, acceptance, permalink })` | `key`、`url` |
 | `jira` | `getIssue(key)` | `key`、`title`、`description`、`status`、`comments`，另有一些额外字段（两种实现都返回 `url`、`project`、`type`、`labels`、`createdAt`；假实现还有 `acceptance`、`permalink`） |
 | `jira` | `addComment(key, text)` | 无 |
@@ -211,7 +213,7 @@ Jira 的工具只能访问 `jira.key` 那一张单。新建的单不带现有自
 
 由 `adapters.<名字>: "real"` 选用。真实适配器缺令牌时，配置在启动时就报错。令牌只从环境变量读；名字像凭据的配置键会被拒绝。三个适配器都把自己的请求时限设得比 `toolTimeoutSeconds` 短（已知问题：GitLab 适配器读的是 `config.toolTimeoutSeconds`，不是 `config.limits.toolTimeoutSeconds`，所以总按默认 30 秒算，改了这项配置 GitLab 不跟着变，见 `src/adapters/gitlab-http.ts:61`），写操作只发一次，写操作的错误只在请求不可能到达服务器时才标为可重试（只有 Slack：连接被拒或 DNS 失败），所以统一包装不会造成第二条消息、第二张单或第二个 MR。状态：已写好，只对着本地的桩服务测过；没有对真实的 Slack、Jira、GitLab 跑过。
 
-Slack（`src/adapters/slack.ts`、`slack-http.ts`）：Slack Web API。令牌在 `CHAT_TO_FIX_SLACK_TOKEN`；权限范围 `channels:history`、`groups:history`、`chat:write`；`users:read` 可选。配置里的 `slack.apiBase` 可以换掉 API 主机（测试用）。`readThread` 用 `conversations.replies`（最多 25 页、每页 200 条），用 `users.info` 把 `<@U..>` 提及和发言人标识换成名字并缓存；没有 `users:read` 时显示用户标识，并记一次警告。读操作会重试（网络错误、超时、5xx、带 `Retry-After` 的 HTTP 429）。`reply` 用 `chat.postMessage` 发到讨论串里（只试一次，不展开链接预览）。发送前会把广播式提及（`<!channel>`、`<!here>`、`<!everyone>`、用户组、直接写的 `@channel`）处理掉，bot 因此不能@整个频道；超过 4000 个字符的文字会被截断。Slack 返回的 `{ ok: false }` 会映射成适配器错误码并带提示（例如 bot 不在这个频道里）。
+Slack（`src/adapters/slack.ts`、`slack-http.ts`）：Slack Web API。令牌在 `CHAT_TO_FIX_SLACK_TOKEN`；权限范围 `channels:history`、`groups:history`、`chat:write`；`users:read` 可选。加上 `/fix` 入口后（设计已定，实现中），整个 Slack 应用需要：Bot 权限 `commands`（斜杠命令）、`chat:write`（开头消息和所有回复）、`app_mentions:read`（讨论串里 @ 补充信息）、`channels:history` 和 `groups:history`（读讨论），可选 `users:read`（显示名字）；Bot 事件 `app_mention`；应用级令牌 `connections:write`（Socket Mode）。同一个应用同一时间只能有一个程序用 Socket Mode 连，否则消息会被随机分给各个连接。配置里的 `slack.apiBase` 可以换掉 API 主机（测试用）。`readThread` 用 `conversations.replies`（最多 25 页、每页 200 条），用 `users.info` 把 `<@U..>` 提及和发言人标识换成名字并缓存；没有 `users:read` 时显示用户标识，并记一次警告。读操作会重试（网络错误、超时、5xx、带 `Retry-After` 的 HTTP 429）。`reply` 用 `chat.postMessage` 发到讨论串里（只试一次，不展开链接预览）。发送前会把广播式提及（`<!channel>`、`<!here>`、`<!everyone>`、用户组、直接写的 `@channel`）处理掉，bot 因此不能@整个频道；超过 4000 个字符的文字会被截断。Slack 返回的 `{ ok: false }` 会映射成适配器错误码并带提示（例如 bot 不在这个频道里）。
 
 Jira（`src/adapters/jira.ts`、`jira-http.ts`）：Jira REST API v2。配置 `jira.baseUrl`（必填）、`jira.email`（可选）、`jira.fields`（可选）；令牌在 `CHAT_TO_FIX_JIRA_TOKEN`，邮箱也可来自 `CHAT_TO_FIX_JIRA_EMAIL`。有邮箱时用 Basic 认证（`邮箱:令牌`，Jira Cloud），没有则用 Bearer。`createIssue` 发送项目（`binding.jiraProject`）、问题类型（`binding.issueType`，默认 `Bug`；纯数字按 id 处理）、摘要、描述，以及来自 `binding.labels` 的标签；然后依次把 `jira.fields`、`binding.jiraFields` 叠上去，后面的覆盖前面的。验收标准写进描述，放在“Acceptance criteria:”下面。`getIssue` 会翻页取评论（最多再取 10 页、每页 100 条）。`transition` 按目标状态找迁移，再核对一次 `jiraTransitions`，已经在目标状态也算成功。只有 GET 会重试。
 
@@ -219,7 +221,9 @@ GitLab（`src/adapters/gitlab-http.ts`，配合 `repo.ts`）：REST API v4，只
 
 GitLab 的 CI 部分（同一个文件）：`getChecks` 按 MR 的当前提交找 pipeline（旧提交的忽略，同一提交有几个取编号最大的），读主 pipeline 和下游 pipeline（最深四层，下游读不了按失败算），`allow_failure` 的 job 不算；还在跑算 `pending`，全部结束且有失败 job 算 `failed`，已取消也算失败。`getJobLog` 读 job 的 trace，去掉颜色码和折叠标记，只留末尾 `maxChars`。`retryJobs` 对每个 job 发一次重试，不重发，出错就停，报错里列出已重跑的 job；还没有在真实 GitLab 上验证过。
 
-Slack 转发器（`scripts/slack-forwarder.ts`）：真实 Slack @ 的入口。它开一条 Slack Socket Mode 连接（不需要公网地址），每个信封立刻确认，把真人的每个 `app_mention` 转成 `POST /events` 要的请求体，带请求头 `x-chat-to-fix-token` 发过去。bot 的消息、编辑过的消息、自己的消息都忽略。连接断了会退避重连。环境变量：`CHAT_TO_FIX_SLACK_APP_TOKEN`（应用级令牌，权限 `connections:write`；必填）、`CHAT_TO_FIX_SLACK_TOKEN`（可选；有它时转发器还会尽力取消息的永久链接和发言人名字）、`CHAT_TO_FIX_URL`、`CHAT_TO_FIX_HTTP_TOKEN`。
+入口（2026-11-12 定，设计已定、实现中；见 decision-record 第 2.11 节第 5 条）：主入口是在绑定的频道里用斜杠命令 `/fix 问题描述`（命令名可配置，`slack.slashCommand`，默认 `/fix`），@ 机器人只用于任务讨论串里的补充信息。转发器收到 `/fix` 先确认，再以 `source: 'slash'` 转给 `POST /events`；服务端先查绑定和队列，没绑定回 422、队列满回 429，这两种情况频道里不发任何东西；通过后用 `startThread` 在频道发开头消息（`<@发起人>` 加原文，先去掉广播式提及），它的 `ts` 就是讨论串，之后所有回复都在这里；发不出开头消息回 502。转发器按结果用 `response_url` 给发起人发中文临时消息。命令正文为空、或在和 bot 的私信里用，转发器直接回用法说明，不转给服务端（第一版不支持私信）。
+
+Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_mention`（`/fix` 的处理正在实现）。它开一条 Slack Socket Mode 连接（不需要公网地址），每个信封立刻确认，把真人的每个 `app_mention` 转成 `POST /events` 要的请求体，带请求头 `x-chat-to-fix-token` 发过去。bot 的消息、编辑过的消息、自己的消息都忽略。连接断了会退避重连。环境变量：`CHAT_TO_FIX_SLACK_APP_TOKEN`（应用级令牌，权限 `connections:write`；必填）、`CHAT_TO_FIX_SLACK_TOKEN`（可选；有它时转发器还会尽力取消息的永久链接和发言人名字）、`CHAT_TO_FIX_URL`、`CHAT_TO_FIX_HTTP_TOKEN`。
 
 已知的过时代码注释（代码是对的，注释不对）：`src/adapters/index.ts` 开头说选 `real` 会抛“尚未实现”；`src/tools/request-code.ts`（`sessionId` 那行附近）说注册表的 `ctx` 还不带 `sessionId`，实际已经带了。
 
@@ -289,7 +293,7 @@ E1：
 
 - [x] 三个假适配器和四个文件。
 - [x] 假事件命令；建测试仓库的脚本。
-- [x] 三个端到端场景（正常、信息不足、审查未通过）。
+- [x] 三个基本端到端场景（正常、信息不足、审查未通过）和 CI 的九个场景（规格 7）。
 - [ ] 超时的端到端场景：未实现。
 
 R1：
@@ -305,4 +309,4 @@ R1：
 - coding bot 新建一个文件后，`repo_diff` 的列表里有它。
 - `repo_read_file` 传入跳出仓库的路径被拒绝。
 - coding bot 调用 `request_code` 后，Git Pipeline bot 的答复回到 coding bot，群里没有多出发言。
-- 三个端到端场景全部通过，过程中没有访问真实的 Slack、Jira、GitLab。
+- 端到端场景全部通过，过程中没有访问真实的 Slack、Jira、GitLab。

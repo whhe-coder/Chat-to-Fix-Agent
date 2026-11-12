@@ -3,11 +3,11 @@
 - 日期：2026-11-11
 - 本文讲清楚这个软件是什么、由哪些部分组成、一个任务怎么从头走到尾、各部分的边界和规格。
 - 相关文档：选型和依据见 [decision-record.zh.md](decision-record.zh.md)；工具和上限的逐项说明见 [tools-and-limits.zh.md](tools-and-limits.zh.md)；工作包拆解见 [implementation-guide.zh.md](implementation-guide.zh.md)。
-- 状态：2026-11-12 按代码（提交 d1eb5c8）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
+- 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 
 ## 1. 一句话说明
 
-有人在 Slack 频道里 @ 机器人说明一个问题，软件为这个问题建一个任务，拉起一个由五个 bot 组成的群。群里的 bot 按固定步骤分工：取回讨论、建 Jira 单、准备代码、编码（改代码并在内部审查）、开 Draft MR、回写结果。软件不合并、不批准 MR，最后一步交给开发者。
+有人在绑定的 Slack 频道里用斜杠命令 `/fix 问题描述` 提一个问题（2026-11-12 定，实现中；之前的入口是 @ 机器人，现在 @ 只用于任务讨论串里的补充信息），软件为这个问题建一个任务，拉起一个由五个 bot 组成的群。群里的 bot 按固定步骤分工：取回讨论、建 Jira 单、准备代码、编码（改代码并在内部审查）、开 Draft MR、等 CI（失败时修）、回写结果。软件不合并、不批准 MR，最后一步交给开发者。
 
 ## 2. 名词
 
@@ -19,7 +19,7 @@
 | bot 注册表 | 所有 bot 的定义。架构里只有 bot 这一种可注册的东西 |
 | 流程定义 | 步骤表：第几步、哪个 bot 负责、完成证据是什么。和 bot 注册表分开 |
 | 群 | 一次运行对应的群聊，五个 bot 在里面协作。由系统建，运行结束后解散 |
-| 步骤 | 流程中的一个固定环节，共七步，每步有负责的 bot 和一个由代码检查的完成证据 |
+| 步骤 | 流程中的一个固定环节，共八步，每步有负责的 bot 和一个由代码检查的完成证据 |
 | 一轮 | 一个 bot 被叫到后从开始工作到给出最终答复的过程 |
 | 执行记录 | 系统自动记下的每一步：哪个 bot、调用了哪些工具、结果、耗时 |
 | 系统 | 我们写的代码，区别于 bot（由模型驱动） |
@@ -41,7 +41,7 @@
 
 ```mermaid
 flowchart TB
-  slack[Slack] -->|"@ 事件"| intake
+  slack[Slack] -->|"/fix 命令、讨论串里的 @"| intake
   subgraph proc[一个 DSH 进程]
     subgraph tasklayer[任务层]
       intake[监听口] --> queue[队列]
@@ -110,18 +110,18 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 
 | 组件 | 职责 |
 |---|---|
-| 监听口 | 接收 Slack 的 @ 事件，去重，建任务 |
+| 监听口 | 接收 `/fix` 命令（主入口）和讨论串里的 @（补充信息），去重，建任务或让待补充信息的任务重跑 |
 | 队列 | 按到达顺序排队；控制同时运行的任务数 |
 | 运行器 | 启动一次运行：按 bot 注册表建五个 bot、建群、把任务发到群里；结束时解散 |
 | 步骤把关 | 按流程定义保存任务当前在第几步；检查每一步的完成证据；限制每个写工具只能在指定步骤调用 |
 | 工具 | 访问 Slack、Jira、GitLab 和代码目录的工具，令牌只在这里；读写任务的工具 |
 | 记录器 | 从群里的发言和工具调用事件生成执行记录 |
-| 监控 | 检查各项上限、群是否安静、审批事件；触发时停止或催促 |
+| 监控 | 检查各项上限、群是否安静、审批事件；等 MR 的 pipeline 并数 CI 轮次；触发时停止或催促 |
 | 任务库 | 保存任务、运行和执行记录 |
 
 看门狗指监听口、队列、运行器、监控这四个。
 
-每个任务的 token 和费用统计正在加，还没有提交。
+每个任务的 token 和费用统计（提交 31b386d）：每次模型调用或 Claude Code 的一轮在执行记录里记一条 `usage`，任务上的 `usage` 字段累加，控制接口列任务时带 `totalUsd`；价格表在 `src/task/pricing.ts`，可用配置 `pricing` 覆盖；见规格 2、5、6。
 
 ### 3.4 存储
 
@@ -208,7 +208,7 @@ stateDiagram-v2
 
 队列已满时收到的 @ 不建任务，直接在原讨论回复。
 
-### 5.2 七个步骤
+### 5.2 八个步骤
 
 这张表就是流程定义。
 
@@ -219,8 +219,11 @@ stateDiagram-v2
 | 3 | 备代码 | Git Pipeline bot | `repo_prepare` | 任务上有代码目录和分支 |
 | 4 | 编码 | coding bot | Claude Code、内置的审查子 agent、`request_code`、`review_report` | 代码目录相对基准提交有改动；任务上记有“审查通过” |
 | 5 | 开 MR | Git Pipeline bot | `repo_diff`、`mr_open_draft` | 任务上有 MR 链接 |
-| 6 | 回写 | Jira bot、Slack bot | `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | Jira 单上已写 MR 链接；“结果”已发出 |
-| 7 | 收尾 | 主 bot | `task_close` | 任务状态为已结束 |
+| 6 | CI | Git Pipeline bot（主 bot 只交过去、等系统说有结论） | `ci_read_log`、`mr_push_fix`、`ci_stop`；叫 coding bot 修时用 `message_bot`、`review_report` | CI 有结论：通过，或轮次用完、被停、分支被别人改了、没有 pipeline（`ci.settled`） |
+| 7 | 回写 | Jira bot、Slack bot | `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | Jira 单上已写 MR 链接；“结果”已发出 |
+| 8 | 收尾 | 主 bot | `task_close` | 任务状态为已结束 |
+
+第 6 步（CI）简述：系统在监控里等 MR 当前提交的 pipeline，对第一次失败的 job 自动重跑一次，数修复轮次，往 Slack 发进度；某一轮失败就叫醒 Git Pipeline bot，它读失败日志、写摘要、直接叫 coding bot 修（只有这一步 bot 之间不经主 bot），审查通过后用 `mr_push_fix` 追加一个修复提交并普通推送；最多 3 轮。定位不了、超出工单范围、修不了或 3 轮后仍未通过，就停下并报告原因。CI 没过 MR 照样交付，任务仍以“完成”结束，结束原因带 CI 结论（`completed_ci_failed`、`completed_ci_stopped`、`completed_no_ci`）。细节见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
 
 主 bot 用 `task_advance` 从一步进到下一步。证据不满足时，`task_advance` 返回缺什么，任务停在原步骤。
 
@@ -231,9 +234,11 @@ stateDiagram-v2
 | `slack_reply`（已收到） | 1 |
 | `jira_create_issue` | 2 |
 | `repo_prepare` | 3 |
-| `review_report` | 4 |
+| `review_report` | 4、6 |
 | `mr_open_draft` | 5，并且任务上记有“审查通过” |
-| `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | 6 |
+| `mr_push_fix` | 6，并且 CI 失败、轮次没到上限、本轮审查通过 |
+| `ci_stop` | 6，并且已读过日志、不在等 pipeline |
+| `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | 7 |
 | `slack_reply`（追问） | 确认信息不足之后 |
 
 读工具不受步骤限制。
@@ -249,7 +254,7 @@ sequenceDiagram
   participant JB as Jira bot
   participant P as Git Pipeline bot
   participant C as coding bot
-  S->>W: @ 事件
+  S->>W: /fix 命令
   W->>W: 建任务，排队
   W->>M: 建群和成员，把任务发到群里
   M->>SB: @ 取回讨论
@@ -264,7 +269,9 @@ sequenceDiagram
   C-->>M: 改了什么，审查通过
   M->>P: 进到第 5 步，@ 开 MR
   P-->>M: MR 链接
-  M->>JB: 进到第 6 步，@ 回写
+  M->>P: 进到第 6 步，@ 交给它（CI 归它）
+  P-->>M: 系统告知 CI 有结论后，主 bot 推进
+  M->>JB: 进到第 7 步，@ 回写
   M->>SB: @ 回复结果
   JB-->>M: 已写
   SB->>S: 回复结果
@@ -276,7 +283,7 @@ sequenceDiagram
 ### 5.4 一轮是怎么转交的
 
 1. 群是“管理员”模式，管理员是主 bot。系统发到群里的任务只叫到主 bot。
-2. 主 bot 在发言里写“@名字”，被点到的成员开始它的一轮。一条消息只 @ 一个成员，步骤就是严格顺序的；第 6 步的 Jira bot 和 Slack bot 可以同时叫。
+2. 主 bot 在发言里写“@名字”，被点到的成员开始它的一轮。一条消息只 @ 一个成员，步骤就是严格顺序的；第 7 步的 Jira bot 和 Slack bot 可以同时叫；第 6 步（CI）例外，Git Pipeline bot 直接叫 coding bot（见 5.6）。
 3. 成员在这一轮里调用自己的工具，最后给出最终答复，一轮结束。
 4. 系统把这一轮的结果写到任务上。这个成员调用过我们新加的工具，这一轮算“干了活”，主 bot 自动被叫到，并被告知谁做完了。
 5. 主 bot 读结果，调用 `task_advance`，再 @ 下一个成员。
@@ -301,7 +308,8 @@ sequenceDiagram
 
 ### 5.6 步骤内的协作
 
-- coding bot 需要工作目录之外的代码（另一个分支上的文件、一段历史）时，调用 `request_code`。这是一次私下的请求：Git Pipeline bot 在自己的私聊里处理，答复回到 coding bot，coding bot 接着做。这次往来不占群里的发言。
+- coding bot 需要工作目录之外的代码（另一个分支上的文件、一段历史）时，调用 `request_code`（第 4、6 步都能用）。这是一次私下的请求：Git Pipeline bot 在自己的私聊里处理，答复回到 coding bot，coding bot 接着做。这次往来不占群里的发言。
+- 第 6 步（CI）里，Git Pipeline bot 用 `message_bot` 直接叫 coding bot 修 CI 失败，coding bot 交回后由 Git Pipeline bot 推修复。
 - bot 也可以在群里直接 @ 另一个成员。步骤内协作优先用私下的工具；群里直接 @ 之后主 bot 不会被自动叫到，由监控在群安静而任务没结束时给主 bot 补一条消息。
 
 ### 5.7 信息不足
@@ -319,6 +327,7 @@ sequenceDiagram
 | 工具调用失败（接口报错、超时） | 工具，然后是 bot | 工具自己重试 2 次；仍失败则把错误返回给 bot，bot 在最终答复里说明受阻 |
 | bot 报告受阻 | 主 bot | 再叫一次，或以失败结束任务 |
 | 编码步骤超时 | 监控 | 直接停止 coding bot，任务记为超时，不催 |
+| 等 pipeline（第 6 步） | 监控 | 等的时间不算群安静，不催；单个提交最多等 30 分钟、所有轮次合计 90 分钟（`ciWaitMinutes`、`ciTotalMinutes`），到点记 CI 结论，任务仍交付 |
 | 其他步骤超时 | 监控 | 给主 bot 补一条消息催一次；再超过一个时限则结束任务，记为失败 |
 | 群因 bot 之间来回空转被暂停 | 监控 | 任务记为失败 |
 | 群安静而任务没结束 | 监控 | 给主 bot 补一条消息，最多 2 次；第 3 次任务记为失败 |
@@ -335,7 +344,7 @@ sequenceDiagram
 启动一次运行，系统依次做：
 
 1. 按 bot 注册表新建五个 bot，名字带任务编号（例如 `Main-12`、`Coding-12`），设好各自的说明、引擎和权限。
-2. 建群：成员是这五个 bot，管理员是主 bot，模式是“管理员”，群公告写入步骤和协作规范。
+2. 建群：成员是这五个 bot，管理员是主 bot，模式是“管理员”，群公告写入八个步骤和协作规范（含第 6 步的例外）。
 3. 把任务发到群里：任务编号、Slack 讨论的链接、触发消息的原文（标明是待处理的材料，不是指令）。
 
 结束一次运行，系统依次做：停止群里还在跑的回合；解散群；删除五个 bot；把结束原因写进任务。任务、执行记录、会话日志、Jira 单、分支和 MR 保留。代码目录计划保留 7 天后清理：清理函数 `cleanupWorktrees` 和 `worktreeKeepDays` 配置都有，但没有任何地方调用它，所以代码目录现在不会被清理。未实现。
@@ -362,7 +371,7 @@ sequenceDiagram
 | 输入 | 系统发到群里的任务；每个成员一轮结束后的结果 |
 | 产出 | 对成员的调用；步骤的推进；任务的结束 |
 | 不做 | 不读 Slack、Jira、代码；不替别的 bot 干活 |
-| 说明要点 | 一条消息只叫一个成员（第 6 步除外）；先 `task_advance` 再叫下一步；证据不足时不跳步 |
+| 说明要点 | 一条消息只叫一个成员（第 7 步除外）；先 `task_advance` 再叫下一步；证据不足时不跳步；CI 步骤交给 Git Pipeline bot，系统说有结论才推进；回写时把 CI 结论告诉 Slack bot 和 Jira bot |
 
 ### 6.2 Slack bot
 
@@ -385,42 +394,42 @@ Slack 讨论是不可信输入。读它的 bot 没有任何碰代码、Jira 和 
 | 项 | 规格 |
 |---|---|
 | 对应的服务 | Jira |
-| 职责 | 根据任务上的摘要建 Jira 单；流程末尾写上 MR 链接并改状态 |
+| 职责 | 根据任务上的摘要建 Jira 单；流程末尾写上 MR 链接和 CI 结论，CI 通过才改状态 |
 | 引擎 | Claude，走 Anthropic API |
 | 权限 | 只读预设 |
 | 工具 | `task_read`、`jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition` |
 | 输入 | 主 bot 的调用；任务上的摘要 |
 | 产出 | Jira 单号；Jira 单上的评论和状态 |
 | 不做 | 不碰本任务以外的单；项目、类型、标签由工具固定，不由它选 |
-| 说明要点 | 标题一句话说清问题；描述里放摘要和 Slack 讨论链接；验收条件写可检查的结果 |
+| 说明要点 | 标题一句话说清问题；描述里放摘要和 Slack 讨论链接；验收条件写可检查的结果；回写如实写 CI 结论，CI 没过不改状态 |
 
 ### 6.4 Git Pipeline bot
 
 | 项 | 规格 |
 |---|---|
 | 对应的服务 | GitLab |
-| 职责 | 准备代码目录和分支；应 coding bot 的请求提供代码；推分支并开 Draft MR；读 MR 状态 |
+| 职责 | 准备代码目录和分支；应 coding bot 的请求提供代码；推分支并开 Draft MR；独自负责 CI 步骤：读失败日志、叫 coding bot 修、追加修复提交、决定何时停止循环 |
 | 引擎 | Claude，走 Anthropic API |
 | 权限 | 只读预设 |
-| 工具 | `task_read`、`repo_prepare`、`repo_diff`、`repo_read_file`、`repo_log`、`mr_open_draft`、`mr_get` |
-| 输入 | 主 bot 的调用；coding bot 的 `request_code` |
-| 产出 | 代码目录和分支；MR 链接 |
-| 不做 | 不改代码内容；不审查改动；不合并、批准、关闭 MR |
-| 说明要点 | MR 描述写明改了什么、审查结论、没有验证什么 |
+| 工具 | `task_read`、`repo_prepare`、`repo_diff`、`repo_read_file`、`repo_log`、`mr_open_draft`、`mr_get`、`ci_read_log`、`mr_push_fix`、`ci_stop` |
+| 输入 | 主 bot 的调用；coding bot 的 `request_code`；系统在 CI 某一轮失败时的通知 |
+| 产出 | 代码目录和分支；MR 链接；CI 失败摘要、修复提交、停止原因 |
+| 不做 | 不改代码内容；不审查改动；不合并、批准、关闭 MR；不等 pipeline、不重跑 job（系统做）；不放宽 CI；从不强制推送，推送被拒就如实报告，不覆盖别人的提交 |
+| 说明要点 | MR 描述写明改了什么、审查结论、没有验证什么；CI 步骤的做法见 spec-7 第 4.10 节 |
 
 ### 6.5 coding bot
 
 | 项 | 规格 |
 |---|---|
 | 对应的服务 | Claude Code |
-| 职责 | 在代码目录里定位问题、修改，并在内部完成审查 |
+| 职责 | 在代码目录里定位问题、修改，并在内部完成审查；CI 失败时应 Git Pipeline bot 的叫，在同一代码目录里修 |
 | 引擎 | Claude Code。coding bot 自己没有另外的模型，Claude Code 就是它 |
 | 权限 | 能读写本任务的代码目录；能跑 `git status`、`git diff` 和频道绑定里列的测试命令；Claude Code 以“不弹审批”的方式运行，不在放行范围内的操作直接被拒，不会变成审批 |
-| 工具 | Claude Code 自带的读、搜索、改文件和受限的命令行；内置的审查子 agent；经本机 MCP 桥递给它的 `task_read`、`request_code`、`review_report`、`needs_info_confirm` |
-| 输入 | 主 bot 的调用；任务上的摘要和 Jira 单 |
+| 工具 | Claude Code 自带的读、搜索、改文件和受限的命令行；内置的审查子 agent；经本机 MCP 桥递给它的 `task_read`、`request_code`、`review_report`（第 6 步还可登记 `cannot_fix`）、`needs_info_confirm` |
+| 输入 | 主 bot 的调用；任务上的摘要和 Jira 单；第 6 步里 Git Pipeline bot 的失败摘要 |
 | 产出 | 代码目录里的改动；审查结论；说明：原因是什么、改了哪些文件、没有验证什么 |
 | 不做 | 不推分支；不开 MR；不碰 Slack 和 Jira |
-| 说明要点 | 只做任务要求的改动；改完必须交给审查子 agent 审，通过后才交结果；信息不够时不猜，调用 `needs_info_confirm`；沿用仓库自己的指令文件 |
+| 说明要点 | 只做任务要求的改动；改完必须交给审查子 agent 审，通过后才交结果；信息不够时不猜，调用 `needs_info_confirm`；沿用仓库自己的指令文件；CI 修复不许放宽 CI 配置、阈值、基线，不许跳过或删测试，只有这些办法能过就报 `cannot_fix` |
 
 审查子 agent：
 
@@ -441,12 +450,12 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 | 项 | 规格 |
 |---|---|
-| 输入 | 一次 @ 事件：事件编号、频道、讨论的 `thread_ts`、消息的 `ts`、发起人、文字、附件 |
-| 处理 | 按事件编号去重；按频道查绑定的仓库和 Jira 项目；同一讨论已有未结束的任务时不建新任务 |
-| 输出 | 新任务进入队列；或一条说明（正在处理、队列已满、频道未绑定） |
+| 输入 | `/fix` 命令（`source: 'slash'`，没有讨论串）：事件编号、频道、发起人、文字。讨论串里的 @：事件编号、频道、讨论的 `thread_ts`、消息的 `ts`、发起人、文字、附件 |
+| 处理 | 按事件编号去重；按频道查绑定的仓库和 Jira 项目。`/fix`：没绑定回 422、队列满回 429，这两种情况频道里不发任何东西；通过后在频道发一条开头消息（`<@发起人>` 加原文，先去掉广播式提及），它的 `ts` 就是任务的讨论串，之后所有回复都在这里；发不出开头消息回 502。@：同一讨论已有未结束的任务时不建新任务，待补充信息的任务重新排队 |
+| 输出 | 新任务进入队列；或一个结果码，由转发程序用 `response_url` 给发起人发中文临时消息（`/fix`），或一条讨论串里的说明（@） |
 | 形式 | 一个只供内部调用的 HTTP 端口 |
 
-字段还要和负责 Slack 的同事确认。没有真 Slack 时，@ 事件用 `scripts/fake-event.ts` 模拟；真 Slack 的 @ 由 `scripts/slack-forwarder.ts` 转进来（见 4.4）。
+`/fix` 入口的设计已定、正在实现（代码还没提交），细节见 [spec-4-tools-and-adapters.zh.md](spec-4-tools-and-adapters.zh.md) 第 4.9 节和 decision-record 第 2.11 节第 5 条。命令名可配置（`slack.slashCommand`，默认 `/fix`）；命令正文为空或在和 bot 的私信里用时，转发程序直接回用法说明，第一版不支持私信。字段还要和负责 Slack 的同事确认。没有真 Slack 时，事件用 `scripts/fake-event.ts` 模拟；真 Slack 的事件由 `scripts/slack-forwarder.ts` 转进来（见 4.4）。
 
 ### 7.2 队列
 
@@ -482,7 +491,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 令牌 | 从配置读取，只在工具内部使用 |
 | 参数 | 讨论、Jira 单、分支、代码目录都从任务里取，bot 不填 |
 | 重复调用 | 写工具返回已有结果，不重复建 |
-| 清单 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节，共 19 个 |
+| 清单 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节；192a721 起加了 `ci_read_log`、`mr_push_fix`、`ci_stop`，共 22 个（tools-and-limits 是否已更新未核对） |
 
 ### 7.6 记录器
 
@@ -496,8 +505,8 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 | 项 | 规格 |
 |---|---|
-| 检查 | 各项时限、群是否安静、群是否因空转被暂停、Claude Code 是否有输出、审批事件 |
-| 动作 | 催主 bot；中断 Claude Code；停止整群；结束任务；拒绝审批 |
+| 检查 | 各项时限、群是否安静、群是否因空转被暂停、Claude Code 是否有输出、审批事件；MR 的 pipeline（第 6 步，每 `ciPollSeconds` 秒一次，规格 7 第 4.4 节） |
+| 动作 | 催主 bot；中断 Claude Code；停止整群；结束任务；拒绝审批；重跑失败的 job、通知 Git Pipeline bot 或主 bot、往 Slack 发 CI 进度 |
 | 数值 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节，全部是配置项 |
 
 ### 7.8 控制接口
@@ -522,12 +531,14 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 状态 | 排队中、运行中、已完成、待补充信息、失败、超时、人工停止、已过期 |
 | 来源 | 频道、讨论的 `thread_ts`、触发消息、发起人、事件编号 |
 | 绑定 | 仓库、默认分支、Jira 项目，以及频道绑定里的测试命令和准备命令（见 8.2） |
-| 当前步骤 | 1 到 7 |
+| 当前步骤 | 1 到 8 |
 | 摘要 | 第 1 步写入：Slack bot 整理的问题摘要 |
 | Jira 单号 | 第 2 步写入 |
 | 代码目录、分支、基准提交 | 第 3 步写入 |
 | 审查结论 | 第 4 步写入：通过或不通过、审查意见、轮数 |
 | MR 链接 | 第 5 步写入 |
+| CI 状态 | 第 6 步写入：当前轮次、失败的 job、有结论时的结果（`ci`，字段见 spec-7 第 4.3 节） |
+| 用量和费用 | `usage`：按 bot、模型、运行累加的 token、费用（美元）、输出速度；没有价格的调用标“未定价”，不计入合计 |
 | 信息不足的确认 | 主 bot 和 coding bot 各一条 |
 | 运行列表 | 每次运行的群编号、起止时间、结束原因 |
 
@@ -540,7 +551,9 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 群公告 | 步骤顺序和协作规范 |
 | 频道绑定 | 每个频道对应的仓库、默认分支、Jira 项目、单的类型和标签；本地仓库路径（`localRepo`）和远端（`remote`）；测试命令 `testCommands`（coding bot 可以运行的命令）；准备命令 `setupCommands`（本意是新建代码目录后运行一次；现在只做校验，没有地方运行它们：未实现） |
 | 适配器 | Slack、Jira、GitLab 各自用假的还是真的实现 |
-| 上限 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节的全部数值 |
+| 上限 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节的全部数值；另有 `limits.ci*` 和 `stepMinutes.ci`（规格 6） |
+| 价格表 | 可选 `pricing`，美元每百万 token，覆盖 `src/task/pricing.ts` 的默认价（规格 6） |
+| coding bot 模型和强度 | `codingModel`、`codingEffort`（`--effort`，默认 `high`） |
 | 并发 | 同时运行的任务数 |
 | 路径 | 数据目录、代码目录的根 |
 | 凭证 | Slack、Jira、GitLab 的令牌；Anthropic API 密钥；全部只从环境变量读，配置文件里不能写 |
@@ -556,6 +569,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 令牌不给 bot | 令牌只在工具内部；启动 Claude Code 时只放行一张环境变量白名单（PATH、HOME、LANG 等），其余一律不传 |
 | Slack 文字不可信 | 只有 Slack bot 读原文；发到群里的原文标明是材料；读原文的 bot 没有碰代码、Jira 和 MR 的工具 |
 | 写操作定死 | 每个写工具只做一件事，只在指定步骤可用，目标由任务决定 |
+| 不强推 | 分支只追加提交、普通推送（开 MR 和 CI 修复都是）；推送被拒就停下报告，不覆盖别人推到分支上的提交 |
 | 没审过不开 MR | `mr_open_draft` 要求任务上记有“审查通过” |
 | 不合并 | 没有任何工具能合并、批准、关闭 MR |
 | 审批不等人 | Claude Code 以“不弹审批”的方式运行；万一出现审批，监控一律拒绝并记录 |
@@ -578,4 +592,4 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 ## 11. 运行上限
 
-数值和依据见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟；coding bot 内部最多三轮修改和审查（只是提示词里的要求，代码不强制，见 5.5）；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。
+数值和依据见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟（CI 步骤 30 分钟，等 pipeline 的时间另算：单个提交 30 分钟、合计 90 分钟、最多 3 个修复提交）；coding bot 内部最多三轮修改和审查（只是提示词里的要求，代码不强制，见 5.5）；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。
