@@ -1,0 +1,429 @@
+import { test, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { request, createServer } from 'node:http'
+import { Script } from 'node:vm'
+import { buildArrows, createFlowServer, createFlowHandler, parseArgs, connect, LANES, LABEL_MAX, PAGE_HTML } from '../scripts/flow-page.ts'
+
+const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
+const RECORDS = fixture('flow-t1-records.jsonl').trim().split('\n').map((line) => JSON.parse(line))
+const TASK = JSON.parse(fixture('flow-t1-task.json'))
+const TOKEN = 'secret-token-xyz'
+const LANE_IDS = LANES.map((l) => l.id)
+
+const rec = (o: any = {}) => ({ at: '2026-11-12T10:00:10.000Z', taskId: 'T-9', run: 1, step: 'code', role: 'coding', botId: 'b1', type: 'line', text: 'hello', ...o })
+
+// ------------------------------------------------------------------ the mapping
+
+test('the real T-1 run becomes a readable list of arrows with valid lanes, labels and times', () => {
+  const arrows = buildArrows(RECORDS, TASK)
+  assert.equal(RECORDS.length, 112)
+  assert.ok(arrows.length > 40 && arrows.length < RECORDS.length, `got ${arrows.length}`)
+  arrows.forEach((a, i) => {
+    assert.equal(a.id, i)
+    assert.ok(LANE_IDS.includes(a.from) && LANE_IDS.includes(a.to), `lanes of arrow ${i}`)
+    assert.ok(['call', 'reply', 'self', 'notice'].includes(a.kind))
+    assert.ok(Array.from(a.label).length <= LABEL_MAX && a.label !== '', `label of arrow ${i}: ${a.label}`)
+    assert.ok(a.step === null || typeof a.step === 'string')
+    assert.equal(typeof a.failed, 'boolean')
+    assert.ok(Number.isFinite(Date.parse(a.at)))
+    if (a.kind === 'self') assert.equal(a.from, a.to)
+  })
+  assert.equal(arrows.some((a) => a.failed), false)
+  // the steps only move forward
+  const order = ['fetch', 'issue', 'prepare', 'code', 'mr', 'writeback', 'close']
+  const steps = arrows.map((a) => order.indexOf(a.step))
+  assert.deepEqual(steps, [...steps].sort((x, y) => x - y))
+  assert.deepEqual([...new Set(arrows.map((a) => a.step))], order)
+})
+
+test('refusal and tool_error records from Claude Code are red self-loops on the bot lane, labelled with the command', () => {
+  const at = '2026-11-12T05:33:00Z'
+  const arrows = buildArrows([
+    { at, step: 'code', role: 'coding', type: 'refusal', text: '▸ denied: Bash (Permission for this tool use was denied.) | attempted: sh test.sh; echo $?' },
+    { at, step: 'code', role: 'coding', type: 'tool_error', text: '▸ tool error: Bash: exit code 1 | attempted: sh test.sh' },
+  ])
+  assert.deepEqual(arrows.map((a: any) => [a.from, a.to, a.kind, a.failed, a.label]), [
+    ['coding', 'coding', 'self', true, '被拒: sh test.sh; echo $?'],
+    ['coding', 'coding', 'self', true, '失败: sh test.sh'],
+  ])
+})
+
+test('the start of the run: @ event, the watchdog creates task and group, the task goes to the main bot', () => {
+  const [event, create, send] = buildArrows(RECORDS, TASK)
+  assert.deepEqual([event.from, event.to, event.kind, event.label], ['slackext', 'gate', 'call', '@ 事件'])
+  assert.match(event.detail, /applyDiscount\(100, 10\)/)
+  assert.deepEqual([create.from, create.to, create.kind, create.label], ['gate', 'gate', 'self', '建任务/建群'])
+  assert.match(create.detail, /^run 1 created/)
+  assert.deepEqual([send.from, send.to, send.kind, send.label], ['gate', 'main', 'call', '任务发到群里'])
+  assert.match(send.detail, /^Task T-1/)
+})
+
+test('message_bot is a solid arrow to the target bot, labelled with the message; the group mirror line is dropped', () => {
+  const arrows = buildArrows(RECORDS, TASK)
+  const calls = arrows.filter((a) => a.tool === 'message_bot')
+  assert.deepEqual(calls.map((a) => [a.from, a.to]), [['main', 'slack'], ['main', 'jira'], ['main', 'pipeline'], ['main', 'coding'], ['main', 'pipeline'], ['main', 'jira'], ['main', 'slack']])
+  assert.ok(calls.every((a) => a.kind === 'call' && a.pending === false && a.ok === true))
+  assert.match(calls[0].label, /^请读取 Slack 讨论/)
+  assert.match(calls[0].detail, /received/)
+  assert.match(calls[0].result, /^Called Slack-1/)
+  assert.equal(calls[0].recordType, 'tool_call+tool_result')
+  // "@Slack-1 ..." lines mirror the call: no arrow of their own
+  assert.equal(arrows.some((a) => /^@(Slack|Jira|Pipeline|Coding)-1/.test(a.label)), false)
+})
+
+test('round_end of a bot is a dashed reply to the main bot; the main bot round_end is a small note; the group copy is dropped', () => {
+  const arrows = buildArrows(RECORDS, TASK)
+  const replies = arrows.filter((a) => a.recordType === 'round_end' && a.from !== 'main')
+  assert.deepEqual(replies.map((a) => a.from), ['slack', 'jira', 'pipeline', 'coding', 'pipeline', 'slack', 'jira'])
+  assert.equal(replies.length, 7)
+  assert.ok(replies.every((a) => a.kind === 'reply' && a.to === 'main'))
+  assert.match(replies[0].detail, /已回复 "received"/)
+  assert.ok(Array.from(replies[0].detail).length > LABEL_MAX)
+  const notes = arrows.filter((a) => a.recordType === 'round_end' && a.from === 'main')
+  assert.ok(notes.length >= 6 && notes.every((a) => a.kind === 'self' && a.minor))
+  // every round_end text shows up once: the "line" copy the group adds right after it is not a second arrow
+  const coding = arrows.filter((a) => a.from === 'coding' && a.recordType.startsWith('line'))
+  assert.equal(coding.length, 1)
+  assert.match(coding[0].label, /^I'll read the task first/)
+})
+
+test('slack tools go to the Slack lane and the answer comes back dashed; jira/repo/mr/task tools are self-loops with the result merged', () => {
+  const arrows = buildArrows(RECORDS, TASK)
+  const read = arrows.find((a) => a.tool === 'slack_read_thread' && a.kind === 'call')
+  assert.deepEqual([read.from, read.to, read.label], ['slack', 'slackext', '读讨论'])
+  const replyArrows = arrows.filter((a) => a.tool === 'slack_reply')
+  assert.deepEqual(replyArrows.map((a) => [a.from, a.to, a.kind, a.kind === 'call' ? a.label : a.label.slice(0, 5)]), [
+    ['slack', 'slackext', 'call', '回复 ack'], ['slackext', 'slack', 'reply', 'Reply'], ['slack', 'slackext', 'call', '回复 result'], ['slackext', 'slack', 'reply', 'Reply'],
+  ])
+  const jira = arrows.find((a) => a.tool === 'jira_create_issue')
+  assert.deepEqual([jira.from, jira.to, jira.kind], ['jira', 'jira', 'self'])
+  assert.equal(jira.ok, true)
+  assert.ok(Number.isFinite(jira.ms))
+  assert.match(jira.result, /DEMO-1/)
+  assert.match(JSON.parse(jira.args).title, /applyDiscount/)
+  assert.ok(arrows.some((a) => a.tool === 'repo_prepare' && a.kind === 'self' && a.from === 'pipeline'))
+  assert.ok(arrows.some((a) => a.tool === 'mr_open_draft' && a.kind === 'self' && /fake:\/\/gitlab/.test(a.result)))
+  assert.ok(arrows.some((a) => a.tool === 'review_report' && a.from === 'coding' && /pass/.test(a.label)))
+  assert.equal(arrows.filter((a) => a.tool === 'task_read').every((a) => a.kind === 'self'), true)
+  // no arrow is left waiting once the run has finished
+  assert.equal(arrows.some((a) => a.pending), false)
+})
+
+test('advance: the main bot asks the gate, the gate moves on (self-loop "进到第 N 步", already in the new step); close ends the run', () => {
+  const arrows = buildArrows(RECORDS, TASK)
+  const moves = arrows.filter((a) => a.recordType === 'advance')
+  assert.deepEqual(moves.map((a) => a.label), ['进到第 2 步', '进到第 3 步', '进到第 4 步', '进到第 5 步', '进到第 6 步', '进到第 7 步'])
+  assert.deepEqual(moves.map((a) => a.step), ['issue', 'prepare', 'code', 'mr', 'writeback', 'close'])
+  const asks = arrows.filter((a) => a.tool === 'task_advance')
+  assert.equal(asks.length, 6)
+  assert.ok(asks.every((a) => a.from === 'main' && a.to === 'gate' && a.kind === 'call' && /^Advanced to step/.test(a.result)))
+  assert.equal(asks[0].label, 'task_advance → issue')
+  const close = arrows.find((a) => a.tool === 'task_close')
+  assert.deepEqual([close.from, close.to, close.kind, close.label], ['main', 'gate', 'call', '结束任务 (done)'])
+  assert.match(close.result, /closed: done/)
+  const last = arrows.at(-1)
+  assert.deepEqual([last.from, last.to, last.kind, last.label], ['gate', 'gate', 'self', '解散群'])
+  assert.equal(last.failed, false)
+})
+
+test('the same records give the same arrows (pure), and a growing record list only appends arrows', () => {
+  const full = buildArrows(RECORDS, TASK)
+  assert.deepEqual(buildArrows(RECORDS, TASK), full)
+  const half = buildArrows(RECORDS.slice(0, 60), TASK)
+  assert.ok(half.length < full.length)
+  assert.deepEqual(half.slice(0, half.length - 2).map((a) => [a.from, a.to, a.label]), full.slice(0, half.length - 2).map((a) => [a.from, a.to, a.label]))
+  assert.equal(buildArrows([]).length, 0)
+  assert.equal(buildArrows(undefined as any).length, 0)
+})
+
+// ------------------------------------------------------------------ edge cases
+
+test('a failed tool result is red; a call without a result yet is pending', () => {
+  const arrows = buildArrows([
+    rec({ type: 'tool_call', role: 'jira', tool: 'jira_transition', text: 'jira_transition {"status":"Done"}' }),
+    rec({ type: 'tool_result', role: 'jira', tool: 'jira_transition', ok: false, ms: 5, text: 'Jira refused the transition' }),
+    rec({ type: 'tool_call', role: 'pipeline', tool: 'repo_diff', text: 'repo_diff {}' }),
+  ])
+  assert.equal(arrows.length, 2)
+  assert.equal(arrows[0].failed, true)
+  assert.equal(arrows[0].ok, false)
+  assert.equal(arrows[0].result, 'Jira refused the transition')
+  assert.equal(arrows[0].pending, false)
+  assert.equal(arrows[1].pending, true)
+  assert.equal(arrows[1].failed, false)
+})
+
+test('a failed slack tool shows a red dashed arrow back', () => {
+  const arrows = buildArrows([
+    rec({ type: 'tool_call', role: 'slack', tool: 'slack_reply', text: 'slack_reply {"purpose":"ack","text":"hi"}' }),
+    rec({ type: 'tool_result', role: 'slack', tool: 'slack_reply', ok: false, ms: 3, text: 'channel_not_found' }),
+  ])
+  assert.equal(arrows.length, 2)
+  assert.deepEqual([arrows[1].from, arrows[1].to, arrows[1].kind, arrows[1].failed], ['slackext', 'slack', 'reply', true])
+  assert.match(arrows[1].label, /channel_not_found/)
+  assert.equal(arrows[0].failed, true)
+})
+
+test('notices, nudges, limits and refusals come from the watchdog (orange / red); a nudge line is folded into its limit record', () => {
+  const arrows = buildArrows([
+    rec({ type: 'limit', role: null, step: 'code', check: 'stalled', action: 'posted nudge 1 of 3 to the Main bot', text: 'stalled at step code: posted nudge 1 of 3 to the Main bot', at: '2026-11-12T10:01:00.000Z' }),
+    rec({ type: 'line', role: null, step: 'code', text: 'Nothing happened for 5 minutes, please continue.', at: '2026-11-12T10:01:00.300Z' }),
+    rec({ type: 'limit', role: null, step: 'code', check: 'engine_silent', action: 'stopped the Coding bot', text: 'engine_silent at step code: stopped the Coding bot', at: '2026-11-12T10:02:00.000Z' }),
+    rec({ type: 'notice', role: 'jira', text: 'went back and forth 3 times without progress' }),
+    rec({ type: 'notice', role: null, text: 'a group notice' }),
+    rec({ type: 'system', role: null, text: 'notice failed: The task failed.' }),
+    rec({ type: 'refused', role: null, tool: 'task_advance', ok: false, text: 'advance to mr refused: missing diff' }),
+    rec({ type: 'approval', role: null, tool: 'shell', text: 'shell: rm -rf -> reject' }),
+  ])
+  assert.deepEqual(arrows.map((a) => [a.from, a.to, a.kind, a.failed]), [
+    ['gate', 'main', 'notice', false],
+    ['gate', 'coding', 'notice', false],
+    ['gate', 'jira', 'notice', false],
+    ['gate', 'main', 'notice', false],
+    ['gate', 'slackext', 'notice', false],
+    ['gate', 'main', 'reply', true], // refused: the role of the last task_advance call is unknown here, so the main bot
+    ['gate', 'main', 'notice', false],
+  ])
+  assert.match(arrows[0].detail, /Nothing happened for 5 minutes/)
+  assert.match(arrows[0].label, /^stalled:/)
+})
+
+test('a role-less line that is not the task text is a notice to the main bot; the task text goes once per run', () => {
+  const arrows = buildArrows([
+    rec({ type: 'system', role: null, step: 'fetch', text: 'run 1 created: group g1, bots main=b1' }),
+    rec({ type: 'line', role: null, step: 'fetch', text: 'Task T-9\nSlack discussion: x' }),
+    rec({ type: 'line', role: null, step: 'fetch', text: 'please hurry', at: '2026-11-12T10:30:00.000Z' }),
+  ])
+  assert.deepEqual(arrows.map((a) => [a.from, a.to, a.kind, a.label]), [
+    ['slackext', 'gate', 'call', '@ 事件'], ['gate', 'gate', 'self', '建任务/建群'], ['gate', 'main', 'call', '任务发到群里'], ['gate', 'main', 'notice', 'please hurry'],
+  ])
+})
+
+test('anything unknown is a grey self-loop on its role lane; nothing is dropped and nothing throws', () => {
+  const arrows = buildArrows([
+    rec({ type: 'mystery', role: 'jira', text: 'something new' }),
+    rec({ type: 'mystery', role: null, text: 'x' }),
+    rec({ type: 'tool_call', role: 'main', tool: 'brand_new_tool', text: 'brand_new_tool {"a":1}' }),
+    rec({ type: 'tool_result', role: 'main', tool: 'orphan', ok: true, ms: 1, text: 'no call before me' }),
+    rec({ type: 'tool_call', role: 'coding', tool: 'repo_read_file', text: 'repo_read_file {"path":"src/a.js"' }), // cut JSON
+    rec({ type: 'tool_call', role: 'ghost', tool: 'task_read', text: 'task_read {}' }),
+    rec({ type: 'line', role: 'ghost', text: 'from an unknown role' }),
+    rec({ type: 'round_end', role: null, text: 'round without role' }),
+    rec({ type: 'advance', role: null, text: 'weird' }),
+    rec({ type: 'system', role: null, text: 'something the system said' }),
+    null, 42, 'text', {},
+  ] as any[])
+  assert.equal(arrows.length, 11)
+  assert.deepEqual([arrows[0].from, arrows[0].to, arrows[0].kind, arrows[0].unknown], ['jira', 'jira', 'self', true])
+  assert.deepEqual([arrows[1].from, arrows[1].kind], ['gate', 'self'])
+  assert.equal(arrows[2].unknown, true)
+  assert.equal(arrows[3].unknown, true)
+  assert.equal(arrows[3].result, 'no call before me')
+  assert.match(arrows[4].label, /^repo_read_file/)
+  assert.equal(arrows[4].args, '{"path":"src/a.js"') // kept as text when it is not complete JSON
+  assert.equal(arrows[5].from, 'gate') // a role that is not a lane falls back to the watchdog lane
+  assert.ok(arrows.every((a) => LANE_IDS.includes(a.from) && LANE_IDS.includes(a.to)))
+})
+
+test('long labels are cut to 40 characters on one line, the full text stays in detail', () => {
+  const message = `第一行\n${'很长的消息'.repeat(30)}`
+  const [call] = buildArrows([rec({ type: 'tool_call', role: 'main', tool: 'message_bot', text: `message_bot ${JSON.stringify({ to: 'Coding-1', message })}` })])
+  assert.equal(Array.from(call.label).length, LABEL_MAX)
+  assert.ok(call.label.endsWith('…') && !call.label.includes('\n'))
+  assert.equal(call.detail, message)
+  assert.deepEqual([call.from, call.to], ['main', 'coding'])
+})
+
+test('message_bot to an unknown bot, or to several bots, still draws something sensible', () => {
+  const arrows = buildArrows([
+    rec({ type: 'tool_call', role: 'main', tool: 'message_bot', text: 'message_bot {"to":"Nobody-1","message":"hi"}' }),
+    rec({ type: 'tool_call', role: 'main', tool: 'message_bot', text: 'message_bot {"to":["Jira-1","Slack-1"],"message":"both"}' }),
+    rec({ type: 'tool_result', role: 'main', tool: 'message_bot', ok: true, ms: 2, text: 'Called both' }),
+  ])
+  assert.deepEqual(arrows.map((a) => [a.from, a.to, a.kind]), [['main', 'main', 'self'], ['main', 'jira', 'call'], ['main', 'slack', 'call']])
+  // a result closes the oldest open call of that role and tool: the first call, not the second
+  assert.deepEqual(arrows.map((a) => a.pending), [false, true, true])
+})
+
+// ------------------------------------------------------------------ the page
+
+test('the page is one self-contained document: no external resource, no token, light and dark', () => {
+  assert.match(PAGE_HTML, /prefers-color-scheme: dark/)
+  assert.doesNotMatch(PAGE_HTML, /(src|href)=["']https?:/i)
+  assert.doesNotMatch(PAGE_HTML, /@import|url\((?!#)/i) // url(#id) is an in-page SVG reference
+  assert.doesNotMatch(PAGE_HTML, /x-chat-to-fix-token|token/i)
+  assert.match(PAGE_HTML, /\/api\/tasks/)
+})
+
+test('the served page has a boot block that parses and an inline script that compiles', async () => {
+  const handle = createFlowHandler({ conn: { url: 'http://stub.invalid', token: TOKEN } })
+  const html = (await handle('GET', '/', 'localhost:3092')).body
+  const boot = /<script type="application\/json" id="boot">([\s\S]*?)<\/script>/.exec(html)
+  assert.deepEqual(JSON.parse(boot[1]).lanes.map((l) => l.id), LANE_IDS)
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+  assert.equal(scripts.length, 1)
+  assert.doesNotThrow(() => new Script(scripts[0][1]))
+})
+
+// ------------------------------------------------------------------ the proxy
+
+let servers = []
+afterEach(async () => { await Promise.all(servers.map((s) => s.close())); servers = [] })
+
+/** A stub control interface: token header checked, the requests recorded. */
+async function stubControl({ tasks = [{ id: 'T-1', state: 'done', step: 'close', jiraKey: 'DEMO-1', mrUrl: 'fake://mr/1' }], status = undefined as any } = {}) {
+  const seen = []
+  const server = createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url, token: req.headers['x-chat-to-fix-token'] })
+    const send = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)) }
+    if (req.headers['x-chat-to-fix-token'] !== TOKEN) return send(401, { error: 'unauthorized' })
+    if (status !== undefined) return send(status, { error: 'boom' })
+    const url = new URL(req.url, 'http://x')
+    if (req.method === 'GET' && url.pathname === '/tasks') return send(200, { tasks })
+    if (req.method === 'GET' && url.pathname === '/tasks/T-1') return send(200, url.searchParams.get('records') === '1' ? { ...TASK, records: RECORDS } : TASK)
+    return send(404, { error: 'task_not_found' })
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const close = () => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections?.() })
+  servers.push({ close })
+  return { seen, url: `http://127.0.0.1:${(server.address() as any).port}`, close }
+}
+
+async function flowFor(conn) {
+  const flow = createFlowServer({ conn, port: 0 })
+  const port = await flow.listen()
+  servers.push(flow)
+  return { base: `http://127.0.0.1:${port}`, port }
+}
+
+test('proxy: the page and both API routes work and the token is added on the server side', async () => {
+  const control = await stubControl()
+  const { base } = await flowFor({ url: control.url, token: TOKEN })
+  const page = await fetch(`${base}/`)
+  assert.equal(page.status, 200)
+  assert.match(page.headers.get('content-type'), /text\/html/)
+  const html = await page.text()
+  assert.match(html, /任务流程图/)
+  assert.equal(html.includes(TOKEN), false)
+
+  const list = await fetch(`${base}/api/tasks`)
+  assert.equal(list.status, 200)
+  const listText = await list.text()
+  assert.deepEqual(JSON.parse(listText).tasks.map((t) => t.id), ['T-1'])
+  assert.equal(listText.includes(TOKEN), false)
+
+  const one = await fetch(`${base}/api/tasks/T-1`)
+  assert.equal(one.status, 200)
+  const oneText = await one.text()
+  const body = JSON.parse(oneText)
+  assert.equal(body.task.id, 'T-1')
+  assert.equal(body.task.jira.key, 'DEMO-1')
+  assert.equal(body.task.state, 'done')
+  assert.equal(body.task.elapsedMs, 101000)
+  assert.equal(body.records, undefined)
+  assert.deepEqual(body.arrows, JSON.parse(JSON.stringify(buildArrows(RECORDS, TASK))))
+  assert.equal(oneText.includes(TOKEN), false)
+
+  // upstream saw: GET only, with the token, and the records asked for
+  assert.ok(control.seen.length >= 2)
+  assert.ok(control.seen.every((s) => s.method === 'GET' && s.token === TOKEN))
+  assert.ok(control.seen.some((s) => s.url === '/tasks/T-1?records=1'))
+})
+
+test('proxy: anything but GET is 405 and never reaches the control interface', async () => {
+  const control = await stubControl()
+  const { base } = await flowFor({ url: control.url, token: TOKEN })
+  for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
+    for (const path of ['/api/tasks', '/api/tasks/T-1', '/api/tasks/T-1/stop', '/']) {
+      const response = await fetch(`${base}${path}`, { method, body: method === 'POST' || method === 'PUT' || method === 'PATCH' ? '{}' : undefined })
+      assert.equal(response.status, 405, `${method} ${path}`)
+      assert.equal(response.headers.get('allow'), 'GET')
+    }
+  }
+  assert.equal(control.seen.length, 0)
+})
+
+test('proxy: unknown paths and odd task ids are 404 without a request upstream', async () => {
+  const control = await stubControl()
+  const { base } = await flowFor({ url: control.url, token: TOKEN })
+  for (const path of ['/nope', '/api', '/api/tasks/T-1/stop', '/api/tasks/..%2Fhealth', '/api/tasks/T 1']) {
+    const response = await fetch(`${base}${path}`)
+    assert.equal(response.status, 404, path)
+  }
+  assert.equal(control.seen.length, 0)
+  const missing = await fetch(`${base}/api/tasks/T-99`)
+  assert.equal(missing.status, 404)
+  assert.equal((await missing.json()).error, 'task_not_found')
+})
+
+test('proxy: only a local Host header is accepted (DNS rebinding)', async () => {
+  const control = await stubControl()
+  const { port } = await flowFor({ url: control.url, token: TOKEN })
+  const get = (host) => new Promise<number>((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path: '/api/tasks', headers: { host } }, (res) => { res.resume(); resolve(res.statusCode) })
+    req.on('error', reject); req.end()
+  })
+  assert.equal(await get(`127.0.0.1:${port}`), 200)
+  assert.equal(await get(`localhost:${port}`), 200)
+  assert.equal(await get('evil.example.com'), 403)
+  assert.equal(await get(`evil.example.com:${port}`), 403)
+})
+
+test('proxy: a wrong token or a dead control interface gives a 502 that shows neither URL nor token', async () => {
+  const control = await stubControl()
+  const wrong = await flowFor({ url: control.url, token: 'not-the-token' })
+  const rejected = await fetch(`${wrong.base}/api/tasks`)
+  assert.equal(rejected.status, 502)
+  const rejectedText = await rejected.text()
+  assert.match(rejectedText, /control_interface_rejected_token/)
+  assert.equal(rejectedText.includes('not-the-token'), false)
+
+  const dead = await stubControl()
+  const deadUrl = dead.url
+  await dead.close()
+  const down = await flowFor({ url: deadUrl, token: TOKEN })
+  const unreachable = await fetch(`${down.base}/api/tasks/T-1`)
+  assert.equal(unreachable.status, 502)
+  const text = await unreachable.text()
+  assert.match(text, /control_interface_unreachable/)
+  assert.equal(text.includes(deadUrl), false)
+  assert.equal(text.includes(TOKEN), false)
+
+  const broken = await stubControl({ status: 500 })
+  const flow = await flowFor({ url: broken.url, token: TOKEN })
+  assert.equal((await fetch(`${flow.base}/api/tasks`)).status, 502)
+})
+
+test('proxy: the handler works without a socket, and the server binds to 127.0.0.1 only', async () => {
+  const handle = createFlowHandler({ conn: { url: 'http://stub.invalid', token: TOKEN }, fetchImpl: (async (url, init) => {
+    assert.equal(init.method, 'GET')
+    assert.equal(init.headers['x-chat-to-fix-token'], TOKEN)
+    return new Response(JSON.stringify({ tasks: [] }), { status: 200 })
+  }) as any })
+  const answer = await handle('GET', '/api/tasks', '127.0.0.1:3092')
+  assert.equal(answer.status, 200)
+  assert.deepEqual(JSON.parse(answer.body), { tasks: [] })
+  assert.equal(answer.body.includes(TOKEN), false)
+  assert.equal((await handle('DELETE', '/api/tasks', '127.0.0.1:3092')).status, 405)
+
+  const flow = createFlowServer({ conn: { url: 'http://stub.invalid', token: TOKEN }, port: 0 })
+  await flow.listen()
+  servers.push(flow)
+  assert.equal((flow.server.address() as any).address, '127.0.0.1')
+})
+
+// ------------------------------------------------------------------ command line
+
+test('parseArgs and connect: --dir, or --url with --token-file; the token comes from the file', () => {
+  assert.deepEqual(parseArgs([]), {})
+  assert.deepEqual(parseArgs(['--port', '3100', '--dir', '/x']), { port: '3100', dir: '/x' })
+  assert.throws(() => parseArgs(['--port']), /needs a value/)
+  assert.throws(() => parseArgs(['--port', 'abc']), /--port/)
+  assert.throws(() => parseArgs(['--token', 'x']), /unknown argument/)
+  const files = { '/run/http-token': `${TOKEN}\n`, '/run/chat-to-fix.json': '{"httpPort":4455}', '/t/token': 'file-token\n' }
+  const read = (path) => { if (files[path] === undefined) throw new Error(`no file ${path}`); return files[path] }
+  assert.deepEqual(connect({ dir: '/run' }, {}, read), { url: 'http://127.0.0.1:4455', token: TOKEN })
+  assert.deepEqual(connect({ url: 'http://127.0.0.1:9/', tokenFile: '/t/token' }, {}, read), { url: 'http://127.0.0.1:9', token: 'file-token' })
+  assert.throws(() => connect({}, {}, read), /no connection/)
+})
