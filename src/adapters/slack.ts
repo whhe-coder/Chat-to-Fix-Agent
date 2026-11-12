@@ -24,8 +24,8 @@ export const repliesFile = (dataDir) => join(fakeRoot(dataDir), 'slack', 'replie
 
 /** Chooses the implementation by `config.adapters.slack`. */
 export function createSlackAdapter(config, options = {}) {
-  if (config.adapters?.slack === 'real') return createRealSlack(config, options)
-  return createFakeSlack(config, options)
+  if (config.adapters?.slack === 'real') return (createRealSlack as any)(config, options)
+  return (createFakeSlack as any)(config, options)
 }
 
 /** Plug-in point of the real implementation (work package R1): same two functions as the fake. */

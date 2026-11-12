@@ -87,7 +87,7 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
   async function start(taskId) {
     const task = await store.getTask(taskId)
     if (task === undefined) throw new Error(`No such task: ${taskId}`)
-    const entry = { groupId: null, bots: {}, watched: false }
+    const entry: any = { groupId: null, bots: {}, watched: false }
     live.set(taskId, entry)
     try {
       // Step 1: five bots from the registry. Name = prefix + task number (DSB:src/host/roster.js:140).

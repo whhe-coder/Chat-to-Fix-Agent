@@ -161,7 +161,7 @@ export function install(rt) {
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
     },
-  })]
+  } as any)]
 
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.

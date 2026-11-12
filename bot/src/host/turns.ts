@@ -37,7 +37,7 @@ export const failureLine = failure => `${failure.code}${failure.status ? ` ${fai
 // The reply a sender waits for, sent the way a finished turn sends it: the work it was
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
 // answer comes from; `source` is the trigger the turn answered.
-export function answerSender(rt, id, source, text, long) {
+export function answerSender(rt, id, source, text, long?) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
@@ -367,7 +367,7 @@ export function install(rt) {
   // reply in its Session there while it is still a member. A sender that asked for it
   // while working on another Bot's request goes on with that work when it reads it.
   // `long`: the text as attachLong sends it, when it went as a file.
-  const tellSender = (id, source, text, long) => answerSender(rt, id, source, text, long)
+  const tellSender = (id, source, text, long?) => answerSender(rt, id, source, text, long)
 
   // Runs before a deleted Bot leaves the team. Its Sessions stop with it, and the
   // turn/end that follows is no longer the team's, so their activity and turn records go
@@ -584,14 +584,14 @@ export function install(rt) {
   // of the providers that read it; one whose provider names no key, or that failed on
   // a provider not known, lifts on any key. A host that only reads the team leaves it
   // to the one that holds it.
-  function unblockBots({ ref, signedIn = false, keyed } = {}) {
+  function unblockBots({ ref, signedIn = false, keyed }: any = {}) {
     if (rt.readOnly?.() !== undefined) return
     let refs
     try { refs = ref === undefined ? undefined : rt.keyRefs?.() } catch {}
     const fixes = ({ code, provider }) => (signedIn && SIGN_IN_CODES.has(code))
       || (ref !== undefined && KEY_CODES.has(code) && (refs?.get(provider) ?? ref) === ref)
       || (code === 'MISSING_CREDENTIAL' && provider !== undefined && keyed?.has(provider) === true)
-    const lifted = Object.values(state.bots ?? {}).filter(bot => bot.blocked !== undefined && fixes(bot.blocked))
+    const lifted = (Object.values(state.bots ?? {}) as any[]).filter(bot => bot.blocked !== undefined && fixes(bot.blocked))
     if (lifted.length === 0) return
     for (const bot of lifted) delete bot.blocked
     void rt.save().catch(() => {})
@@ -1080,7 +1080,7 @@ export function install(rt) {
   // events, not Session events: the dispatch keys `this` by the delegating parent
   // Agent, which `carrierKeyOf` hands back.
   ctx.on('subagent/start', function (info) {
-    const id = carrierKeyOf(this)?.session?.id
+    const id = (carrierKeyOf(this) as any)?.session?.id
     const entry = id === undefined ? undefined : live.get(id)
     const work = rt.workOf?.(entry?.info)
     const self = id === undefined ? undefined : rt.selfOf(id)

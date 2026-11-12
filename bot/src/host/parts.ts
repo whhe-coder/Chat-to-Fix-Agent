@@ -349,7 +349,7 @@ export function install(rt) {
   // A Bot's own chat, or its Session in one group, or the group's own Session
   // (`botId === undefined`), as numbered parts, oldest first; the last one is
   // current.
-  function partsOf(botId, roomId) {
+  function partsOf(botId, roomId?) {
     const room = rt.roomOf(roomId)
     if (botId === undefined) {
       if (room === undefined) return []
@@ -369,7 +369,7 @@ export function install(rt) {
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages }: { group?: boolean, pages?: any } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     let answers = []
     for await (const event of rt.eventsBackwards(sessionId, signal, pages)) {
@@ -672,7 +672,7 @@ export function install(rt) {
   // node; otherwise as an idle maintenance pass. True when the part ended up below
   // the check line, false when it did not (it then moves on), undefined when a turn
   // got in first (the part is checked again when that turn ends).
-  async function condense(agent, lines, { inTurn, signal }) {
+  async function condense(agent, lines, { inTurn, signal }: { inTurn: any, signal?: any }) {
     const engine = engineOf(agent)
     const before = tokensOf(agent.session)
     const sessionId = agent.session.id
@@ -716,7 +716,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual }: any) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -825,7 +825,7 @@ export function install(rt) {
       if (kind === 'working-directory') continue
       const exchangeId = message.source?.exchangeId
       if (exchangeId !== undefined && pending.some(queued => queued.source?.exchangeId === exchangeId)) continue
-      const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
+      const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) } as any)
       if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
       else agent.inject(copy)
       pending.push(copy)
@@ -904,10 +904,10 @@ export function install(rt) {
 
   // `hard`: past the hard line or the window, the part moves on even without a note
   // from the model. `folder`: the part moves on because its working folder changed.
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, hard = overflow || folder || manual } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, hard = overflow || folder || manual }: any = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, manual, since: Date.now() }
+    const job: any = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, manual, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -1016,7 +1016,7 @@ export function install(rt) {
     const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id)
     const number = parts.length
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
+    const readLines = (): any => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
@@ -1046,7 +1046,7 @@ export function install(rt) {
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
     const previous = parts.at(-2)
-    const noted = written !== undefined ? { note: written.note }
+    const noted: any = written !== undefined ? { note: written.note }
       : local ? {}
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
     carried ??= await readLines()
@@ -1466,7 +1466,7 @@ export function install(rt) {
         for (const { reply, texts, time, duration } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
-          const item = { time: time ?? reply.time ?? event.time }
+          const item: any = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
           else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })

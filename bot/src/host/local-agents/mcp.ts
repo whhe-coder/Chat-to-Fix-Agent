@@ -28,6 +28,12 @@ export function flattenSchema(node) {
 }
 
 export class LoopbackMcp {
+  declare token: any
+  declare tools: any
+  declare onCall: any
+  declare calls: Map<any, any>
+  declare server: any
+  declare url: any
   // onCall(name, args) -> Promise<{text, isError}> runs while the adapter waits
   // for the DSH result; it resolves when the tool call settles.
   constructor(tools, onCall) {
@@ -43,7 +49,7 @@ export class LoopbackMcp {
   }
 
   async listen() {
-    await new Promise((resolve, reject) => this.server.listen(0, '127.0.0.1', () => resolve()).once('error', reject))
+    await new Promise<void>((resolve, reject) => this.server.listen(0, '127.0.0.1', () => resolve()).once('error', reject))
     const { port } = this.server.address()
     this.url = `http://127.0.0.1:${port}/mcp`
     return this.url
@@ -132,7 +138,7 @@ export class LoopbackMcp {
   }
 }
 
-const readBody = (request) => new Promise((resolve, reject) => {
+const readBody = (request: any) => new Promise<string>((resolve, reject) => {
   let body = ''
   request.setEncoding('utf8')
   request.on('data', chunk => { body += chunk })

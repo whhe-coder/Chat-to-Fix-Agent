@@ -21,7 +21,7 @@ const missingRepo = Object.freeze({
   diff: async () => { throw Object.assign(new Error('the repository adapter is not configured'), { code: 'no_adapter', retryable: false }) },
 })
 
-export function createApp({ config, botlayer, adapters: givenAdapters, token, defineTool, warn = (...args) => console.warn(...args), now = () => Date.now() }) {
+export function createApp({ config, botlayer, adapters: givenAdapters, token, defineTool, warn = (...args) => console.warn(...args), now = () => Date.now() }: any) {
   // Startup checks: a registry or flow definition that does not hold together stops the process here.
   const problems = [...validateRegistry(), ...validateFlow(allBotDefs())]
   if (problems.length) throw new Error(`chat-to-fix: the bot registry or the flow definition is invalid: ${problems.join('; ')}`)
@@ -36,7 +36,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   const send = adapters.slack ? (origin, text) => adapters.slack.reply(origin, 'system', text) : undefined
   const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, now, warn })
   runner = createRunner({ store, botlayer, config, monitor, notify: monitor.notify, loadPrompt, groupNotice, repo: adapters.repo, warn, now })
-  const queue = createQueue({ store, limits: config.limits, runner, notify: monitor.notify, now })
+  const queue = createQueue({ store, limits: config.limits, runner, notify: monitor.notify as any, now })
   runner.bind({ queue })
 
   const gate = createGate({

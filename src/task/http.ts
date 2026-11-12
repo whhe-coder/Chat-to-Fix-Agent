@@ -9,6 +9,8 @@ import { bindingOf } from '../config.ts'
 const MAX_BODY = 1_000_000
 
 class HttpError extends Error {
+  declare status: any
+  declare error: any
   constructor(status, error) { super(error); this.status = status; this.error = error }
 }
 
@@ -22,7 +24,7 @@ function tokenOk(given, expected) {
 }
 
 function readBody(request) {
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let size = 0
     const chunks = []
     request.on('data', (chunk) => {
@@ -141,12 +143,12 @@ export function createHttp({ config, token, store, queue, runner, notify }) {
 
   return {
     async listen() {
-      await new Promise((resolve, reject) => server.listen(config.httpPort, '127.0.0.1', () => resolve()).once('error', reject))
-      return server.address().port
+      await new Promise<void>((resolve, reject) => server.listen(config.httpPort, '127.0.0.1', () => resolve()).once('error', reject))
+      return (server.address() as any).port
     },
     close() {
-      return new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections?.() })
+      return new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections?.() })
     },
-    get port() { return server.address()?.port },
+    get port() { return (server.address() as any)?.port },
   }
 }

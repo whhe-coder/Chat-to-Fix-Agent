@@ -104,7 +104,7 @@ export function install(rt) {
     // A key can arrive without an event (an environment variable at the next start), so
     // a provider listed with its key again lifts what its missing key blocked.
     rt.unblockBots?.({ keyed: new Set(entries.filter(entry => !entry.needsKey).map(entry => entry.provider)) })
-    const used = new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel].filter(Boolean)))
+    const used = new Set((Object.values(state.bots ?? {}) as any[]).flatMap(bot => [bot.model, bot.appliedModel].filter(Boolean)))
     await Promise.all(entries.filter(entry => used.has(entry.ref)).map(async (entry) => {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
@@ -208,7 +208,7 @@ export function install(rt) {
   // Recheck group Sessions after every restart: Bot-level applied fields cannot
   // prove that an older group Session received the member's thinking level.
   const sessionSelections = new Map()
-  function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
+  function selectSessionModel(sessionId, { provider, model, reasoningEffort }: any) {
     const run = selecting.then(async () => {
       const defaults = ctx.get?.('agentDefaultModel')
       const before = defaults?.currentSelection?.()
@@ -261,7 +261,7 @@ export function install(rt) {
       catalogCache = { at: 0, value: [] }
       const served = new Set((await catalog()).map(entry => entry.ref))
       if (served.has(bot.model) || Date.now() >= deadline) return desiredModel(bot)
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         const timer = setTimeout(done, Math.min(2000, deadline - Date.now()))
         const off = ctx.on?.('llm/adapters-updated', done)
         function done() { clearTimeout(timer); off?.(); resolve() }
@@ -278,7 +278,7 @@ export function install(rt) {
     return modelsSynced
   }
   async function syncAll() {
-    for (const bot of Object.values(state.bots)) {
+    for (const bot of Object.values(state.bots) as any[]) {
       await applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }
   }
@@ -293,7 +293,7 @@ export function install(rt) {
       refused.set(ref, served)
       rt.warn('ds-bot: %s is not a model endpoint, so it is not chosen again', ref)
       const entries = await catalog()
-      const pinned = Object.values(state.bots).filter(other => other.model === ref || other.appliedModel === ref)
+      const pinned = (Object.values(state.bots) as any[]).filter(other => other.model === ref || other.appliedModel === ref)
       for (const other of pinned) {
         if (other.model === ref) other.model = pickDefault(entries)
         if (other.appliedModel === ref) delete other.appliedModel

@@ -191,7 +191,7 @@ export function install(rt) {
 
   // Every part, caught up. Asked from the current part, the turn that asks is left out
   // (`hidden`): it is in context, and its own question would match.
-  async function indexedParts(botId, askingId) {
+  async function indexedParts(botId, askingId?) {
     const index = await openIndex()
     if (index === null) return { index }
     const parts = rt.partsOf(botId)
@@ -203,7 +203,7 @@ export function install(rt) {
 
   // Messages with all the words, best first; with none of them having all, those with
   // the most of them. Shown oldest first.
-  async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH } = {}) {
+  async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH }: { askingId?: any, limit?: number } = {}) {
     const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, SEARCH_TERMS_MAX)
     const { index, parts, hidden } = await indexedParts(botId, askingId)
     if (index === null) return { lines: await scanOwnChat(botId, query, limit), every: true }
@@ -232,7 +232,7 @@ export function install(rt) {
   }
 
   // The latest messages across all parts, oldest first.
-  async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ } = {}) {
+  async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ }: { askingId?: any, limit?: number } = {}) {
     const { index, parts, hidden } = await indexedParts(botId, askingId)
     if (index === null) return scanOwnChat(botId, '', limit)
     const rows = []

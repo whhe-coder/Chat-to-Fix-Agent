@@ -279,7 +279,7 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     }
   }
 
-  async function readRecords(id, { step } = {}) {
+  async function readRecords(id, { step }: any = {}) {
     if (typeof id !== 'string' || !ID_PATTERN.test(id)) return []
     await (queues.get(id) ?? Promise.resolve())
     let text
@@ -301,7 +301,7 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
     return step === undefined ? entries : entries.filter(entry => entry.step === step)
   }
 
-  async function listTasks({ state } = {}) {
+  async function listTasks({ state }: any = {}) {
     let names
     try {
       names = await readdir(tasksDir)

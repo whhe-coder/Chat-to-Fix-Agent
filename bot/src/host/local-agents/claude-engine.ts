@@ -5,6 +5,11 @@
 import { ClaudeSession } from '../../../../src/engine/claude.ts'
 
 export class ClaudeEngine {
+  declare route: any
+  declare engine: any
+  declare findExecutable: any
+  declare launch: any
+  declare sessions: Map<any, any>
   constructor(route, engine, { findExecutable, launch }) {
     this.route = route
     this.engine = engine

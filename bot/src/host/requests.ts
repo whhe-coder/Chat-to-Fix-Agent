@@ -88,7 +88,7 @@ export function install(rt) {
     }
     // A receipt that cannot be saved cannot stop a second delivery later.
     if (rt.readOnly() !== undefined) return { status: 'readonly' }
-    const fresh = { fingerprint: request.print, outcome: 'pending', at: Date.now(), run }
+    const fresh: any = { fingerprint: request.print, outcome: 'pending', at: Date.now(), run }
     receipts()[request.key] = fresh
     const promise = (async () => {
       try {

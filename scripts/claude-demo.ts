@@ -41,7 +41,7 @@ const args = unattended
     testCommands: [values['test-command']],
     maxTurns: Number(values['max-turns']),
     model: values.model,
-  })
+  } as any)
   : claudeArgs({
     print: !values['no-print'],
     settingSources: 'project',

@@ -210,7 +210,7 @@ export function install(rt) {
   const cards = new Map()
   const reading = new Map()
   let writing = Promise.resolve()
-  let deleting = Promise.resolve()
+  let deleting: Promise<any> = Promise.resolve()
 
   const listOf = (botId, partId) => cards.get(botId)?.get(partId) ?? []
 

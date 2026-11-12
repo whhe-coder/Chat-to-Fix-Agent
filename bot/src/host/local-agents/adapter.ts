@@ -17,7 +17,7 @@ const IDLE_CLOSE_MS = 10 * 60_000
 const APPROVE_TOOL = 'approve_agent_action'
 
 // A title request never reaches the CLI.
-function titleChunk(text) {
+function titleChunk(text: any) {
   const title = text.slice(0, 60)
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
@@ -28,7 +28,7 @@ function titleChunk(text) {
 }
 
 // A compaction request neither: a deterministic digest of the messages.
-function digestChunks(messages) {
+function digestChunks(messages: any) {
   const lines = []
   let used = 0
   for (const message of messages ?? []) {
@@ -51,7 +51,12 @@ function digestChunks(messages) {
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
   //        saveRecord, presetFor(sessionId), cwdFor, probeCwd, toolsFor(options)}
-  constructor(deps) {
+  declare deps: any
+  declare engines: Map<any, any>
+  declare live: Map<any, any>
+  declare modelCache: Map<any, any>
+  declare disposed: boolean
+  constructor(deps: any) {
     super()
     this.deps = deps
     this.engines = new Map()   // route -> engine driver
@@ -99,7 +104,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     return value
   }
 
-  dropModelCache(route) {
+  dropModelCache(route?: any) {
     if (route === undefined) this.modelCache.clear()
     else this.modelCache.delete(route)
   }
@@ -111,7 +116,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       provider: route,
       id: model,
       name: listed?.name ?? model,
-      inputModalities: ['text', 'image'],
+      inputModalities: ['text', 'image'] as any,
       context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
     }
   }

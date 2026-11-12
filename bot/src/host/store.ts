@@ -19,7 +19,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  const state: Record<string, any> & { bots: Record<string, any>, rooms: Record<string, any> } = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -379,7 +379,7 @@ export function install(rt) {
           // A different epoch means an adopt replaced the state this snapshot was
           // taken from — another host's writes, or an outside edit it adopted.
           if (!owned || changed || lockEpoch !== epoch) {
-            const error = new Error(changed ? 'ds-bot: the Bot team file changed under this host\'s lock' : 'ds-bot lost the state lock to another dsh')
+            const error: any = new Error(changed ? 'ds-bot: the Bot team file changed under this host\'s lock' : 'ds-bot lost the state lock to another dsh')
             error.code = 'ELOCKLOST'
             throw error
           }
@@ -478,7 +478,7 @@ export function install(rt) {
       if (sessionId !== undefined) roomOwners.set(sessionId, room.id)
       for (const segment of room.parts ?? []) pastOwners.set(segment.sessionId, { roomId: room.id })
       for (const [botId, segments] of Object.entries(room.segments ?? {})) {
-        for (const segment of segments) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
+        for (const segment of segments as any[]) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
       }
       for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
     }
@@ -536,7 +536,7 @@ export function install(rt) {
   }
   const isAdminOf = (room, id) => id !== undefined && room.admin === id
 
-  const savedListeners = new Set()
+  const savedListeners = new Set<any>()
   const onSaved = (listener) => {
     savedListeners.add(listener)
     return () => savedListeners.delete(listener)

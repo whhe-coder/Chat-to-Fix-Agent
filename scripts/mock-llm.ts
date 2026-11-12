@@ -97,5 +97,5 @@ server.on('connect', (req, socket) => {
   log({ id: ++seq, proxyConnect: req.url })
   socket.end('HTTP/1.1 403 Forbidden\r\n\r\n')
 })
-server.listen(PORT, '127.0.0.1', () => console.log(`mock-llm: listening on 127.0.0.1:${server.address().port}`))
+server.listen(PORT, '127.0.0.1', () => console.log(`mock-llm: listening on 127.0.0.1:${(server.address() as any).port}`))
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => server.close(() => process.exit(0)))

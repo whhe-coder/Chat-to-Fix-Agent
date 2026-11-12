@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { lineText } from '../../bot/src/host/groups.ts'
 import { textOf } from '../../bot/src/host/text.ts'
 
-const iso = time => new Date(time ?? Date.now()).toISOString()
+const iso = (time?) => new Date(time ?? Date.now()).toISOString()
 const unbracket = text => text.replace(/^\[([\s\S]*)\]$/, '$1')
 
 export function createBotLayer(rt) {
@@ -117,7 +117,7 @@ export function createBotLayer(rt) {
       // No greeting: the one held for the "choose a model later" bot is cleared before a model is set.
       delete bot.kickoff
       await rt.save()
-      const patch = {}
+      const patch: any = {}
       if (model) patch.model = model
       if (permission) patch.permission = permission
       if (Object.keys(patch).length > 0) await rt.updateBot(bot.id, patch)
@@ -175,7 +175,7 @@ export function createBotLayer(rt) {
       await rt.load()
       needBot(botId)
       await rt.stopChat(botId)
-      for (const room of Object.values(rt.state.rooms)) {
+      for (const room of Object.values(rt.state.rooms) as any[]) {
         if (room.members.includes(botId)) await rt.stopMemberWork(room.id, botId)
       }
     },

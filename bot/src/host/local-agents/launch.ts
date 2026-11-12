@@ -32,7 +32,7 @@ export function bridgeNames(rt, sessionId, requested = []) {
 // bot may run besides git status / git diff), permissionTimeoutMs.
 export function launchFor(rt, sessionId, open) {
   const config = rt.config ?? {}
-  const auth = authEnv({ engineAuth: config.engineAuth ?? 'login', apiKey: config.engineApiKey })
+  const auth = authEnv({ engineAuth: config.engineAuth ?? 'login', apiKey: config.engineApiKey } as any)
   const env = childEnv({ extra: auth })
   const permissionTimeoutMs = config.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS
   const model = open.model === 'default' ? undefined : open.model
@@ -50,7 +50,7 @@ export function launchFor(rt, sessionId, open) {
       maxTurns: config.engineMaxTurns,
       model,
       system: open.system,
-    })
+    } as any)
     // The reviewer must run inside the turn: with background tasks on, the CLI (2.1.321) starts the
     // Agent tool's subagent in the background and ends the turn before the reviewer has answered.
     const codingEnv = childEnv({ extra: { ...auth, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })

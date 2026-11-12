@@ -84,7 +84,7 @@ export function install(rt) {
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
   // unless the folder is already registered as a workspace, which it then joins (#710).
-  async function createSession(title, { dir, preset } = {}) {
+  async function createSession(title, { dir, preset }: { dir?: any, preset?: any } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
@@ -101,7 +101,7 @@ export function install(rt) {
 
   function cleanAvatar(input) {
     if (input === null || typeof input !== 'object') return undefined
-    const avatar = {}
+    const avatar: any = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
     if (typeof input.image === 'string') {
       if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
@@ -357,7 +357,7 @@ export function install(rt) {
       bot.name = next
       const agent = await rt.resolveAgent(rt.chatOf(id))
       await ctx.sessionTitle.rename(agent.session, next)
-      await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
+      await followMemberNames((Object.values(state.rooms) as any[]).filter(room => room.members.includes(id)))
     }
     const roleBefore = bot.role
     const instructionsBefore = bot.instructions
@@ -457,7 +457,7 @@ export function install(rt) {
     return notice
   }
 
-  function cleanRoomName(text, selfId) {
+  function cleanRoomName(text, selfId?) {
     const next = unquote(text).replace(/\s+/g, ' ').slice(0, ROOM_NAME_MAX)
     if (next !== '' && (rt.findRooms(next).some(room => room.id !== selfId) || isHeld('room', next))) throw new Error(`Another group chat is already called "${next}"`)
     return next
@@ -473,7 +473,7 @@ export function install(rt) {
   }
 
   // Groups without a chosen name are named after their members, so they follow renames.
-  async function followMemberNames(rooms = Object.values(state.rooms)) {
+  async function followMemberNames(rooms: any[] = Object.values(state.rooms)) {
     for (const room of rooms) {
       if (room.named) continue
       const next = autoRoomName(room.members)
@@ -493,7 +493,7 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy }: any = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
@@ -672,7 +672,7 @@ export function install(rt) {
   // The first Main Bot is the sidebar tile. `replace` gives a Main Bot's place to
   // another Bot in one step, so the team never has none; `primary` moves a Bot to the
   // front and keeps the others.
-  async function setMain(id, main, { primary = false, replace } = {}) {
+  async function setMain(id, main, { primary = false, replace }: { primary?: boolean, replace?: any } = {}) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (main && bot.private === true) throw new Error(`${bot.name} is private, so it cannot be a Main Bot`)
@@ -712,7 +712,7 @@ export function install(rt) {
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
     // `archiving` stands until the archive's path is known: the memory may already be
     // there, and no region of its own closes it yet.
-    const closedArchive = bot.private === true ? {
+    const closedArchive: any = bot.private === true ? {
       id: bot.id,
       name: bot.name,
       ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
@@ -733,7 +733,7 @@ export function install(rt) {
       delete state.switching[part]
     }
     const touched = []
-    for (const room of Object.values(state.rooms)) {
+    for (const room of (Object.values(state.rooms) as any[])) {
       if (!room.members.includes(id)) continue
       room.members = room.members.filter(member => member !== id)
       if (room.admin === id) room.admin = null

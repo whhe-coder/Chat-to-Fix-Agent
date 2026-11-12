@@ -9,9 +9,9 @@ const taskNo = (id) => Number(String(id).replace(/^\D+/, '')) || 0
  * @param {{store: object, limits: object, runner: {start: Function}, notify: Function, now?: () => number}} deps
  *   `now()` returns epoch milliseconds. `notify(task, kind)` is the monitor's system-notice function.
  */
-export function createQueue({ store, limits, runner, notify = () => {}, now = () => Date.now() }) {
+export function createQueue({ store, limits, runner, notify = (() => {}) as (...args: any[]) => any, now = () => Date.now() }) {
   const starting = new Set()
-  let chain = Promise.resolve()
+  let chain: Promise<any> = Promise.resolve()
 
   const byOrder = (a, b) => (Date.parse(a.queuedAt) - Date.parse(b.queuedAt)) || (taskNo(a.id) - taskNo(b.id))
   // A task handed to the runner may still read `queued` in the store until the runner calls startRun.

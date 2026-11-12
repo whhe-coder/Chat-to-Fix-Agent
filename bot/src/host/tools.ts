@@ -11,8 +11,8 @@ import { mentionSpans } from '../shared/mentions.ts'
 // DSH's own defineTool, handed on so the task layer defines its role tools the same way.
 export { defineTool }
 
-export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
-export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
+export const output = { schema: { type: 'string' as const }, render: (_args, value) => [{ type: 'text' as const, text: String(value) }] }
+export const GROUP_REF = { type: 'string' as const, required: true as const, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 // DS Bot has its own group goals; DSH's session goal still does not survive conversation parts.
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
@@ -60,8 +60,8 @@ export function install(rt) {
   }
   // Main Bots see every group; other Bots see the groups they are in.
   // chat-to-fix: a Bot may stop another only as the admin of a group both are members of.
-  const mayStop = (senderId, targetId) => Object.values(state.rooms).some(room => rt.isAdminOf(room, senderId) && room.members.includes(senderId) && room.members.includes(targetId))
-  const visibleRooms = self => Object.values(state.rooms).filter(room => rt.isMain(self) || room.members.includes(self))
+  const mayStop = (senderId, targetId) => Object.values<any>(state.rooms).some(room => rt.isAdminOf(room, senderId) && room.members.includes(senderId) && room.members.includes(targetId))
+  const visibleRooms = self => Object.values<any>(state.rooms).filter(room => rt.isMain(self) || room.members.includes(self))
 
   rt.teamTools.push(defineTool({
     name: 'list_bots',
@@ -71,7 +71,7 @@ export function install(rt) {
     async execute(_args, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      const lines = Object.values(state.bots).map(bot => {
+      const lines = Object.values<any>(state.bots).map(bot => {
         // A private Bot is only named to the others: not what it does, where, or what now.
         if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
         const model = bot.appliedModel ?? bot.model
@@ -175,7 +175,7 @@ export function install(rt) {
       const sender = callerBot(exec)
       if (sender === undefined) return 'Only Bots on the team can use message_bot.'
       const target = rt.findBot(args.to)
-      if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
+      if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values<any>(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
       if (String(args.message ?? '').trim() === '') return 'Write a message to send.'
       const name = typeof args.request_id === 'string' ? args.request_id.trim() : ''
@@ -292,7 +292,7 @@ export function install(rt) {
       const sender = callerBot(exec)
       if (sender === undefined) refuse('Only Bots on the team can use stop_bot.')
       const target = rt.findBot(args.bot)
-      if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`)
+      if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values<any>(state.bots).map(bot => bot.name).join(', ')}`)
       if (target.id === sender.id) refuse('You cannot stop yourself.')
       if (!mayStop(sender.id, target.id)) refuse(`Only the admin of a group that ${target.name} is also in can stop it.`)
       const { running } = activeSessions(target.id)
@@ -579,7 +579,7 @@ export function install(rt) {
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const botId = rt.selfOf(agent.session?.id)
     const prefixes = rt.connectorOffFor?.(botId) ?? []
-    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    const served = new Set<any>(ctx.tools.schemas(agent).map(schema => schema.name))
     const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
     const before = held.connectorDenied ?? new Set()
     if (deny.length === before.size && deny.every(name => before.has(name))) return

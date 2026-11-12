@@ -41,7 +41,7 @@ function checkDefinition(def) {
   if (!hasText(def.description)) problems.push(`${at}: description is missing`)
   if (!isObject(def.parameters)) problems.push(`${at}: parameters must be an object (use {} for none)`)
   else {
-    for (const [key, spec] of Object.entries(def.parameters)) {
+    for (const [key, spec] of Object.entries(def.parameters) as [string, any][]) {
       if (!isObject(spec) || !PARAM_TYPES.has(spec.type)) problems.push(`${at}: parameter ${key} needs a type (${[...PARAM_TYPES].join(', ')})`)
       else if (spec.enum !== undefined && (!Array.isArray(spec.enum) || spec.enum.length === 0)) problems.push(`${at}: parameter ${key} has an empty enum`)
     }
@@ -54,7 +54,7 @@ function checkDefinition(def) {
 function checkArgs(def, args) {
   if (args !== undefined && args !== null && !isObject(args)) return 'the arguments must be an object'
   const given = args ?? {}
-  for (const [key, spec] of Object.entries(def.parameters)) {
+  for (const [key, spec] of Object.entries(def.parameters) as [string, any][]) {
     const value = given[key]
     if (value === undefined || value === null) {
       if (spec.required) return `missing required argument ${key}`
@@ -80,7 +80,7 @@ const messageOf = (error) => {
  *   `defineTool` is DSH's `defineTool` from @deepseek-ai/dsh-tools (the bot layer passes it in); the
  *   default is identity, which is what the tests use. `retryDelayMs` is the pause before a retry.
  */
-export function createToolRegistry({ store, gate, adapters, config = {}, botlayer, warn = (...args) => console.warn(...args), defineTool = (def) => def, retryDelayMs = 250 }) {
+export function createToolRegistry({ store, gate, adapters, config = {} as any, botlayer, warn = (...args) => console.warn(...args), defineTool = (def) => def, retryDelayMs = 250 }) {
   /** @type {Map<string, import('../task/contracts.ts').RoleTool>} */
   const tools = new Map()
   // sessionId -> { agent, disposers } for the sessions that already hold their tools.

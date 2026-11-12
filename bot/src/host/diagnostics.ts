@@ -61,7 +61,7 @@ export function entryLine(entry) {
 
 // The Markdown block for an issue. `facts` come from this host, `client` from the
 // browser that asked; `entries` are already cleaned.
-export function reportMarkdown({ facts, client = {}, entries = [], clientEntries = [] }) {
+export function reportMarkdown({ facts, client = {} as any, entries = [], clientEntries = [] }) {
   const row = (label, value) => (value === undefined || value === null || value === '' ? null : `| ${label} | ${String(value).replace(/\|/g, '\\|')} |`)
   const lines = [
     '| | |',
@@ -158,7 +158,7 @@ export function install(rt) {
 
   // `fields`: source ('host', 'turn', 'api'), level, code, status, bot, where, sessionId, stack.
   const note = ({ level = 'error', source = 'host', text, stack, ...fields }) => {
-    const entry = { time: Date.now(), level, source, text: clean(text) }
+    const entry: any = { time: Date.now(), level, source, text: clean(text) }
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined && value !== null && value !== '') entry[key] = typeof value === 'string' ? clean(value) : value
     }
@@ -172,7 +172,7 @@ export function install(rt) {
   }
 
   const warn = (template, ...args) => {
-    const error = args.find(arg => arg instanceof Error)
+    const error: any = args.find(arg => arg instanceof Error)
     const line = clean(format(template, ...args.map(arg => (arg instanceof Error ? errorText(arg) : arg))))
     const frames = typeof error?.stack === 'string' ? error.stack.split('\n').filter(item => /^\s+at /.test(item)).slice(0, STACK_LINES).map(item => item.trim()) : []
     ctx.logger.warn('%s', line)
@@ -196,7 +196,7 @@ export function install(rt) {
   }
 
   const facts = () => {
-    const bots = Object.values(rt.state.bots)
+    const bots = Object.values(rt.state.bots) as any[]
     const models = [...new Set(bots.map(bot => bot.model ?? bot.appliedModel).filter(Boolean))]
     const count = (n, one, many) => `${n} ${n === 1 ? one : many}`
     const groups = Object.keys(rt.state.rooms).length
@@ -224,7 +224,7 @@ export function install(rt) {
     return [{ time: item.time, level: item.level === 'warn' ? 'warn' : 'error', source: 'browser', text: clean(item.text.slice(0, 500)), ...(typeof item.code === 'string' ? { code: clean(item.code.slice(0, 40)) } : {}) }]
   })
 
-  async function report(body = {}) {
+  async function report(body: any = {}) {
     await rt.loadSecrets?.().catch(() => {})
     const list = await entries()
     const client = sanitizeClient(body.client)

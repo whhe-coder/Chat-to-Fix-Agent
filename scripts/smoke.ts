@@ -61,7 +61,7 @@ async function until(what, fn, timeoutMs = 60_000, everyMs = 500) {
 }
 const filesUnder = (dir) => {
   if (!existsSync(dir)) return []
-  return readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => !e.isDirectory()).map((e) => join(e.parentPath ?? e.path, e.name).slice(dir.length + 1)).sort()
+  return readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => !e.isDirectory()).map((e) => join(e.parentPath ?? (e as any).path, e.name).slice(dir.length + 1)).sort()
 }
 // The agent preset a DSH session was created with (header line of its zstd-compressed log).
 const presetOfSession = (sessionId) => {
@@ -105,7 +105,7 @@ async function main() {
     env: { PATH: process.env.PATH, MOCK_LOG: join(DATA, 'mock.jsonl'), MOCK_REPLY: REPLY, MOCK_PORT: '0' },
     detached: true, stdio: ['ignore', 'pipe', 'inherit'],
   })
-  const mockPort = await new Promise((ok, fail) => {
+  const mockPort = await new Promise<number>((ok, fail) => {
     let out = ''
     mock.stdout.on('data', (chunk) => { out += chunk; const m = out.match(/listening on 127\.0\.0\.1:(\d+)/); if (m) ok(Number(m[1])) })
     mock.once('exit', (code) => fail(new Error(`the mock exited (${code})`)))
@@ -162,7 +162,7 @@ async function main() {
   const port = Number(startOut.match(/http:\/\/127\.0\.0\.1:(\d+)/)?.[1])
   check(`chat-to-fix starts in the bundled DSH (profile chat-to-fix, config/cordis.patch.yml + overlay${SENTINEL ? ', sentinel HOME' : ''})`, port > 0, startOut.trim())
   const token = readFileSync(join(DATA, 'http-token'), 'utf8').trim()
-  const api = async (method, path, body) => {
+  const api = async (method, path, body?) => {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method, headers: { 'x-chat-to-fix-token': token, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
     })
@@ -213,7 +213,7 @@ async function main() {
   const statePath = join(DATA, 'dsh', 'bot', 'state.json')
   const state = readJson(statePath)
   const room = state.rooms?.[runEntry.groupId]
-  const botIds = Object.values(runEntry.bots)
+  const botIds = Object.values(runEntry.bots) as any[]
   check('the bot layer state file holds the five bots and the group',
     botIds.every((id) => state.bots?.[id] !== undefined) && room !== undefined && botIds.every((id) => room.members?.includes(id)) && room.admin === runEntry.bots.main,
     `${statePath.slice(ROOT.length + 1)}: ${Object.keys(state.bots ?? {}).length} bots (${botIds.map((id) => state.bots?.[id]?.name).join(', ')}), ${Object.keys(state.rooms ?? {}).length} group ("${room?.name}", admin ${state.bots?.[room?.admin]?.name})`)

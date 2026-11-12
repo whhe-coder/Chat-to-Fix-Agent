@@ -8,7 +8,7 @@ import { childEnv } from '../../../../src/engine/env.ts'
 
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.
-const outputOf = (file, args) => new Promise((resolve) => {
+const outputOf = (file: any, args: any) => new Promise<any>((resolve) => {
   try {
     execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: childEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
   } catch { resolve(undefined) }
@@ -72,8 +72,8 @@ export function findExecutable(name) {
 }
 
 // One `--version` call, bounded; the version line is for display only.
-export function probeVersion(executable, args, env) {
-  return new Promise((resolve) => {
+export function probeVersion(executable: any, args: any, env: any) {
+  return new Promise<any>((resolve) => {
     execFile(executable, args, { encoding: 'utf8', timeout: 10_000, env }, (error, stdout, stderr) => {
       const text = `${stdout ?? ''}${stderr ?? ''}`.split('\n').map(line => line.trim()).find(Boolean)
       resolve({ ok: error === null, version: text })

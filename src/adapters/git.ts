@@ -30,7 +30,7 @@ const SAFE_CONFIG = [
 
 /** The environment of every git child process. */
 export function gitEnv(author) {
-  const env = {
+  const env: any = {
     PATH: process.env.PATH ?? '/usr/bin:/bin',
     HOME: tmpdir(),
     GIT_CONFIG_GLOBAL: '/dev/null',
@@ -53,9 +53,9 @@ export function gitEnv(author) {
  * Runs one git command. Resolves with { stdout, stderr }; rejects with an AdapterError
  * (`git_timeout` and `git_unavailable` are retryable; `network` marks fetch and push as retryable).
  */
-export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, network = false, raw = false } = {}) {
+export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, network = false, raw = false }: { cwd?: string, author?: any, timeoutMs?: number, network?: boolean, raw?: boolean } = {}) {
   const full = [...SAFE_CONFIG.flatMap((c) => ['-c', c]), ...args]
-  return new Promise((resolvePromise, reject) => {
+  return new Promise<any>((resolvePromise, reject) => {
     execFile('git', full, { cwd, env: gitEnv(author), timeout: timeoutMs, maxBuffer: MAX_BUFFER, encoding: raw ? 'buffer' : 'utf8' }, (error, stdout, stderr) => {
       if (error === null) { resolvePromise({ stdout, stderr }); return }
       if (error.code === 'ENOENT') { reject(new AdapterError('git_unavailable', 'git is not installed or not on PATH', { retryable: false })); return }
@@ -91,7 +91,7 @@ const inside = (root, target) => {
  * @param {{ worktreesDir: string, commitAuthor: {name: string, email: string}, timeoutMs?: number }} options
  */
 export function createGit({ worktreesDir, commitAuthor, timeoutMs = DEFAULT_TIMEOUT_MS }) {
-  const run = (args, options = {}) => runGit(args, { author: commitAuthor, timeoutMs, ...options })
+  const run = (args, options: any = {}) => runGit(args, { author: commitAuthor, timeoutMs, ...options })
   const out = async (args, options) => (await run(args, options)).stdout
 
   /** The real path of a code directory; it must exist and sit directly inside worktreesDir. */

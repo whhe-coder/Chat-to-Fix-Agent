@@ -234,7 +234,7 @@ export function install(rt) {
     return length > shown.length ? `${shown}… (cut; ${length} characters in all)` : shown
   }
 
-  const roomLineListeners = new Set()
+  const roomLineListeners = new Set<any>()
   const appendRoom = (room, line) => {
     room.seq += 1
     const whole = { ...line, seq: room.seq }
@@ -469,7 +469,7 @@ export function install(rt) {
 
   // A member's message in the round: in the log, for the members after it, and in the
   // round's replies, for the user.
-  const postInRound = (room, round, member, text, duration) => {
+  const postInRound = (room, round, member, text, duration?) => {
     appendRoom(room, { who: member.name, botId: member.id, text })
     round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }) })
     void rt.save().catch(() => {})
@@ -483,7 +483,7 @@ export function install(rt) {
   // called it, which answers what the turn posts after the round moved on. What the
   // member writes before its last step is posted at once and collected in `said`, and
   // `heard` takes each such line once it is posted.
-  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, by, said = [], heard = () => {}, onWork = () => {}) {
+  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, by, said = [], heard: any = () => {}, onWork = () => {}) {
     if (signal.aborted) return null
     const startedAt = Date.now()
     const exchangeId = randomUUID()
@@ -495,7 +495,7 @@ export function install(rt) {
     const seenAt = room.seq
     // Checked before the delivery, which may start the turn at once.
     const busy = rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true
-    const done = new Promise((resolve) => {
+    const done = new Promise<any>((resolve) => {
       let timer
       let grace
       const finish = (value) => {
@@ -741,7 +741,7 @@ export function install(rt) {
   async function runRound(room, round, signal, agent) {
     const turns = new Set()
     let due = true
-    let wake = () => {}
+    let wake: (value?: any) => void = () => {}
     round.nudge = () => { due = true; wake() }
     signal.addEventListener('abort', round.nudge, { once: true })
     while (!signal.aborted) {
@@ -965,7 +965,7 @@ export function install(rt) {
       // A goal draft queued with another post still brings the admin in, on its note.
       const draftPost = posts.find(post => post.goal === 'draft' && post !== opener)
       if (draftPost !== undefined && admin !== undefined && !speakers.some(member => member.id === admin.id)) speakers.push(admin)
-      const round = {
+      const round: any = {
         roomId: room.id,
         members: room.members,
         startSeq,
@@ -1196,7 +1196,7 @@ export function install(rt) {
   // While a round runs, the post goes into the group's log and that round's replies at
   // once, and the members it calls start in that round, so it is not held back until
   // the round ends and never sits in the group Session's QueueDock (#663).
-  async function postToRoom(room, sender, text, extra = {}, files = []) {
+  async function postToRoom(room, sender, text, extra: any = {}, files = []) {
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id && round.nudge !== undefined)
     if (running !== undefined) {
       ensureRoomLog(room)
@@ -1220,8 +1220,8 @@ export function install(rt) {
     }
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
-      content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra },
+      content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }) as any)],
+      source: { kind: SOURCE_KIND as any, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra },
     }))
     await ctx.sessions.flush(agent.session)
   }
@@ -1430,7 +1430,7 @@ export function install(rt) {
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: '[Group chat created]' }],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'kickoff', exchangeId: randomUUID(), senderName: 'You', roomId: room.id },
+      source: { kind: SOURCE_KIND as any, form: 'relay', role: 'kickoff', exchangeId: randomUUID(), senderName: 'You', roomId: room.id },
     }))
     await ctx.sessions.flush(agent.session)
   }

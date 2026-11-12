@@ -26,7 +26,7 @@ export function install(rt) {
   // A member's own pick inside one group, made with working_directory there: a path,
   // or null for the team workspace, which a missing entry would read as the Bot's
   // folder. A group's folder outranks it; without one the Bot's folder is the default.
-  const workDirOf = ({ botId, roomId } = {}) => {
+  const workDirOf = ({ botId, roomId }: any = {}) => {
     const room = rt.roomOf(roomId)
     if (room?.workDir !== undefined) return room.workDir
     if (room !== undefined && botId !== undefined && Object.hasOwn(room.memberDirs ?? {}, botId)) return room.memberDirs[botId] ?? undefined
@@ -146,7 +146,7 @@ export function install(rt) {
   }
 
   // Every Session of a Bot: its own chat and its conversation in each of its groups.
-  const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
+  const sessionsOfBot = botId => [rt.chatOf(botId), ...(Object.values(state.rooms) as any[])
     .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
 
   // A folder outside the team workspace widens where a Bot may write, so a Bot that
@@ -199,7 +199,7 @@ export function install(rt) {
         for (const workspace of ctx.workspaceRegistry.list?.() ?? []) {
           if (workspace.path !== team) known.set(workspace.path, workspace.title)
         }
-        for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
+        for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms)] as any[]) {
           if (entry.workDir && !known.has(entry.workDir)) known.set(entry.workDir, basename(entry.workDir) || entry.workDir)
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))

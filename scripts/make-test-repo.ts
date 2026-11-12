@@ -60,12 +60,12 @@ exec node test.js
  * pointing at the bare repository) and <dir>/project.git (the bare repository, already holding the
  * commit). Returns { localRepo, remote, defaultBranch, commit, files }.
  */
-export async function createTestRepo({ dir, defaultBranch = 'master' } = {}) {
+export async function createTestRepo({ dir, defaultBranch = 'master' }: any = {}) {
   const root = resolve(dir ?? await mkdtemp(join(tmpdir(), 'chat-to-fix-test-repo-')))
   const localRepo = join(root, 'project')
   const remote = join(root, 'project.git')
   await mkdir(localRepo, { recursive: true })
-  const git = (args, cwd) => runGit(args, { cwd, author: AUTHOR })
+  const git = (args, cwd): Promise<any> => runGit(args, { cwd, author: AUTHOR } as any)
 
   await git(['init', '--quiet', '--bare', '-b', defaultBranch, remote], root)
   await git(['init', '--quiet', '-b', defaultBranch, localRepo], root)

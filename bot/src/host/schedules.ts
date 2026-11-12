@@ -71,7 +71,7 @@ function selectorOf(when) {
       return { daily: { time: `${when.time}:00`, time_zone: zone } }
     case 'weekly': {
       if (!TIME.test(String(when.time))) throw invalid('Pick a time of day')
-      const weekdays = [...new Set((Array.isArray(when.weekdays) ? when.weekdays : []).map(Number))].filter(day => Number.isInteger(day) && day >= 1 && day <= 7).sort()
+      const weekdays = [...new Set((Array.isArray(when.weekdays) ? when.weekdays : []).map(Number))].filter((day: any) => Number.isInteger(day) && day >= 1 && day <= 7).sort()
       if (weekdays.length === 0) throw invalid('Pick at least one day')
       return { weekly: { time: `${when.time}:00`, time_zone: zone, weekdays } }
     }
@@ -174,7 +174,7 @@ export function install(rt) {
     }
     const records = await service.list({ sessionId: fromId })
     for (const record of records) {
-      const request = requestOf(record)
+      const request: any = requestOf(record)
       if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
       // A failed read or copy must prevent stopActivity from deleting an unmoved
       // task. Equal requests can be separate tasks; copy each source record.

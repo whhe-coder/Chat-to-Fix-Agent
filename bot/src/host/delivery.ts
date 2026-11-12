@@ -14,7 +14,7 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, asker } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, asker }: { resumed?: boolean, retried?: boolean, resent?: boolean, asker?: any } = {}) => {
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
     if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
@@ -63,7 +63,7 @@ export function install(rt) {
     const room = rt.roomOf(roomId)
     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
     // Session events reject `undefined` members, so optional fields are omitted instead.
-    const source = {
+    const source: any = {
       kind: SOURCE_KIND,
       form: 'relay',
       role,
@@ -88,8 +88,8 @@ export function install(rt) {
     const message = createUserMessage({
       content: [
         { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, asker })}\n${text}` },
-        ...images.map(attachment => ({ type: 'image', attachment })),
-        ...files.map(attachment => ({ type: 'file', attachment })),
+        ...images.map(attachment => ({ type: 'image' as const, attachment })),
+        ...files.map(attachment => ({ type: 'file' as const, attachment })),
       ],
       source,
     })

@@ -153,7 +153,7 @@ export function install(rt) {
     persist()
   }
   const forgetQueued = (exchangeId) => {
-    for (const [sessionId, list] of Object.entries(queued)) {
+    for (const [sessionId, list] of Object.entries(queued) as [string, any[]][]) {
       const at = list.findIndex(item => item.args.exchangeId === exchangeId)
       if (at === -1) continue
       const rest = list.toSpliced(at, 1)
@@ -189,7 +189,7 @@ export function install(rt) {
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
-  ctx.on('agent/inbox/discarded', ({ message } = {}) => {
+  ctx.on('agent/inbox/discarded', ({ message }: any = {}) => {
     if (message?.source?.kind === SOURCE_KIND && message.source.exchangeId) forgetQueued(message.source.exchangeId)
   })
   // Exchanges a turn took up since this start, until the resends are done, so a resend

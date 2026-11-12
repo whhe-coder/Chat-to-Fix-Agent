@@ -41,7 +41,7 @@ export function createRecorder({ store, botlayer, warn = (...args) => console.wa
     return id === undefined ? undefined : store.getTask(id)
   }
 
-  const runOf = (task, groupId) => {
+  const runOf = (task, groupId?) => {
     const index = groupId === undefined ? -1 : task.runs?.findIndex((run) => run.groupId === groupId)
     return index >= 0 ? index + 1 : (task.runs?.length ?? null)
   }

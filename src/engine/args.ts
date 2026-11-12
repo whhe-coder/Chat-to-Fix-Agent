@@ -48,7 +48,7 @@ function toolList(name, list) {
 //   disallowedTools: [...]      -> --disallowedTools
 //   persist: false              -> --no-session-persistence
 // }
-export function claudeArgs(options = {}) {
+export function claudeArgs(options: any = {}) {
   const {
     print = true, settingSources, resumeId, system, permission, model, mcp, maxTurns, reviewer,
     permissionPrompts, tools, allowedTools, disallowedTools, persist,
@@ -86,7 +86,7 @@ export function claudeArgs(options = {}) {
   }
   if (reviewer !== undefined) {
     if (!reviewer.description || !reviewer.prompt) throw new Error('a reviewer needs a description and a prompt')
-    const definition = { description: reviewer.description, prompt: reviewer.prompt }
+    const definition: any = { description: reviewer.description, prompt: reviewer.prompt }
     if (reviewer.tools !== undefined) definition.tools = reviewer.tools
     args.push('--agents', JSON.stringify({ [reviewer.name ?? 'reviewer']: definition }))
   }
@@ -99,7 +99,7 @@ function mcpServerEntry(mcp) {
     return { type: 'stdio', command: mcp.command, args: mcp.args ?? [], ...(mcp.env === undefined ? {} : { env: mcp.env }) }
   }
   if (typeof mcp.url !== 'string' || mcp.url === '') throw new Error('an http MCP server needs a url')
-  const server = { type: 'http', url: mcp.url }
+  const server: any = { type: 'http', url: mcp.url }
   if (mcp.token !== undefined) server.headers = { Authorization: `Bearer ${mcp.token}` }
   return server
 }
@@ -116,7 +116,7 @@ function mcpServerEntry(mcp) {
 // refused by the CLI. AskUserQuestion, web and scheduling tools are not offered at all.
 export const CODING_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'Agent', 'ToolSearch'])
 
-export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print } = {}) {
+export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print }: any = {}) {
   const serverName = mcpServer?.name ?? 'chat-to-fix'
   const prefix = `mcp__${serverName}__`
   const allowedTools = [

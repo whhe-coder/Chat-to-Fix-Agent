@@ -108,7 +108,7 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
 
   function subscribe() {
     if (unsubscribers.length > 0) return
-    const subs = [
+    const subs: [string, any][] = [
       ['onSessionEvent', onSessionEvent], ['onRoundEnd', onRoundEnd],
       ['onGroupLine', onGroupLine], ['onApproval', onApproval],
     ]
@@ -142,9 +142,9 @@ export function createMonitor({ store, botlayer, limits, end, send, now = () => 
     w.stepStart = Math.max(Number.isFinite(entered) ? entered : w.watchedAt, w.baseAt)
   }
 
-  function watch(taskId, opts = {}) {
+  function watch(taskId, opts: any = {}) {
     const t = now()
-    const w = {
+    const w: any = {
       taskId, watchedAt: t, baseAt: opts.restarted ? t : 0, restarted: !!opts.restarted,
       groupId: null, bots: {}, runNo: null, step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,

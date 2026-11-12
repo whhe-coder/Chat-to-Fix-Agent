@@ -12,8 +12,8 @@ export const issuesFile = (dataDir) => join(fakeRoot(dataDir), 'jira', 'issues.j
 
 /** Chooses the implementation by `config.adapters.jira`. */
 export function createJiraAdapter(config, options = {}) {
-  if (config.adapters?.jira === 'real') return createRealJira(config, options)
-  return createFakeJira(config, options)
+  if (config.adapters?.jira === 'real') return (createRealJira as any)(config, options)
+  return (createFakeJira as any)(config, options)
 }
 
 /** Plug-in point of the real implementation (work package R1): same four functions as the fake. */
@@ -37,7 +37,7 @@ export function createFakeJira(config) {
   }
 
   return {
-    async createIssue(binding, { title, description, acceptance, permalink } = {}) {
+    async createIssue(binding, { title, description, acceptance, permalink }: any = {}) {
       if (!text(binding?.jiraProject)) throw new AdapterError('bad_binding', 'the binding has no jiraProject')
       if (!text(title)) throw new AdapterError('bad_title', 'the issue title is missing')
       return updateJson(file, {}, (issues) => {

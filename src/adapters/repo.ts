@@ -25,7 +25,7 @@ const isText = (v) => typeof v === 'string' && v.trim() !== ''
  *   get(binding, branch) -> { state, pipeline, url, ... }
  */
 export function createRepoAdapter(config, options = {}) {
-  const mr = config.adapters?.gitlab === 'real' ? createRealGitlab(config, options) : createFakeGitlab(config)
+  const mr: any = config.adapters?.gitlab === 'real' ? (createRealGitlab as any)(config, options) : createFakeGitlab(config)
   const git = createGit({ worktreesDir: config.worktreesDir, commitAuthor: config.commitAuthor })
 
   /**
@@ -50,7 +50,7 @@ export function createRepoAdapter(config, options = {}) {
      * the same branch it amends our own commit (or adds one when someone committed since), pushes
      * again and returns the same url.
      */
-    async openDraftMR(binding, dir, branch, { title, description, jiraKey } = {}) {
+    async openDraftMR(binding, dir, branch, { title, description, jiraKey }: any = {}) {
       const b = complete(binding)
       if (!isText(title)) throw new AdapterError('bad_title', 'the MR title is missing')
       const { branch: current } = await git.head(dir)
@@ -87,7 +87,7 @@ export function createFakeGitlab(config) {
     },
 
     async upsertDraft(binding, { branch, title, description, jiraKey, headSha }) {
-      return updateJson(file, {}, (mrs) => {
+      return updateJson(file, {}, (mrs: any) => {
         const now = new Date().toISOString()
         const old = mrs[branch]
         if (old !== undefined) {
@@ -95,7 +95,7 @@ export function createFakeGitlab(config) {
           return { value: mrs, result: { url: old.url } }
         }
         const repo = binding?.repo ?? 'unknown/unknown'
-        const used = Object.values(mrs).filter((m) => m.repo === repo).map((m) => m.iid)
+        const used = Object.values(mrs).filter((m: any) => m.repo === repo).map((m: any) => m.iid)
         const iid = Math.max(0, ...used) + 1
         mrs[branch] = {
           iid, repo, url: `fake://gitlab/${repo}/mr/${iid}`, branch, target: binding?.defaultBranch ?? 'master',

@@ -39,7 +39,7 @@ export function install(rt) {
       ...decision,
       messages: [...decision.messages, createUserMessage({
         content: [{ type: 'text', text }],
-        source: { kind: SOURCE, form: 'snapshot', sections: [{ name: SOURCE, text }] },
+        source: { kind: SOURCE as any, form: 'snapshot', sections: [{ name: SOURCE, text }] },
       })],
     }
   }, { prepend: true })

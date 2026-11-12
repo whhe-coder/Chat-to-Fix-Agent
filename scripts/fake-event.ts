@@ -49,7 +49,7 @@ export async function sendFakeEvent({
 }
 
 function parseArgs(argv) {
-  const options = {}
+  const options: any = {}
   const names = { '--channel': 'channel', '--text': 'text', '--thread': 'threadTs', '--data-dir': 'dataDir', '--url': 'url', '--token': 'token', '--user': 'userId', '--name': 'userName' }
   for (let i = 0; i < argv.length; i += 2) {
     const key = names[argv[i]]

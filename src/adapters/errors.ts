@@ -2,12 +2,14 @@
 // `retryable` tells the tool wrapper whether a second attempt can help (network, timeout) or not
 // (bad argument, missing thing).
 export class AdapterError extends Error {
+  declare code: string
+  declare retryable: boolean
   /**
    * @param {string} code        Short machine-readable reason, for example 'not_found'.
    * @param {string} message     Human-readable reason; never contains a credential.
    * @param {{ retryable?: boolean, cause?: unknown }} [options]
    */
-  constructor(code, message, { retryable = false, cause } = {}) {
+  constructor(code, message, { retryable = false, cause }: { retryable?: boolean, cause?: unknown } = {}) {
     super(message, cause === undefined ? undefined : { cause })
     this.name = 'AdapterError'
     this.code = code

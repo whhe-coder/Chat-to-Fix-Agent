@@ -49,7 +49,7 @@ export function bindingOf(config, channel) {
 }
 
 /** Reads, validates and completes the configuration. Throws one Error that lists every problem. */
-export function loadConfig({ path, env = process.env } = {}) {
+export function loadConfig({ path, env = process.env }: { path?: string, env?: any } = {}) {
   const file = path ?? env.CHAT_TO_FIX_CONFIG
   if (!isText(file)) throw new Error('invalid configuration: the path is missing (set CHAT_TO_FIX_CONFIG)')
   let raw

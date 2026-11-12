@@ -18,7 +18,7 @@ const minutes = since => {
 
 export function install(rt) {
   const { state } = rt
-  const works = () => (state.works ??= {})
+  const works = (): Record<string, any> => (state.works ??= {})
   // What came back, whole; state.json keeps the start of each.
   const whole = new Map()
   const save = () => void rt.save().catch(() => {})
@@ -67,7 +67,7 @@ export function install(rt) {
       // save() can resolve without writing during shutdown. Check the durable
       // references too, so an old state can still recover its result after restart.
       const saved = JSON.parse(readFileSync(join(rt.home, 'state.json'), 'utf8'))
-      if (Object.values(saved.works ?? {}).some(work => (work.results ?? []).some(result => result.file === name))) return
+      if ((Object.values(saved.works ?? {}) as any[]).some(work => (work.results ?? []).some(result => result.file === name))) return
       rmSync(resultPath(name), { force: true })
     } catch {}
   }

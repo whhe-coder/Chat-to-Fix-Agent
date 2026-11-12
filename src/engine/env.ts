@@ -27,7 +27,7 @@ export function childEnv({ extra = {}, source = process.env } = {}) {
 
 // engineAuth: 'login' -> the CLI uses the account signed in on this machine, no key.
 // 'apiKey' -> the key is given explicitly and travels as extra env.
-export function authEnv({ engineAuth = 'login', apiKey } = {}) {
+export function authEnv({ engineAuth = 'login', apiKey }: any = {}) {
   if (engineAuth === 'login') return {}
   if (engineAuth === 'apiKey') {
     if (typeof apiKey !== 'string' || apiKey === '') throw new Error("engineAuth 'apiKey' needs an apiKey")

@@ -62,6 +62,23 @@ const DEFAULT_DENY = 'Denied: this action is not allowed for this bot.'
 const ABORTED = new Set(['aborted_tools', 'aborted_streaming'])
 
 export class ClaudeSession {
+  declare name: any
+  declare events: any
+  declare waiters: any
+  declare dead: any
+  declare killed: any
+  declare pending: any
+  declare permissions: any
+  declare toolNames: any
+  declare nextId: any
+  declare permissionTimeoutMs: any
+  declare child: any
+  declare started: any
+  declare onEarlyExit: any
+  declare startTimer: any
+  declare initialized: any
+  declare exitCode: any
+  declare cliSessionId: any
   constructor({ name = 'Claude Code' } = {}) {
     this.name = name
     this.events = []
@@ -290,7 +307,7 @@ export class ClaudeSession {
 
   onResult(event) {
     // The failure flag is is_error alone: a failed turn can still say subtype 'success'.
-    const turnCostUsd = Object.values(event.model_usage_since_last_result ?? {}).reduce((sum, model) => sum + (model?.costUSD ?? 0), 0)
+    const turnCostUsd = Object.values(event.model_usage_since_last_result ?? {}).reduce((sum: number, model: any) => sum + (model?.costUSD ?? 0), 0)
     const common = {
       subtype: event.subtype, terminalReason: event.terminal_reason, numTurns: event.num_turns, durationMs: event.duration_ms,
       totalCostUsd: event.total_cost_usd, permissionDenials: event.permission_denials ?? [],

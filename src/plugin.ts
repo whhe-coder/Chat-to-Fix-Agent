@@ -11,7 +11,7 @@ import { createApp } from './app.ts'
 export const name = 'chat-to-fix'
 export const inject = botInject
 
-export function createChatToFix(ctx, pluginConfig = {}, env = process.env) {
+export function createChatToFix(ctx, pluginConfig: any = {}, env = process.env) {
   const config = loadConfig({ path: pluginConfig.configPath, env })
   const token = secret(env, 'CHAT_TO_FIX_HTTP_TOKEN')
   if (token === undefined) throw new Error('chat-to-fix: CHAT_TO_FIX_HTTP_TOKEN is not set')

@@ -49,10 +49,10 @@ export { defineTool } from '../../bot/src/host/tools.ts'
 // tools.js (shareBotTools) calls attachRoleTools, local-agents/launch.js calls bridgedToolNames.
 // `config` also carries what the Claude Code driver needs (local-agents/launch.js): engineAuth,
 // engineApiKey, engineMaxTurns, testCommands, permissionTimeoutMs. Returns the I1 facade.
-export function createRuntime(ctx, config = {}) {
+export function createRuntime(ctx, config: any = {}) {
   const dshHome = folders.dshHomeOf(process.env.DSH_HOME)
   const home = config.home ?? join(dshHome, 'bot')
-  const rt = {
+  const rt: any = {
     ctx,
     config,
     dshHome,

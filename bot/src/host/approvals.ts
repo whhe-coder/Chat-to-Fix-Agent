@@ -11,7 +11,7 @@ export function install(rt) {
   const { ctx } = rt
   /** @type {Map<string, {id:string, sessionId:string, botId:string, roomId?:string, tool:string, reason:string, detail:{text?:string, code?:string}, at:number, answer?:(outcome:string)=>void}>} */
   const pending = new Map()
-  const approvalListeners = new Set()
+  const approvalListeners = new Set<any>()
   const onApproval = (listener) => {
     approvalListeners.add(listener)
     return () => approvalListeners.delete(listener)
@@ -29,7 +29,7 @@ export function install(rt) {
     const botId = owner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
     if (botId === undefined) return next()
     const id = randomUUID()
-    const entry = {
+    const entry: any = {
       id,
       sessionId,
       botId,
