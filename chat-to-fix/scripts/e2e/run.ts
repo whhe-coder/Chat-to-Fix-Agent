@@ -122,7 +122,11 @@ export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60
         let timedOut = false
         for (;;) {
           task = (await api(c, `/tasks/${encodeURIComponent(taskId)}`, 'GET', fetchImpl)).body
-          if (END_STATES.includes(task?.state)) break
+          if (END_STATES.includes(task?.state)) {
+            // the end of the run can show up a moment after the state (real run of ci-changeset, 2026-11-12): wait a little for it
+            for (let i = 0; i < 10 && task?.runs?.at?.(-1)?.endedAt == null; i += 1) { await sleep(Math.min(pollMs, 1000)); task = (await api(c, `/tasks/${encodeURIComponent(taskId)}`, 'GET', fetchImpl)).body }
+            break
+          }
           if (shouldStop()) { await api(c, `/tasks/${encodeURIComponent(taskId)}/stop`, 'POST', fetchImpl); report.interrupted = true }
           else if (Date.now() - t0 > caseTimeoutMs && !timedOut) { timedOut = true; log(`[${id}] time limit reached: stopping ${taskId}`); await api(c, `/tasks/${encodeURIComponent(taskId)}/stop`, 'POST', fetchImpl) }
           else if (Date.now() - t0 > caseTimeoutMs + 60_000) break

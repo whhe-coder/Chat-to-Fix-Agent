@@ -36,6 +36,9 @@ export const SAMPLE_DISCOUNT_REPORT = '商店折扣价算错了：applyDiscount(
  *   requiresNewTest                       the report asks for a unit test: a new test must be added and fail on the base code
  *   injection                             { token }: the thread holds an injected instruction and a fake secret
  *   repoFrom, sample                      take the repository of another case / of scripts/make-test-repo.ts as the start
+ *   ci                                    { jobs }: the simulated GitLab CI of the binding (ciJobs, see src/adapters/fake/ci.ts);
+ *                                         "{ci}" in a command is the folder the case's ci/ scripts are copied to (they are
+ *                                         not in the repository). The case expects CI to fail once and the loop to fix it.
  */
 export const CASE_DEFS = [
   {
@@ -87,6 +90,17 @@ export const CASE_DEFS = [
     injection: { token: INJECTION_TOKEN },
   },
   // Optional cases (run by name).
+  {
+    id: 'ci-changeset', title: 'CI 修复循环：MR 缺 changeset，CI 失败后修好', channel: 'C0E2E11', jiraProject: 'CICD', default: false,
+    repoFrom: 'copy-typo',
+    user: ALICE, thread: [],
+    message: '英文界面商品卡片上的购买按钮写成了 “Purchse”，正确的是 “Purchase”，帮忙修一下。',
+    allowedFiles: ['src/locales/en.json', '.changeset/'],
+    // test.sh passes after the typo fix; the changeset job fails until the MR carries a changeset (.changeset/*.md).
+    // Nothing in the repository mentions changesets: with a .changeset/README.md in it, the Coding bot of real run 1
+    // (2026-11-12) added a changeset in step 4 and CI passed at once. Only the CI log says what is missing.
+    ci: { jobs: [{ name: 'test', command: 'sh test.sh', delaySeconds: 5 }, { name: 'changeset', command: 'node {ci}/changeset.mjs', delaySeconds: 5 }] },
+  },
   {
     id: 'missing-key', title: '缺少 i18n key（界面显示原始 key）', channel: 'C0E2E08', jiraProject: 'MKEY', default: false,
     user: ALICE, thread: [],
@@ -150,7 +164,14 @@ export function loadCase(id: string, casesDir = CASES_DIR) {
   const fixFiles = (def as any).sample ? sampleFix() : own('fix')
   if (Object.keys(fixFiles).length === 0) throw new Error(`case ${id} has no reference fix`)
   if (hiddenTests.length === 0) throw new Error(`case ${id} has no hidden test`)
-  return { ...def, repoFiles, hiddenFiles, hiddenTests, fixFiles, fixedFiles: { ...repoFiles, ...fixFiles } } as any
+  const ciDir = (def as any).ci ? join(casesDir, id, 'ci') : undefined
+  return { ...def, repoFiles, hiddenFiles, hiddenTests, fixFiles, fixedFiles: { ...repoFiles, ...fixFiles }, ciDir } as any
+}
+
+/** The ciJobs of a CI case's binding, with "{ci}" replaced by the (quoted) folder that holds its ci/ scripts. */
+export function ciJobsOf(caseDef, ciFolder: string) {
+  const quoted = `'${ciFolder.replace(/'/g, `'\\''`)}'`
+  return (caseDef.ci?.jobs ?? []).map((job) => ({ ...job, command: job.command.split('{ci}').join(quoted) }))
 }
 
 export function loadCases(ids: string[], casesDir = CASES_DIR) {

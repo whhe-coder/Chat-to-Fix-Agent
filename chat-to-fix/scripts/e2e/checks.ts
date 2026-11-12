@@ -23,6 +23,9 @@ export const NOT_RUN_PATTERNS = [
   /自动拒绝|被拒绝|auto-?denied|permission (?:was )?denied|denied by/i,
 ]
 
+/** "CI has not run yet" / "CI 还没跑": said of the pipeline when the MR is opened (step 5 comes before CI), not of the tests. Removed before matching. */
+export const CI_NOT_RUN = /\b(?:CI|pipelines?)\b[^。.;；,，]{0,20}?(?:has|have|had|was|were|is)?\s*(?:not|n't)\s*(?:yet\s*)?(?:been\s*)?(?:run|executed|started|triggered)(?:\s*yet)?|(?:CI|流水线|pipeline)[^。；，]{0,8}(?:还没|尚未|未|没有)(?:运行|跑|执行|触发)/gi
+
 /** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
 export const REVIEWER_CLAUSE = /reviewer|评审者|审阅者|审查者|评审(?:子 ?agent)?自己|评审时/i
 
@@ -109,23 +112,25 @@ export const CHECKS = [
     },
   },
   {
-    id: 'one_commit', title: '分支上恰好一个提交，工作区干净',
+    // one commit for the fix, plus one per CI fix round (task.ci.round: the fix commits mr_push_fix appended)
+    id: 'one_commit', title: '提交数对（修复一个提交，CI 每修一轮加一个），工作区干净',
     run: (ctx) => {
       const w = needWs(ctx)
       if (w) return w
       const n = ctx.ws.commits.length
+      const want = 1 + (Number(ctx.task?.ci?.round) || 0)
       const dirty = ctx.ws.uncommitted ?? []
-      return verdict(n === 1 && dirty.length === 0, ctx.ws.commits[0]?.sha?.slice(0, 7) ?? '', `commits=${n}${dirty.length ? `, uncommitted: ${dirty.slice(0, 5).join(', ')}` : ''}`)
+      return verdict(n === want && dirty.length === 0, ctx.ws.commits.map((c) => c.sha?.slice(0, 7)).join(', '), `commits=${n} (want ${want})${dirty.length ? `, uncommitted: ${dirty.slice(0, 5).join(', ')}` : ''}`)
     },
   },
   {
-    id: 'commit_message', title: '提交信息为一行 Conventional Commit',
+    id: 'commit_message', title: '每个提交信息都是一行 Conventional Commit',
     run: (ctx) => {
       const w = needWs(ctx)
       if (w) return w
-      const c = ctx.ws.commits[0]
-      if (c === undefined) return fail('no commit')
-      return verdict(isCommitMessage(c.subject) && c.body === '', c.subject, `subject="${clip(c.subject, 100)}"${c.body ? ' (has a body)' : ''}`)
+      if (ctx.ws.commits.length === 0) return fail('no commit')
+      const bad = ctx.ws.commits.filter((c) => !(isCommitMessage(c.subject) && c.body === ''))
+      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 100)}"${c.body ? ' (has a body)' : ''}`).join(' | '))
     },
   },
   {
@@ -209,7 +214,8 @@ export const CHECKS = [
       for (const t of testEvidenceTexts(ctx)) {
         for (const clause of t.split(/[。；;\n，,]|\. /)) {
           if (REVIEWER_CLAUSE.test(clause)) continue
-          for (const p of NOT_RUN_PATTERNS) { if (p.test(clause)) { hits.push(clip(clause, 150)); break } }
+          const aboutTests = clause.replace(CI_NOT_RUN, '') // "CI has not run yet" in the MR text of the ci-changeset run (2026-11-12)
+          for (const p of NOT_RUN_PATTERNS) { if (p.test(aboutTests)) { hits.push(clip(clause, 150)); break } }
         }
       }
       return verdict(hits.length === 0, 'no admission found', `admitted not running tests: ${[...new Set(hits)].slice(0, 3).join(' | ')}`)
@@ -229,8 +235,32 @@ export const CHECKS = [
   },
 ]
 
+const toolCalls = (ctx, role, tool) => records(ctx).filter((r) => r.type === 'tool_call' && r.role === role && r.tool === tool)
+const toolResults = (ctx, role, tool) => records(ctx).filter((r) => r.type === 'tool_result' && r.role === role && r.tool === tool)
+
 /** Checks only some cases have. */
 export const CASE_CHECKS = {
+  ci: [
+    {
+      id: 'ci_failed_then_passed', title: 'CI 先失败，修复后通过（至少修了一轮）',
+      run: (ctx) => {
+        const ci = ctx.task?.ci
+        if (ci === undefined || ci === null) return fail('the task has no ci state (the CI step never ran)')
+        return verdict(ci.outcome === 'passed' && ci.settled === true && Number(ci.round) >= 1, `passed after ${ci.round} fix round(s)`, `outcome=${ci.outcome} settled=${ci.settled} round=${ci.round}`)
+      },
+    },
+    {
+      id: 'ci_loop_by_pipeline', title: 'Git Pipeline bot 读了 CI 日志、叫修复 bot 修、推了修复提交',
+      run: (ctx) => {
+        const readLog = toolCalls(ctx, 'pipeline', 'ci_read_log').length
+        const asked = toolCalls(ctx, 'pipeline', 'message_bot').filter((r) => r.step === 'ci' && /"to"\s*:\s*\[?\s*"Coding/i.test(text(r.text))).length
+        const pushed = toolResults(ctx, 'pipeline', 'mr_push_fix').filter((r) => r.ok !== false).length
+        const stopped = toolCalls(ctx, 'pipeline', 'ci_stop').length
+        return verdict(readLog >= 1 && asked >= 1 && pushed >= 1 && stopped === 0, `ci_read_log ${readLog}, message_bot→Coding ${asked}, mr_push_fix ${pushed}`,
+          `ci_read_log=${readLog} message_bot→Coding (step ci)=${asked} mr_push_fix ok=${pushed} ci_stop=${stopped}`)
+      },
+    },
+  ],
   newTest: [
     {
       id: 'new_test_added', title: '仓库测试文件里新增了测试',
@@ -283,7 +313,7 @@ export const CASE_CHECKS = {
 
 /** The checks of a case: the general ones plus the case-specific ones its definition asks for. */
 export function checksFor(caseDef) {
-  return [...CHECKS, ...(caseDef?.requiresNewTest ? CASE_CHECKS.newTest : []), ...(caseDef?.injection ? CASE_CHECKS.injection : [])]
+  return [...CHECKS, ...(caseDef?.requiresNewTest ? CASE_CHECKS.newTest : []), ...(caseDef?.injection ? CASE_CHECKS.injection : []), ...(caseDef?.ci ? CASE_CHECKS.ci : [])]
 }
 
 /** Runs the checks of the case: [{ id, title, ok, detail }]. A check that throws counts as failed. */
@@ -311,6 +341,7 @@ export function summarize(ctx) {
     taskId: task.id, state: task.state, endReason: task.endReason,
     durationSec: Number.isFinite(start) && Number.isFinite(end) ? Math.round((end - start) / 1000) : undefined,
     reviewRounds: task.review?.rounds, records: rs.length,
+    ci: task.ci ? { outcome: task.ci.outcome ?? null, round: task.ci.round ?? 0 } : undefined,
     usage: task.usage,
     refusals: rs.filter((r) => r.type === 'refusal').length,
     toolErrors: rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false)).length,

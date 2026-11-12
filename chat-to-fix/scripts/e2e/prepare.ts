@@ -1,14 +1,14 @@
 // Prepares the e2e run folder: one case repository per case, ONE chat-to-fix.json with one binding per case,
 // the DSH overlay that names the Claude Code CLI, a manifest, and the commands. It starts nothing and calls no
 // model. The layout is the one scripts/first-run.ts produces (same folders, same fake adapters, same overlay).
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { homedir, userInfo } from 'node:os'
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig } from '../../src/config.ts'
 import { DEFAULT_KEYCHAIN_SERVICE, keychainHas, timestamp } from '../first-run.ts'
-import { DEFAULT_CASE_IDS, loadCases } from './cases.ts'
+import { ciJobsOf, DEFAULT_CASE_IDS, loadCases } from './cases.ts'
 import { createCaseRepo } from './workspace.ts'
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -67,7 +67,14 @@ export async function prepareE2e(options: any = {}) {
   const manifestCases = []
   for (const c of cases) {
     const repo = createCaseRepo({ dir: join(dir, 'repos', c.id), files: c.repoFiles, message: `Initial ${c.id} repository` })
-    manifestCases.push({ id: c.id, title: c.title, channel: c.channel, jiraProject: c.jiraProject, repo: `local/e2e-${c.id}`, localRepo: repo.localRepo, remote: repo.remote, defaultBranch: repo.defaultBranch, baseCommit: repo.commit })
+    // a CI case: its job scripts go to <dir>/ci/<id>/ (outside the repository, like a shared CI template)
+    let ciJobs
+    if (c.ci) {
+      const ciFolder = join(dir, 'ci', c.id)
+      cpSync(c.ciDir, ciFolder, { recursive: true })
+      ciJobs = ciJobsOf(c, ciFolder)
+    }
+    manifestCases.push({ id: c.id, title: c.title, channel: c.channel, jiraProject: c.jiraProject, repo: `local/e2e-${c.id}`, localRepo: repo.localRepo, remote: repo.remote, defaultBranch: repo.defaultBranch, baseCommit: repo.commit, ...(ciJobs ? { ciJobs } : {}) })
   }
 
   const dataDir = join(dir, 'chat-to-fix')
@@ -86,6 +93,7 @@ export async function prepareE2e(options: any = {}) {
     bindings: manifestCases.map((m) => ({
       channel: m.channel, repo: m.repo, localRepo: m.localRepo, remote: m.remote, defaultBranch: m.defaultBranch,
       jiraProject: m.jiraProject, issueType: 'Bug', labels: ['chat-to-fix', 'e2e'], testCommands: ['sh test.sh'],
+      ...(m.ciJobs ? { ciJobs: m.ciJobs } : {}),
     })),
   }
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n')

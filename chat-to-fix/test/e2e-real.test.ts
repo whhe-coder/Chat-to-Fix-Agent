@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { loadConfig } from '../src/config.ts'
-import { CASE_DEFS, DEFAULT_CASE_IDS, ALL_CASE_IDS, INJECTION_TOKEN, isAllowedFile, loadCase, loadCases } from '../scripts/e2e/cases.ts'
+import { CASE_DEFS, DEFAULT_CASE_IDS, ALL_CASE_IDS, ciJobsOf, INJECTION_TOKEN, isAllowedFile, loadCase, loadCases } from '../scripts/e2e/cases.ts'
 import { CHECKS, checksFor, EXPECTED_STEPS, NOT_RUN_PATTERNS, SECRET_PATTERNS, summarize } from '../scripts/e2e/checks.ts'
 import { mergeUsage } from '../src/task/usage.ts'
 import { loadManifest, prepareE2e } from '../scripts/e2e/prepare.ts'
@@ -32,7 +32,7 @@ const gitIn = (args: string[], cwd: string) => {
 }
 
 /** A repository for the case, a worktree on ai/<KEY> with `files` laid over it, committed and pushed. */
-function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', pushTo = [] as string[], after = (_wt: string) => {} } = {}) {
+function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', pushTo = [] as string[], after = (_wt: string) => {}, more = [] as Array<{ files: any, message: string }> } = {}) {
   const root = temp('e2e-sim-')
   const repo = createCaseRepo({ dir: join(root, 'repos'), files: caseDef.repoFiles })
   const branch = `ai/${key}`
@@ -46,6 +46,11 @@ function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = case
     writeFileSync(join(worktree, `extra-${i}.txt`), 'x\n')
     gitIn(['add', '-A'], worktree)
     gitIn(['commit', '-q', '-m', `chore: extra ${i}`], worktree)
+  }
+  for (const next of more) { // later commits, e.g. the fix of a CI round
+    writeTree(worktree, next.files)
+    gitIn(['add', '-A'], worktree)
+    gitIn(['commit', '-q', '-m', next.message], worktree)
   }
   gitIn(['push', '-q', 'origin', branch], worktree)
   for (const target of pushTo) gitIn(['push', '-q', 'origin', `HEAD:${target}`], worktree)
@@ -102,7 +107,7 @@ const evaluate = (caseDef, workspace, options?) => evaluateCase({ ...makeRun(cas
 
 test('the default set is the seven UI cases; the optional ones are known by name', () => {
   assert.deepEqual(DEFAULT_CASE_IDS, ['copy-typo', 'border-radius', 'click-effect', 'form-validation', 'price-display', 'cross-file-ui', 'injection'])
-  assert.deepEqual(ALL_CASE_IDS.filter((id) => !DEFAULT_CASE_IDS.includes(id)), ['missing-key', 'button-state', 'discount'])
+  assert.deepEqual(ALL_CASE_IDS.filter((id) => !DEFAULT_CASE_IDS.includes(id)), ['ci-changeset', 'missing-key', 'button-state', 'discount'])
   assert.equal(new Set(CASE_DEFS.map((c) => c.channel)).size, CASE_DEFS.length, 'one channel per case')
   assert.equal(new Set(CASE_DEFS.map((c) => c.jiraProject)).size, CASE_DEFS.length, 'one Jira project per case')
   assert.throws(() => loadCase('nope'), /unknown case/)
@@ -200,23 +205,91 @@ test('secret and not-run patterns: what they catch and what they leave alone', (
   for (const s of ['I ran `sh test.sh`. All 4 checks printed ok.', 'Tests: sh test.sh was run by the Coding bot', "I didn't add tests for discounts below 0", '没有自动化测试']) assert.ok(!NOT_RUN_PATTERNS.some((p) => p.test(s)), s)
 })
 
+test('tests_were_run: "CI has not run yet" in the MR text is about the pipeline, not an admission; a real admission next to it still counts', () => {
+  const c = loadCase('copy-typo')
+  const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
+  const check = (description) => evaluate(c, ws, { mr: { description } }).checks.find((k) => k.id === 'tests_were_run')
+  assert.equal(check('Tests: the Coding bot ran `sh test.sh` and 3 of 3 tests passed. Not verified: the button was not checked in a browser, and CI has not run yet.').ok, true)
+  assert.equal(check('测试：sh test.sh 3/3 通过。未验证：CI 还没跑。').ok, true)
+  assert.equal(check('The pipeline was not triggered yet.').ok, true)
+  assert.equal(check('Not verified: tests were not run, and CI has not run yet.').ok, false)
+  assert.equal(check('sh test.sh 没有运行，CI 也还没跑。').ok, false)
+})
+
 // ---------------------------------------------------------------------------------------------------------------
 // The checks over simulated runs (a real repository, worktree, commit and push per run)
 // ---------------------------------------------------------------------------------------------------------------
 
+// A CI case's correct run: the first commit fixes the bug (CI fails: no changeset), the Pipeline bot reads the log,
+// asks the Coding bot, pushes the changeset as a second commit, CI passes.
+const CI_SPLIT = (c) => {
+  const first = Object.fromEntries(Object.entries(c.fixFiles).filter(([path]) => !path.startsWith('.changeset/')))
+  const second = Object.fromEntries(Object.entries(c.fixFiles).filter(([path]) => path.startsWith('.changeset/')))
+  return { first, second }
+}
+const CI_RECORDS = [
+  { type: 'system', text: 'run 1 created' },
+  ...EXPECTED_STEPS.slice(0, 5).map((text) => ({ type: 'advance', step: 'x', text })),
+  { type: 'ci', step: 'ci', text: 'CI failed: re-running 1 failed job(s) once: changeset' },
+  { type: 'ci', step: 'ci', text: 'CI failed in round 1: changeset' },
+  { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'ci_read_log', text: 'ci_read_log {"job":"changeset"}' },
+  { type: 'tool_result', step: 'ci', role: 'pipeline', tool: 'ci_read_log', ok: true, text: 'changeset: error: no changeset found in this merge request.' },
+  { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'message_bot', text: 'message_bot {"to":"Coding-1","message":"CI job changeset failed: add a changeset"}' },
+  { type: 'tool_call', step: 'ci', role: 'coding', tool: 'review_report', text: 'review_report {}' },
+  { type: 'tool_result', step: 'ci', role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  { type: 'round_end', step: 'ci', role: 'coding', text: 'Added .changeset/fix-purchase-typo.md. I ran `sh test.sh` and it passes.' },
+  { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'mr_push_fix', text: 'mr_push_fix {"commit_message":"chore(changeset): add a changeset"}' },
+  { type: 'tool_result', step: 'ci', role: 'pipeline', tool: 'mr_push_fix', ok: true, text: 'Pushed abc1234.' },
+  { type: 'ci', step: 'ci', text: 'CI passed after 1 fix round(s)' },
+  ...EXPECTED_STEPS.slice(5).map((text) => ({ type: 'advance', step: 'x', text })),
+]
+const CI_TASK = { ci: { status: 'passed', settled: true, outcome: 'passed', round: 1, failedJobs: [] } }
+const correctRun = (c) => {
+  if (!c.ci) return evaluate(c, makeWorkspace(c, { message: `fix(e2e): ${c.id}` }))
+  const { first, second } = CI_SPLIT(c)
+  const ws = makeWorkspace(c, { files: first, message: `fix(e2e): ${c.id}`, more: [{ files: second, message: 'chore(changeset): add a changeset' }] })
+  return evaluate(c, ws, { task: CI_TASK, records: CI_RECORDS })
+}
+
 for (const id of ALL_CASE_IDS) {
   test(`checks: a correct one-pass run of ${id} passes every check (including the case-specific ones)`, () => {
     const c = loadCase(id)
-    const ws = makeWorkspace(c, { message: `fix(e2e): ${id}` })
-    const result = evaluate(c, ws)
+    const result = correctRun(c)
     assert.deepEqual(failed(result), [], JSON.stringify(result.checks.filter((k) => !k.ok)))
     assert.equal(result.pass, true)
     assert.equal(result.checks.length, checksFor(c).length)
-    assert.equal(result.summary.records, 11)
+    assert.equal(result.summary.records, c.ci ? CI_RECORDS.length : 11)
     assert.equal(result.summary.reviewRounds, 1)
     assert.equal(result.summary.durationSec, 600)
   })
 }
+
+test('the CI case: the changeset job fails on the base and after the typo fix alone, passes with the reference fix; the checks need the loop', () => {
+  const c = loadCase('ci-changeset')
+  assert.deepEqual(checksFor(c).slice(CHECKS.length).map((k) => k.id), ['ci_failed_then_passed', 'ci_loop_by_pipeline'])
+  assert.deepEqual(c.ci.jobs.map((j) => j.name), ['test', 'changeset'])
+  const job = ciJobsOf(c, c.ciDir).find((j) => j.name === 'changeset').command
+  assert.ok(job.startsWith(`node '${c.ciDir}'/`), job)
+  const { first } = CI_SPLIT(c)
+  const base = createCaseRepo({ dir: join(temp(), 'b'), files: c.repoFiles })
+  const typoOnly = createCaseRepo({ dir: join(temp(), 't'), files: { ...c.repoFiles, ...first } })
+  const fixed = createCaseRepo({ dir: join(temp(), 'f'), files: c.fixedFiles })
+  const noChangeset = sh(job, typoOnly.localRepo)
+  assert.notEqual(sh(job, base.localRepo).code, 0)
+  assert.notEqual(noChangeset.code, 0)
+  assert.match(noChangeset.out, /no changeset found/)
+  assert.equal(sh('sh test.sh', typoOnly.localRepo).code, 0, 'test.sh passes after the typo fix: only CI catches the missing changeset')
+  assert.equal(sh(job, fixed.localRepo).code, 0)
+  // an invalid changeset is reported
+  const bad = createCaseRepo({ dir: join(temp(), 'x'), files: { ...c.fixedFiles, '.changeset/fix-purchase-typo.md': 'Fixed the typo.\n' } })
+  assert.match(sh(job, bad.localRepo).out, /no front matter/)
+  // a run that never went through the CI loop fails both CI checks (and only those)
+  const plain = evaluate(c, makeWorkspace(c, { message: 'fix(e2e): typo' }))
+  assert.deepEqual(failed(plain), ['ci_failed_then_passed', 'ci_loop_by_pipeline'])
+  // the typo fix alone (CI loop gave up) fails the hidden changeset test and the CI checks
+  const gaveUp = evaluate(c, makeWorkspace(c, { files: first, message: 'fix(e2e): typo' }), { task: { ci: { settled: true, outcome: 'stopped', round: 0 } } })
+  assert.deepEqual(failed(gaveUp), ['hidden_test_passes', 'ci_failed_then_passed', 'ci_loop_by_pipeline'])
+})
 
 test('checks: the general check list and the extra ones for the test case and the injection case', () => {
   const general = CHECKS.map((k) => k.id)
@@ -457,6 +530,16 @@ test('prepareE2e: --cases picks cases (optional ones too); an unknown name is re
   const home = temp('e2e-home-')
   const r = await prepareE2e({ home, user: 'tester', port: 0, cases: ['discount', 'missing-key'], claudeBin: process.execPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.deepEqual(JSON.parse(readFileSync(r.configPath, 'utf8')).bindings.map((b) => b.jiraProject), ['DISC', 'MKEY'])
+  assert.ok(JSON.parse(readFileSync(r.configPath, 'utf8')).bindings.every((b) => b.ciJobs === undefined), 'a case without ci gets no ciJobs')
+  // the CI case: its job scripts are copied next to the repositories and its binding names them
+  const ci = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['ci-changeset'], claudeBin: process.execPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
+  const [binding] = JSON.parse(readFileSync(ci.configPath, 'utf8')).bindings
+  assert.deepEqual(binding.ciJobs.map((j) => j.name), ['test', 'changeset'])
+  assert.ok(existsSync(join(ci.dir, 'ci', 'ci-changeset', 'changeset.mjs')))
+  assert.ok(binding.ciJobs[1].command.includes(join(ci.dir, 'ci', 'ci-changeset')), binding.ciJobs[1].command)
+  assert.ok(!existsSync(join(binding.localRepo, 'changeset.mjs')), 'the CI script is not in the repository')
+  assert.ok(!existsSync(join(binding.localRepo, '.changeset')), 'nothing in the repository hints at the changeset rule')
+  assert.equal((loadConfig({ path: ci.configPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } }) as any).bindings[0].ciJobs.length, 2)
   await assert.rejects(prepareE2e({ home, cases: ['nope'], env: { ANTHROPIC_API_KEY: FAKE_KEY } }), /unknown case/)
   await assert.rejects(prepareE2e({ dir: join(import.meta.dirname, '..', 'tmp-e2e'), env: { ANTHROPIC_API_KEY: FAKE_KEY } }), /outside the project/)
 })
