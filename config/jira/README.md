@@ -1,20 +1,12 @@
 # Jira 接入记录
 
-目标：Jira Cloud 的 `F2PGBA` board。仓库不保存 Jira Cloud ID、board ID、账号邮箱或 token 值。
+目标：Jira Cloud 的 `F2PGBA` board。受 Git 跟踪的文件不保存 Jira Cloud ID、board ID、账号邮箱或 token 值。
 
 ## 当前实现
 
-[`src/jira/connection.js`](../../src/jira/connection.js) 提供独立的 `createJiraConnection()`。`npm run check:jira` 读取一个 board 的元数据；`npm run start:server` 启动本地 HTTP 服务，提供 board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。写入方法已通过真实调用验证。执行前需在本地提供以下配置：
+[`src/jira/connection.js`](../../src/jira/connection.js) 提供独立的 `createJiraConnection()`。`npm run check:jira` 读取一个 board 的元数据；`npm run start:server` 启动本地 HTTP 服务，提供 board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。写入方法已通过真实调用验证。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
-| 变量 | 用途 |
-| --- | --- |
-| `JIRA_CLOUD_ID` | Atlassian Cloud ID。 |
-| `JIRA_BOARD_ID` | 目标 board ID；只在读取 board 时需要。 |
-| `JIRA_TOKEN` | scoped API token；未设置时从 Mac 钥匙串 `Chat-to-Fix-Agent/JIRA_TOKEN`（账号 `local-agent`）读取。 |
-| `JIRA_EMAIL` | 使用个人账号 token 时填写；服务账号 Bearer token 不填写。 |
-| `JIRA_WORK_TYPE_FIELD_ID` | `F2PGBA` 的必填 `Work type` 单选字段 ID，格式为 `customfield_<数字>`；创建工单时需要。 |
-
-scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 API。浏览器里的 board 页面地址不能直接用作 API 地址。不要把 token 写入仓库、命令参数、日志或聊天记录。
+scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 API。浏览器里的 board 页面地址不能直接用作 API 地址。
 
 ## Board 读取权限
 
@@ -38,11 +30,11 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 
 这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。新 token 还包含原有的 `read:board-scope:jira-software` 和 `read:issue-details:jira`，共 14 项 scopes。
 
-2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。用户已将新值保存到本机钥匙串；本地 API 检查后，Atlassian 列表显示新 token 被访问。旧 `Chat-to-Fix-Board-Read` 已撤销；刷新后的列表只保留新的 Chat-to-Fix Jira token。已确认 `F2PGBA` 的 `Task` 类型可创建，`Work type` 为必填字段，测试工单可进入目标 board。
+2026-11-12 已在个人 Atlassian 账号下创建仅限 Jira 的 `Chat-to-Fix-Jira-Issues-Comments` scoped token，到期日为 2027-02-09。Atlassian 创建前确认页列出上述 14 项 scopes。本地 API 检查后，Atlassian 列表显示新 token 被访问。旧 `Chat-to-Fix-Board-Read` 已撤销；刷新后的列表只保留新的 Chat-to-Fix Jira token。已确认 `F2PGBA` 的 `Task` 类型可创建，`Work type` 为必填字段，测试工单可进入目标 board。
 
 ## 真实连接验证
 
-2026-11-12 用新 token 执行 `npm run check:jira`，成功读取目标 board。初次创建请求返回 `400`，Jira 指明 `Work type` 必填。通过 Jira 页面确认该字段为单选，并从字段元数据取得 ID；该 ID 只在本地配置，仓库不记录实际值。补齐 `Task` 类型和 `Tech Research` 值后，本地服务真实创建一张标明为验证用途的工单，返回 `201`。服务新增评论返回 `201`，修改自身评论返回 `200`。新 token 回读到修改后的评论；目标 board 的 issue 查询返回该工单。完整本地测试 28 项通过。Cloud ID、board ID、个人邮箱、字段 ID 和测试工单编号均不写入仓库。
+2026-11-12 用新 token 执行 `npm run check:jira`，成功读取目标 board。初次创建请求返回 `400`，Jira 指明 `Work type` 必填。通过 Jira 页面确认该字段为单选，并从字段元数据取得 ID；该 ID 只在本地配置，Git 跟踪文件不记录实际值。补齐 `Task` 类型和 `Tech Research` 值后，本地服务真实创建一张标明为验证用途的工单，返回 `201`。服务新增评论返回 `201`，修改自身评论返回 `200`。新 token 回读到修改后的评论；目标 board 的 issue 查询返回该工单。完整本地测试 28 项通过。Cloud ID、board ID、个人邮箱、字段 ID 和测试工单编号均不写入 Git 跟踪文件。
 
 同一 token 调用项目元数据、字段查询和单个工单读取接口时返回 `401 scope does not match`。这不影响已验证的创建、评论和 board 查询，但后续若需要动态发现字段或读取完整工单，须先查明这些读取接口的授权差异。不能把已选的 scope 清单直接等同于所有读取 API 均可用。
 
@@ -52,7 +44,7 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 env JIRA_CLOUD_ID='<cloud-id>' JIRA_BOARD_ID='<board-id>' JIRA_EMAIL='<account-email>' npm run check:jira
 ```
 
-命令从钥匙串读取 token，只输出 board 元数据。创建工单时另需设置 `JIRA_WORK_TYPE_FIELD_ID`。可在已登录的 Jira 浏览器会话中查询 `/rest/api/3/field/search?query=Work%20type`，选取名称精确等于 `Work type` 的字段 ID。使用服务账号 token 时，不设置 `JIRA_EMAIL`；服务账号路径尚未做真实验证。
+命令只输出 board 元数据。创建工单时另需设置 `JIRA_WORK_TYPE_FIELD_ID`；取得方式见 [本地环境变量配置](../local-env/README.md)。服务账号路径尚未做真实验证。
 
 ## 后续授权
 

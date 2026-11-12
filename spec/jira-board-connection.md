@@ -1,12 +1,12 @@
 # Jira board 连接规格
 
-状态：board 的只读连接函数、本地测试和真实读取已完成。当前个人账号 Jira token 包含 board 读取和写入 API scopes，保存在本机钥匙串；旧只读 token 已撤销。工单和评论写入接口已实现，但真实写入尚未验证，见 [写入接口规格](jira-write-server.md)。
+状态：board 的只读连接函数、本地测试和真实读取已完成。当前个人账号 Jira token 包含 board 读取和写入 API scopes，保存在本机钥匙串；旧只读 token 已撤销。工单和评论写入也已通过真实验证，见 [写入接口规格](jira-write-server.md)。
 
 ## 目标与入口
 
 本地 agent 通过 [`createJiraConnection()`](../src/jira/connection.js) 读取 `F2PGBA` board。连接检查只调用 Jira Software Cloud 的 `GET /rest/agile/1.0/board/{boardId}`，返回 board ID、名称和响应中可用的项目 key。该连接对象也提供写入方法；只有调用写入方法才会创建或修改 Jira 数据。
 
-调用 board 检查时设置 `JIRA_CLOUD_ID`、`JIRA_BOARD_ID`。`JIRA_TOKEN` 优先来自环境变量；未设置时，从 Mac 钥匙串 `Chat-to-Fix-Agent/JIRA_TOKEN`（账号 `local-agent`）读取。服务账号 token 使用 Bearer；若设置 `JIRA_EMAIL`，则使用该邮箱和个人 scoped token 的 Basic 认证。请求发送到 `https://api.atlassian.com/ex/jira/{cloudId}`。`npm run check:jira` 运行一次检查并只输出 board 元数据。
+调用 board 检查时设置 `JIRA_CLOUD_ID`、`JIRA_BOARD_ID`。变量来源和读取优先级见 [本地环境变量配置](../config/local-env/README.md)。服务账号 token 使用 Bearer；若设置 `JIRA_EMAIL`，则使用该邮箱和个人 scoped token 的 Basic 认证。请求发送到 `https://api.atlassian.com/ex/jira/{cloudId}`。`npm run check:jira` 运行一次检查并只输出 board 元数据。
 
 ## 权限与安全
 
@@ -14,7 +14,7 @@
 
 ## 验证边界
 
-本地测试覆盖服务账号 Bearer、个人账号 Basic、目标 board 路径、钥匙串读取和错误脱敏。2026-11-12 用个人账号 scoped token 成功读取目标 board 的 ID 与名称；响应未给出项目 key，返回值为 `null`。服务账号的实际权限及 Jira 写入均未验证。
+本地测试覆盖服务账号 Bearer、个人账号 Basic、目标 board 路径、钥匙串读取和错误脱敏。2026-11-12 用个人账号 scoped token 成功读取目标 board 的 ID 与名称；响应未给出项目 key，返回值为 `null`。服务账号的实际权限尚未验证；个人账号 token 的 Jira 写入已验证。
 
 ## 后续扩展约束
 

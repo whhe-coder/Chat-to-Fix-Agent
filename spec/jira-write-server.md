@@ -19,7 +19,7 @@
 
 ## 凭据与安全
 
-Jira 连接从 `JIRA_TOKEN` 环境变量或本机钥匙串 `Chat-to-Fix-Agent/JIRA_TOKEN`（账号 `local-agent`）取得 token。连接需要 `JIRA_CLOUD_ID`；创建工单还需要 `JIRA_WORK_TYPE_FIELD_ID`；board 检查需要 `JIRA_BOARD_ID`。个人 scoped token 使用 `JIRA_EMAIL` 和 Basic 认证；服务账号 token 不设置该邮箱，使用 Bearer。凭据设置见 [Jira 接入记录](../config/jira/README.md)。
+Jira 连接需要 `JIRA_TOKEN`、`JIRA_CLOUD_ID`；创建工单还需要 `JIRA_WORK_TYPE_FIELD_ID`；board 检查需要 `JIRA_BOARD_ID`。个人 scoped token 使用 `JIRA_EMAIL` 和 Basic 认证；服务账号 token 不设置该邮箱，使用 Bearer。变量来源和保存方式见 [本地环境变量配置](../config/local-env/README.md)，授权设置见 [Jira 接入记录](../config/jira/README.md)。
 
 写入接口只接受 `Host: 127.0.0.1:<port>`。若请求带 `Origin`，它必须与该本机地址相同。服务拒绝跨站、非 JSON、无效输入和非 F2PGBA 工单路径。服务不返回 token 或 Jira 错误正文。没有 token 时，Jira 接口返回 `503`。Jira 拒绝写入时，服务返回 `502` 和上游状态码，不返回上游正文。
 
