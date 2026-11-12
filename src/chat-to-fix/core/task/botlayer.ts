@@ -54,7 +54,7 @@ export function createBotLayer(rt) {
   })
 
   // --- usage ----------------------------------------------------------------------------
-  // The API bots' usage (source 'dsh') comes from DSH's own per-session projections, read through
+  // Bots on an API route report usage (source 'dsh') through DSH's per-session projections, read through
   // ctx.sessionController.projections({ sessionId }): `tokenUsage` (the session's token totals: uncached
   // input, output, cache read, cache write; every settled call and failed attempt is in it) and
   // `sessionStats` of @deepseek-ai/dsh-session-stats (ttftMs and ttftSteps, decodeMs and decodeTokens: the
@@ -63,7 +63,7 @@ export function createBotLayer(rt) {
   // usage event is fired per round, just before the round-end event. The speed is derived from them
   // (decodeTokens / decodeMs, the very quotient of DSH's stats table); nothing is recomputed from streams.
   // DSH reports no cost, so the task layer prices the tokens from its table (core/task/pricing.ts).
-  // The Coding bot is not read here: its CLI turn is reported by reportEngineUsage below with the CLI's cost.
+  // Bots on a local CLI route are not read here: their turns are reported by reportEngineUsage below.
   // Not counted: model calls DSH keeps out of the session log (a session title, a compaction summary).
   const READ_MS = 5000
   const canRead = () => typeof ctx.sessionController?.projections === 'function'

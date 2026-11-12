@@ -1,13 +1,11 @@
 // How one Claude Code process is started for a DSH Session: the argument list and the child
-// environment. A session of a bound coding bot gets the settled unattended list (codingArgs:
-// the reviewer subagent, our tools only, no permission prompts); any other session gets
-// claudeArgs with what DS Bot passed before (resume id, system text, permission mode, model,
-// the loopback MCP server).
+// environment. A bound Coding bot gets codingArgs (reviewer and scoped edit tools). A bound
+// flow bot gets flowArgs (only its assigned MCP tools). Other sessions keep the DS Bot arguments.
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { authEnv, childEnv, isolationSettings, userConfigHome } from '../../../../core/engine/env.ts'
-import { claudeArgs, codingArgs } from '../../../../core/engine/args.ts'
+import { claudeArgs, codingArgs, flowArgs } from '../../../../core/engine/args.ts'
 import { botDef } from '../../../../core/registry/bots.ts'
 import { loadPrompt } from '../../../../core/prompts/index.ts'
 
@@ -116,6 +114,15 @@ export function launchFor(rt, sessionId, open) {
     // Agent tool's subagent in the background and ends the turn before the reviewer has answered.
     const codingEnv = childEnv({ extra: { ...auth, ...isolation.env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })
     return { args, env: codingEnv, permissionTimeoutMs, resumed: false }
+  }
+  if (def !== undefined) {
+    const roleToolNames = bridgeNames(rt, sessionId, open.toolNames).filter(name => name !== 'approve_agent_action')
+    const args = flowArgs({
+      roleToolNames,
+      mcpServer: { name: 'dsbot', config: { url: open.mcp.url, token: open.mcp.token } },
+      model, system: open.system, resumeId: open.resumeId, settings: isolation.settings,
+    })
+    return { args, env, permissionTimeoutMs, resumed: open.resumeId !== undefined }
   }
   const args = claudeArgs({
     resumeId: open.resumeId,

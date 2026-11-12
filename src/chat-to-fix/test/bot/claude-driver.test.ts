@@ -92,7 +92,7 @@ test('a bound coding bot\'s CLI is started with the settled arguments', async (t
   assert.equal(Object.keys(env).filter(key => /TOKEN|KEY|SECRET/.test(key)).length, 0)
 })
 
-test('a session that is not a bound coding bot is started with claudeArgs and what DS Bot passed before', async (t) => {
+test('an unbound session keeps DS Bot arguments; a bound flow bot uses scoped CLI arguments', async (t) => {
   const { adapter, host, bots } = await rig(t)
   const loose = await host.botlayer.createBot({ name: 'Loose', label: 'Other', instructions: 'You are Loose.' })
   const own = await textOf(adapter.stream(streamOptions(loose, '[echo]')))
@@ -101,9 +101,13 @@ test('a session that is not a bound coding bot is started with claudeArgs and wh
   assert.equal(valueOf(argv, '--permission-mode'), 'acceptEdits')
   assert.deepEqual(Object.keys(JSON.parse(valueOf(argv, '--mcp-config')).mcpServers), ['dsbot'])
   for (const flag of ['--agents', '--permission-prompts', '--tools', '--allowedTools', '--max-turns', '--no-session-persistence']) assert.equal(argv.includes(flag), false, flag)
-  // A bound bot of another role (no reviewer) takes the same path.
+  // A bound flow bot has only its assigned MCP tools and no permission prompts.
   const main = echoed(await textOf(adapter.stream(streamOptions(bots.main, '[echo]'))))
   assert.equal(main.argv.includes('--agents'), false)
+  assert.equal(valueOf(main.argv, '--permission-prompts'), 'none')
+  assert.equal(valueOf(main.argv, '--tools'), 'ToolSearch')
+  assert.ok(valueOf(main.argv, '--allowedTools').split(',').includes('mcp__dsbot__task_advance'))
+  assert.equal(valueOf(main.argv, '--allowedTools').split(',').includes('mcp__dsbot__jira_create_issue'), false)
 })
 
 test('the engineAuth apiKey passes the key as the engine\'s extra variable, login passes none', async (t) => {
@@ -171,6 +175,24 @@ test('a turn\'s text reaches the bot\'s reply, and a bridged role tool is called
   await waitForIdle(ctx, agent)
   assert.match(answerOf(agent), /Recorded: review pass/)
   assert.equal((await app.store.getTask(task.id)).review.verdict, 'pass')
+})
+
+test('a flow bot on the CLI route can call its bridged task tool', async (t) => {
+  const app = await startApp(t, { cli: CLI, config: { apiModel: 'claude-code/default' } })
+  const { bots } = await app.post()
+  const { host } = app
+  const adapter = await host.localAdapter()
+  const { ctx, agent, close } = await mountLoop(host, adapter, bots.jira)
+  t.after(close)
+  send(agent, '[mcp:task_read {}]')
+  await waitForIdle(ctx, agent)
+  assert.equal(endOf(agent), 'completed')
+  assert.match(answerOf(agent), /tool said:/)
+  const mcp = adapter.live.get(bots.jira).mcp
+  const listed = await fetch(mcp.url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${mcp.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })
+  const names = (await listed.json()).result.tools.map(tool => tool.name)
+  assert.ok(names.includes('jira_create_issue'))
+  assert.equal(names.includes('mr_open_draft'), false)
 })
 
 test('a subagent result and a tool error show up in the session events', async (t) => {

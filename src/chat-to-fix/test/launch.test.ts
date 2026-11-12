@@ -18,7 +18,7 @@ function rt(config, { roles = {}, options = {} }: any = {}) {
     config,
     teamTools: [],
     botlayer: { botOfSession: (id) => (roles[id] === undefined ? undefined : { botId: id, ...roles[id] }) },
-    taskLayer: { bridgedToolNames: () => ['review_report'], codingOptions: (taskId) => options[taskId] },
+    taskLayer: { bridgedToolNames: (id) => id === 'main' ? ['task_advance'] : ['review_report'], codingOptions: (taskId) => options[taskId] },
   }
 }
 const allowedOf = (launch) => valueOf(launch.args, '--allowedTools').split(',')
@@ -63,9 +63,12 @@ test('without commands on the binding, the plugin-level list is the fallback; wi
   assert.ok(allowedOf(launchFor(hookless, 'coding', open)).includes('Bash(plugin cmd)'))
 })
 
-test('a bot of another role gets no allow-list at all', () => {
+test('a flow bot gets only its role tools and no shell commands', () => {
   const host = rt({ testCommands: ['plugin cmd'] }, { roles: CODING, options: { 'T-1': { testCommands: ['sh test.sh'] } } })
-  assert.equal(launchFor(host, 'main', open).args.includes('--allowedTools'), false)
+  const launch = launchFor(host, 'main', open)
+  assert.deepEqual(allowedOf(launch), ['mcp__dsbot__task_advance'])
+  assert.equal(valueOf(launch.args, '--tools'), 'ToolSearch')
+  assert.equal(valueOf(launch.args, '--permission-prompts'), 'none')
 })
 
 test('engineAuth apiKey: the key reaches the CLI as ANTHROPIC_API_KEY and nowhere else', () => {

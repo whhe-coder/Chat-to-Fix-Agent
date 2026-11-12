@@ -11,6 +11,8 @@ import { loadConfig } from '../core/config.ts'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PROJECT_ROOT = resolve(ROOT, '../..')
 const text = (value) => typeof value === 'string' && value.trim() !== ''
+const apiModelOf = (env) => env.CHAT_TO_FIX_API_MODEL || (text(env.ANTHROPIC_API_KEY) ? 'anthropic/claude-sonnet-5-5' : 'claude-code/claude-sonnet-5-5')
+const engineAuthOf = (env) => text(env.ANTHROPIC_API_KEY) ? 'apiKey' : 'login'
 
 export function bridgeEnv(env: any) {
   return {
@@ -56,6 +58,10 @@ export async function discoverJiraSite(env: any, fetchImpl = globalThis.fetch) {
 export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = join(ROOT, '.data', 'connected') }: any) {
   if (!/^C[A-Z0-9]+$/.test(channel ?? '')) throw new Error('set --channel to the allowed Slack channel ID')
   if (!text(localRepo)) throw new Error('set --repo to a local checkout of the target GitLab project')
+  const apiModel = apiModelOf(env)
+  if (apiModel.startsWith('anthropic/') && !text(env.ANTHROPIC_API_KEY)) {
+    throw new Error('ANTHROPIC_API_KEY is required for an anthropic/ API model')
+  }
   if (!text(env.GITLAB_URL) || !text(env.GITLAB_PROJECT) || !text(env.JIRA_CLOUD_ID) || !text(env.JIRA_WORK_TYPE_FIELD_ID)) {
     throw new Error('GitLab or Jira settings are missing from the existing .env.local')
   }
@@ -68,9 +74,9 @@ export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = 
   const branch = env.GITLAB_BRANCH || 'master'
   return {
     dataDir: join(data, 'tasks'), worktreesDir: join(data, 'worktrees'), httpPort: 3090,
-    apiModel: env.CHAT_TO_FIX_API_MODEL || 'anthropic/claude-sonnet-5-5',
+    apiModel,
     codingModel: env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5',
-    engineAuth: env.ANTHROPIC_API_KEY ? 'apiKey' : 'login',
+    engineAuth: engineAuthOf(env),
     // Slack: the company Slack Bot (src/slackBot) is the only program connected to Slack; this service has no Slack token
     // and talks to it through the outbox (docs/chat-to-fix/slack/slackbot.md).
     adapters: { slack: 'outbox', jira: 'real', gitlab: 'real' },
@@ -128,6 +134,12 @@ export async function agentAlreadyRunning({ env, dataRoot, port = 3090, fetchImp
   } catch { return false }
 }
 
+function configuredPort(env, dataRoot) {
+  const configPath = text(env.CHAT_TO_FIX_CONFIG) ? env.CHAT_TO_FIX_CONFIG : join(resolve(dataRoot), 'chat-to-fix.json')
+  try { return JSON.parse(readFileSync(configPath, 'utf8')).httpPort ?? 3090 }
+  catch { return 3090 }
+}
+
 function argsOf(argv) {
   const out: any = { action: 'prepare' }
   for (let i = 0; i < argv.length; i++) {
@@ -152,11 +164,8 @@ async function main() {
     return
   }
   const dataRoot = args.dataRoot ?? (text(env.CHAT_TO_FIX_DATA) ? env.CHAT_TO_FIX_DATA : join(ROOT, '.data', 'connected'))
+  const port = configuredPort(env, dataRoot)
   if (args.action === 'running') {
-    let port = 3090
-    const configPath = text(env.CHAT_TO_FIX_CONFIG) ? env.CHAT_TO_FIX_CONFIG : join(resolve(dataRoot), 'chat-to-fix.json')
-    try { port = JSON.parse(readFileSync(configPath, 'utf8')).httpPort ?? port }
-    catch { /* Use the connected Agent's default port when its saved config is unavailable. */ }
     if (!Number.isInteger(port) || port < 1 || !await agentAlreadyRunning({ env, dataRoot, port })) process.exitCode = 1
     return
   }
@@ -165,8 +174,15 @@ async function main() {
   if (channel === 'CLOCAL' && !text(configuredChannel)) {
     console.log('Slack Bot 尚未接入；Agent 暂用本机频道 CLOCAL。')
   }
-  if (args.action === 'start' && await agentAlreadyRunning({ env, dataRoot })) {
-    console.log('Agent 已在 http://127.0.0.1:3090 运行；继续启动模拟 Slack 页面。')
+  if (args.action === 'start' && Number.isInteger(port) && port > 0 && await agentAlreadyRunning({ env, dataRoot, port })) {
+    let active
+    try { active = JSON.parse(readFileSync(join(resolve(dataRoot), 'chat-to-fix.json'), 'utf8')) }
+    catch { /* The authenticated Agent is running even when its saved configuration is unavailable. */ }
+    if (active && (active.apiModel !== apiModelOf(env) || active.engineAuth !== engineAuthOf(env)
+      || active.codingModel !== (env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5'))) {
+      throw new Error('Agent 正在使用旧模型配置；请先运行 npm stop，再运行 npm run start:dev')
+    }
+    console.log(`Agent 已在 http://127.0.0.1:${port} 运行；继续启动模拟 Slack 页面。`)
     return
   }
   const jiraSite = args.jiraSite ?? await discoverJiraSite(env)

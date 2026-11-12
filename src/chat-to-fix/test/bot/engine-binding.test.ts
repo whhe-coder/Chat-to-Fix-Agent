@@ -30,11 +30,11 @@ const streamOptions = (sessionId) => ({
   messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: '[echo]' }], source: { kind: 'user' } }],
 })
 // The argv and env the coding bot's CLI was started with.
-async function echo(t, { runtime = {}, config = {} }: any = {}) {
+async function echo(t, { runtime = {}, config = {}, role = 'coding' }: any = {}) {
   const app = await startApp(t, { cli: CLI, runtime, config })
   const { bots } = await app.post()
   const adapter = await app.host.localAdapter()
-  const reply = await textOf(adapter.stream(streamOptions(bots.coding)))
+  const reply = await textOf(adapter.stream(streamOptions(bots[role])))
   return JSON.parse(reply.slice('echo:'.length))
 }
 const configFile = (obj) => {
@@ -79,4 +79,16 @@ test('engineAuth login end to end: engineSettings carries no key and the CLI get
   t.after(() => { if (saved === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved })
   const { env } = await echo(t, { runtime: settings })
   assert.equal('ANTHROPIC_API_KEY' in env, false)
+})
+
+test('a flow bot on the CLI route gets only its assigned MCP tools without permission prompts', async (t) => {
+  const { argv } = await echo(t, { role: 'jira', config: { apiModel: 'claude-code/default' } })
+  assert.equal(valueOf(argv, '--permission-mode'), 'acceptEdits')
+  assert.equal(valueOf(argv, '--permission-prompts'), 'none')
+  assert.equal(valueOf(argv, '--tools'), 'ToolSearch')
+  const allowed = valueOf(argv, '--allowedTools').split(',')
+  assert.ok(allowed.includes('mcp__dsbot__jira_create_issue'))
+  assert.ok(allowed.includes('mcp__dsbot__jira_get_issue'))
+  assert.equal(allowed.includes('mcp__dsbot__mr_open_draft'), false)
+  assert.equal(allowed.some(name => /^(Bash|Edit|Write)/.test(name)), false)
 })

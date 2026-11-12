@@ -155,6 +155,20 @@ export function testRules(command) {
 
 export const CODING_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'Agent', 'ToolSearch'])
 
+// Flow bots may call only their assigned MCP tools. They need no CLI file or shell tools.
+// The allow-list lets intended Jira, GitLab and Slack writes run without a human prompt.
+export function flowArgs({ roleToolNames = [], mcpServer, model, system, resumeId, settingSources = 'project', settings }: any = {}) {
+  const serverName = mcpServer?.name ?? 'dsbot'
+  const prefix = `mcp__${serverName}__`
+  const allowedTools = roleToolNames.map(name => name.startsWith('mcp__') ? name : `${prefix}${name}`)
+  return claudeArgs({
+    settingSources, permission: 'workspace-write', permissionPrompts: 'none',
+    tools: ['ToolSearch'], allowedTools,
+    ...(mcpServer === undefined ? {} : { mcp: { name: serverName, ...mcpServer.config } }),
+    model, system, resumeId, settings,
+  })
+}
+
 export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, effort, persist = false, settingSources = 'project', system, resumeId, print, settings }: any = {}) {
   const serverName = mcpServer?.name ?? 'chat-to-fix'
   const prefix = `mcp__${serverName}__`

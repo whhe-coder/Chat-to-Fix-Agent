@@ -26,7 +26,17 @@ test('已运行 Agent 的有效 token 和健康接口可避免重复启动', asy
     assert.equal(await agentAlreadyRunning({ env: {}, dataRoot, port }), true)
     assert.equal(await agentAlreadyRunning({ env: { CHAT_TO_FIX_HTTP_TOKEN: 'wrong' }, dataRoot, port }), false)
     const configPath = join(dataRoot, 'chat-to-fix.json')
-    writeFileSync(configPath, JSON.stringify({ httpPort: port }))
+    writeFileSync(configPath, JSON.stringify({
+      httpPort: port, apiModel: 'anthropic/claude-sonnet-5-5',
+      codingModel: 'claude-code/claude-sonnet-5-5', engineAuth: 'login',
+    }))
+    await assert.rejects(execFileAsync(process.execPath, [join(import.meta.dirname, '../scripts/connected.ts'), '--start', '--data', dataRoot], {
+      env: { ...process.env, ANTHROPIC_API_KEY: '', CHAT_TO_FIX_HTTP_TOKEN: 'local-token' }, encoding: 'utf8',
+    }), (error: any) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /Agent 正在使用旧模型配置；请先运行 npm stop/)
+      return true
+    })
     const runDir = join(dataRoot, 'run')
     mkdirSync(runDir)
     const logPath = join(runDir, 'chat-to-fix.log')
@@ -70,6 +80,14 @@ test('existing tokens reach real adapters without entering the saved configurati
   const dataRoot = mkdtempSync(join(tmpdir(), 'chat-to-fix-connected-'))
   try {
     const config = connectedConfig({ env, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
+    assert.equal(config.apiModel, 'claude-code/claude-sonnet-5-5')
+    assert.equal(config.engineAuth, 'login')
+    const withKey = connectedConfig({ env: { ...env, ANTHROPIC_API_KEY: 'test-key' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
+    assert.equal(withKey.apiModel, 'anthropic/claude-sonnet-5-5')
+    assert.equal(withKey.engineAuth, 'apiKey')
+    const explicitModel = connectedConfig({ env: { ...env, CHAT_TO_FIX_API_MODEL: 'claude-code/sonnet' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
+    assert.equal(explicitModel.apiModel, 'claude-code/sonnet')
+    assert.throws(() => connectedConfig({ env: { ...env, CHAT_TO_FIX_API_MODEL: 'anthropic/claude-sonnet-5-5' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot }), /ANTHROPIC_API_KEY is required/)
     assert.deepEqual(config.adapters, { slack: 'outbox', jira: 'real', gitlab: 'real' })
     assert.equal(config.jira.apiVersion, '3')
     assert.equal(config.slack.inputMode, 'command')

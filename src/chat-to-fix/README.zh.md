@@ -30,7 +30,7 @@
 
 ## 运行
 
-以下命令都从仓库根目录执行。需要 Node 24 和 Claude Code 命令行；模型认证使用 Anthropic API key 或已登录的 Claude Code。
+以下命令都从仓库根目录执行。需要 Node 24 和 Claude Code 命令行；设置 `ANTHROPIC_API_KEY` 时，四个流程 bot 使用 Anthropic API；未设置时，它们使用已登录的 Claude Code。修复 bot 始终使用 Claude Code。更改认证方式后，先运行 `npm stop`，再重新启动 Agent。
 
 ```bash
 npm ci
