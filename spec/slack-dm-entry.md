@@ -18,7 +18,7 @@
 
 ## 凭据与运行
 
-- Socket Mode 使用 `SLACK_APP_TOKEN` 和 `SLACK_BOT_TOKEN`。程序优先读取环境变量；在 Mac 上也可读取登录钥匙串中名称为 `Chat-to-Fix-Agent/<变量名>`、账号为 `local-agent` 的条目。程序不主动输出 token，仓库不保存 token 值。
+- Socket Mode 使用 `SLACK_APP_TOKEN` 和 `SLACK_BOT_TOKEN`。变量来源和保存方式见 [本地环境变量配置](../config/local-env/README.md)。程序不主动输出 token，Git 历史不保存 token 值。
 - 启动入口是 [`src/slackBot/slack-bot.js`](../src/slackBot/slack-bot.js)。安装依赖后运行 `npm start`。工作区批准安装并取得 Bot OAuth token 后，才能连接真实 Slack 私信。
 
 ## 验收场景与状态

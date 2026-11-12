@@ -27,12 +27,12 @@
 
 ## Token 与 OAuth
 
-| 凭据 | 取得位置与权限 | 当前状态 | 程序变量 |
+| 凭据 | 权限 | 当前状态 | 程序变量 |
 | --- | --- | --- | --- |
-| App-level token，前缀 `xapp-` | `Basic Information → App-Level Tokens`，只选 `connections:write` | 已生成，存于本机 Mac 登录钥匙串 | `SLACK_APP_TOKEN` |
-| Bot User OAuth Access Token，前缀 `xoxb-` | 工作区批准并完成安装后，在 `OAuth & Permissions` 查看 | 等待安装批准，尚未取得 | `SLACK_BOT_TOKEN` |
+| App-level token，前缀 `xapp-` | 仅有 `connections:write` | 已生成并配置在本机 | `SLACK_APP_TOKEN` |
+| Bot User OAuth Access Token，前缀 `xoxb-` | `im:history`、`chat:write` | 等待安装批准，尚未取得 | `SLACK_BOT_TOKEN` |
 
-`connections:write` 是 App-level token 的权限，不属于 Bot Token Scopes。当前不需要 User OAuth token。本地程序优先读取环境变量；在 Mac 上也可读取登录钥匙串中账号为 `local-agent`、名称为 `Chat-to-Fix-Agent/SLACK_APP_TOKEN` 或 `Chat-to-Fix-Agent/SLACK_BOT_TOKEN` 的条目。不要把真实值写入仓库、日志、Slack 消息或计划文档。
+`connections:write` 是 App-level token 的权限，不属于 Bot Token Scopes。当前不需要 User OAuth token。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
 ## 本次操作记录
 
@@ -46,8 +46,8 @@
 
 ## 接下来的配置与验证
 
-1. 等待工作区管理员批准安装，然后在 `OAuth & Permissions` 取得 Bot OAuth token，并保存到名称为 `Chat-to-Fix-Agent/SLACK_BOT_TOKEN`、账号为 `local-agent` 的 Mac 登录钥匙串条目。
-2. 在仓库运行 `npm ci` 和 `npm start`。程序使用两个 token 连接 Socket Mode；需要 Node.js 18 或更新版本。也可通过同名环境变量提供 token。
+1. 等待工作区管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
+2. 在仓库运行 `npm ci` 和 `npm start`。程序使用两个 token 连接 Socket Mode；Node.js 版本要求见本地环境变量配置。
 3. 给 `Chat-to-Fix` 发送一条测试私信。确认 Bot 只在原私信 thread 回复一次。当前回复会明确说明这是接入测试，不创建 Jira 工单或 GitLab MR。
 4. M0 验收通过后，在 M1 对接本地 agent 或服务；之后再验证工单、MR 和 CI 结果回到原 thread。
 
