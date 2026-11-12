@@ -17,7 +17,7 @@ scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 A
 
 ## 当前最小只读权限
 
-`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。本阶段尚未创建 token 或执行真实 API 验证。创建工单、读取工单与添加评论所需 scopes 应按对应接口另行确定；不能把 `write:jira-work` 称为最小权限。
+`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。2026-11-12 已在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token，应用仅选 Jira，权限仅选上述两项，到期日为 2027-02-09。token 值未写入仓库。仍需保存到本机钥匙串并执行真实 API 验证。创建工单、读取工单与添加评论所需 scopes 应按对应接口另行确定；不能把 `write:jira-work` 称为最小权限。
 
 ## 后续授权
 
