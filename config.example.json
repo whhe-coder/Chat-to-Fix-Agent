@@ -8,6 +8,9 @@
   "codingPermission": "workspace-write",
   "engineAuth": "login",
   "adapters": { "slack": "fake", "jira": "fake", "gitlab": "fake" },
+  "jira": { "baseUrl": "https://your-company.atlassian.net", "email": "bot@example.com", "fields": {} },
+  "gitlab": { "baseUrl": "https://gitlab.example.com" },
+  "slack": {},
   "bindings": [
     {
       "channel": "C0456",
@@ -17,7 +20,10 @@
       "defaultBranch": "master",
       "jiraProject": "DEMO",
       "issueType": "Bug",
-      "labels": ["chat-to-fix"]
+      "labels": ["chat-to-fix"],
+      "testCommands": ["sh test.sh"],
+      "setupCommands": [],
+      "jiraFields": {}
     }
   ],
   "jiraTransitions": ["In Review"],

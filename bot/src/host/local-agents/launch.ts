@@ -28,8 +28,10 @@ export function bridgeNames(rt, sessionId, requested = []) {
 // -> { args, env, permissionTimeoutMs, resumed }
 //
 // rt.config (from the plugin config, see src/plugin.ts): engineAuth ('login' | 'apiKey'),
-// engineApiKey (only with 'apiKey'), engineMaxTurns, testCommands (shell commands the coding
-// bot may run besides git status / git diff), permissionTimeoutMs.
+// engineApiKey (only with 'apiKey'), engineMaxTurns, testCommands (the plugin-level list of shell
+// commands the coding bot may run besides git status / git diff; the fallback), permissionTimeoutMs.
+// The task's own list comes first: rt.taskLayer.codingOptions(taskId).testCommands is the
+// `testCommands` of the task's binding (src/task/runner.ts), so each channel names its own.
 export function launchFor(rt, sessionId, open) {
   const config = rt.config ?? {}
   const auth = authEnv({ engineAuth: config.engineAuth ?? 'login', apiKey: config.engineApiKey } as any)
@@ -39,6 +41,7 @@ export function launchFor(rt, sessionId, open) {
   const bound = rt.botlayer?.botOfSession(sessionId)
   const def = bound === undefined ? undefined : botDef(bound.role)
   if (def?.reviewer !== undefined) {
+    const own = rt.taskLayer?.codingOptions?.(bound.taskId)
     const roleToolNames = bridgeNames(rt, sessionId, open.toolNames).filter(name => name !== 'approve_agent_action')
     // No permission prompt is ever asked, so a session that is not saved cannot be resumed: a
     // process that comes back later starts fresh and the adapter replays the conversation.
@@ -46,7 +49,7 @@ export function launchFor(rt, sessionId, open) {
       reviewer: { name: def.reviewer.name, description: REVIEWER_DESCRIPTION, prompt: loadPrompt(def.reviewer.instructions), tools: def.reviewer.tools },
       roleToolNames,
       mcpServer: { name: 'chat-to-fix', config: { url: open.mcp.url, token: open.mcp.token } },
-      testCommands: config.testCommands ?? [],
+      testCommands: own?.testCommands ?? config.testCommands ?? [],
       maxTurns: config.engineMaxTurns,
       model,
       system: open.system,

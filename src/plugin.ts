@@ -11,19 +11,28 @@ import { createApp } from './app.ts'
 export const name = 'chat-to-fix'
 export const inject = botInject
 
-export function createChatToFix(ctx, pluginConfig: any = {}, env = process.env) {
-  const config = loadConfig({ path: pluginConfig.configPath, env })
-  const token = secret(env, 'CHAT_TO_FIX_HTTP_TOKEN')
-  if (token === undefined) throw new Error('chat-to-fix: CHAT_TO_FIX_HTTP_TOKEN is not set')
-  // What the Claude Code driver reads from rt.config (bot/src/host/local-agents/launch.ts). The key is
-  // given only when engineAuth is 'apiKey'; with 'login' no key goes to the child process.
-  const engine = {
+/**
+ * What the Claude Code driver reads from rt.config (bot/src/host/local-agents/launch.ts). The key is
+ * given only when engineAuth is 'apiKey' (it then reaches the CLI as ANTHROPIC_API_KEY through
+ * src/engine/env.ts authEnv); with 'login' no key goes to the child process. The key is taken from
+ * the environment here and is not part of `config`, so it is never written or logged by this layer.
+ * The per-binding test commands are not here: the launcher asks the task layer for them.
+ */
+export function engineSettings(config, env = process.env) {
+  return {
     engineAuth: config.engineAuth,
     engineMaxTurns: config.limits.engineMaxTurns,
     ...(config.engineAuth === 'apiKey' ? { engineApiKey: secret(env, 'ANTHROPIC_API_KEY') } : {}),
   }
+}
+
+export function createChatToFix(ctx, pluginConfig: any = {}, env = process.env) {
+  const config = loadConfig({ path: pluginConfig.configPath, env })
+  const token = secret(env, 'CHAT_TO_FIX_HTTP_TOKEN')
+  if (token === undefined) throw new Error('chat-to-fix: CHAT_TO_FIX_HTTP_TOKEN is not set')
+  const engine = engineSettings(config, env)
   const botlayer = createRuntime(ctx, { ...pluginConfig, ...engine, language: config.language })
-  // Adapters for Slack, Jira and GitLab are not built yet; the task layer runs without them.
+  // The task layer builds the adapters the configuration names (fake or real) itself.
   const app = createApp({ config, botlayer, defineTool, token })
   connectTaskLayer(botlayer, app.taskLayer)
   return { config, botlayer, app }

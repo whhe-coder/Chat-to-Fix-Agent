@@ -59,7 +59,8 @@ const noticeKind = (state, endReason) => {
  */
 export function createRunner({ store, botlayer, config, monitor, notify, loadPrompt, groupNotice, repo, warn = (...args) => console.warn(...args), now = () => Date.now() }) {
   let queue
-  // What exists for each task that has a run in this process: group id, bot ids (by role).
+  // What exists for each task that has a run in this process: group id, bot ids (by role), and the
+  // binding copy of the task (kept here so the Claude Code launcher can read it synchronously).
   const live = new Map()
   const ending = new Set()
 
@@ -87,7 +88,7 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
   async function start(taskId) {
     const task = await store.getTask(taskId)
     if (task === undefined) throw new Error(`No such task: ${taskId}`)
-    const entry: any = { groupId: null, bots: {}, watched: false }
+    const entry: any = { groupId: null, bots: {}, watched: false, binding: task.binding ?? undefined }
     live.set(taskId, entry)
     try {
       // Step 1: five bots from the registry. Name = prefix + task number (DSB:src/host/roster.js:140).
@@ -169,7 +170,7 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
     for (const task of await store.listTasks({ state: 'running' })) {
       const run = task.runs?.findLast((entry) => entry.endedAt === null)
       if (run?.groupId && botlayer.groupExists(run.groupId)) {
-        live.set(task.id, { groupId: run.groupId, bots: { ...run.bots }, watched: true })
+        live.set(task.id, { groupId: run.groupId, bots: { ...run.bots }, watched: true, binding: task.binding ?? undefined })
         await attempt('watch', task.id, () => monitor.watch(task.id, { restarted: true }))
       } else {
         await end(task.id, 'failed', 'restart')
@@ -202,5 +203,16 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
     return cleaned
   }
 
-  return { start, end, bind, restore, cleanupWorktrees }
+  /**
+   * What the Coding bot of a running task may do in its repository, from the binding the task was
+   * created with (synchronous: the CLI launcher asks while it builds the argument list).
+   * `testCommands` is undefined when the binding has none, so the caller falls back to its own list.
+   */
+  function codingOptions(taskId) {
+    const binding = live.get(taskId)?.binding
+    if (binding === undefined) return undefined
+    return { testCommands: binding.testCommands, setupCommands: binding.setupCommands }
+  }
+
+  return { start, end, bind, restore, cleanupWorktrees, codingOptions }
 }

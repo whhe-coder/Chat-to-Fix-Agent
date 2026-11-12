@@ -36,6 +36,57 @@ const ADAPTER_TOKEN = { slack: 'CHAT_TO_FIX_SLACK_TOKEN', jira: 'CHAT_TO_FIX_JIR
 const isText = (v) => typeof v === 'string' && v.trim() !== ''
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isPositive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
+// Placeholder text of config.example.json: a run must never start with it still in place.
+const PLACEHOLDER = 'CHANGE-ME'
+// A key that looks like it holds a credential; credentials are read from the environment only.
+const CREDENTIAL_KEY = /token|secret|password|passwd|api[-_]?key/i
+// What the Claude Code allow-list cannot take (src/engine/args.ts): a comma, or a rule for every command.
+const unusableCommand = (v) => v.includes(',') || v === '*' || v === ':*'
+
+const isHttpUrl = (v) => {
+  if (!isText(v)) return false
+  try { return ['http:', 'https:'].includes(new URL(v).protocol) } catch { return false }
+}
+const hasCredentialsInUrl = (v) => { try { const u = new URL(v); return u.username !== '' || u.password !== '' } catch { return false } }
+
+/**
+ * Validates the `jira`, `gitlab` or `slack` object of the configuration and returns it (a shallow
+ * copy; other keys pass through). `baseUrl` is required when the adapter is "real". Problems are
+ * added to `problems`; messages name keys only, never values.
+ */
+function adapterSection(raw, name, kind, problems, { email = false, fields = false } = {}) {
+  const section = raw[name]
+  if (section !== undefined && !isObject(section)) { problems.push(`${name} must be an object`); return {} }
+  const given: any = section ?? {}
+  for (const key of Object.keys(given)) {
+    if (CREDENTIAL_KEY.test(key)) problems.push(`${name}.${key} looks like a credential; credentials come from the environment only (${ADAPTER_TOKEN[name]})`)
+  }
+  if (given.baseUrl === undefined) {
+    if (kind === 'real' && name !== 'slack') problems.push(`${name}.baseUrl is required when adapters.${name} is "real"`)
+  } else if (!isHttpUrl(given.baseUrl)) problems.push(`${name}.baseUrl must be an http(s) URL`)
+  else if (hasCredentialsInUrl(given.baseUrl)) problems.push(`${name}.baseUrl must not contain a user name or password`)
+  // slack.apiBase: optional override of the Web API base URL (default https://slack.com/api).
+  if (name === 'slack' && given.apiBase !== undefined) {
+    if (!isHttpUrl(given.apiBase)) problems.push('slack.apiBase must be an http(s) URL')
+    else if (hasCredentialsInUrl(given.apiBase)) problems.push('slack.apiBase must not contain a user name or password')
+  }
+  if (email && given.email !== undefined && !isText(given.email)) problems.push(`${name}.email must be a non-empty string`)
+  if (fields && given.fields !== undefined && !isObject(given.fields)) problems.push(`${name}.fields must be an object`)
+  return { ...given }
+}
+
+/** A list of non-empty strings; the problem text names the key and the index only. */
+function textList(value, label, problems, { allowed = (_v) => true, why = '' }: any = {}) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) { problems.push(`${label} must be an array of non-empty strings`); return undefined }
+  const out = []
+  value.forEach((item, i) => {
+    if (!isText(item)) problems.push(`${label}[${i}] must be a non-empty string`)
+    else if (!allowed(item.trim())) problems.push(`${label}[${i}] ${why}`)
+    else out.push(item.trim())
+  })
+  return out
+}
 
 /** Gets a credential from the environment variables; undefined when it is not set. */
 export function secret(env, name) {
@@ -65,11 +116,12 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   for (const key of ['dataDir', 'worktreesDir', 'apiModel']) {
     if (!isText(raw[key])) problems.push(`missing ${key}`)
   }
+  if (isText(raw.apiModel) && raw.apiModel.includes(PLACEHOLDER)) problems.push(`apiModel still holds the placeholder ${PLACEHOLDER}; set the model id (for example anthropic/claude-sonnet-5-5)`)
   if (raw.httpPort === undefined || raw.httpPort === null) problems.push('missing httpPort')
   else if (!Number.isInteger(raw.httpPort) || raw.httpPort < 0 || raw.httpPort > 65535) problems.push('httpPort must be an integer from 0 to 65535')
 
   // adapters
-  const adapters = {}
+  const adapters: any = {}
   const given = isObject(raw.adapters) ? raw.adapters : {}
   for (const name of ADAPTER_NAMES) {
     const kind = given[name] ?? 'fake'
@@ -77,6 +129,11 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     else if (kind === 'real' && secret(env, ADAPTER_TOKEN[name]) === undefined) problems.push(`adapters.${name} is "real" but ${ADAPTER_TOKEN[name]} is not set`)
     adapters[name] = kind
   }
+
+  // Per-adapter settings (the shared contract: tokens only from the environment).
+  const jira = adapterSection(raw, 'jira', adapters.jira, problems, { email: true, fields: true })
+  const gitlab = adapterSection(raw, 'gitlab', adapters.gitlab, problems)
+  const slack = adapterSection(raw, 'slack', adapters.slack, problems)
 
   const engineAuth = raw.engineAuth ?? DEFAULTS.engineAuth
   if (engineAuth !== 'login' && engineAuth !== 'apiKey') problems.push('engineAuth must be "login" or "apiKey"')
@@ -96,7 +153,16 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
         if (seen.has(b.channel)) problems.push(`channel ${b.channel} appears twice in bindings`)
         seen.add(b.channel)
       }
-      bindings.push({ ...b, defaultBranch: b.defaultBranch ?? 'master', issueType: b.issueType ?? 'Bug', labels: b.labels ?? [] })
+      // testCommands: the shell commands the Coding bot may run (each becomes a Bash(<command>) rule);
+      // setupCommands: run once in a fresh worktree; jiraFields: extra fields for this channel's issues.
+      const testCommands = textList(b.testCommands, `bindings[${i}].testCommands`, problems, { allowed: (v) => !unusableCommand(v), why: 'must not contain a comma and must not be a bare wildcard' })
+      const setupCommands = textList(b.setupCommands, `bindings[${i}].setupCommands`, problems)
+      if (b.jiraFields !== undefined && !isObject(b.jiraFields)) problems.push(`bindings[${i}].jiraFields must be an object`)
+      bindings.push({
+        ...b, defaultBranch: b.defaultBranch ?? 'master', issueType: b.issueType ?? 'Bug', labels: b.labels ?? [],
+        ...(testCommands === undefined ? {} : { testCommands }),
+        ...(setupCommands === undefined ? {} : { setupCommands }),
+      })
     })
   }
 
@@ -130,6 +196,9 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     codingPermission: raw.codingPermission ?? DEFAULTS.codingPermission,
     engineAuth,
     adapters,
+    jira,
+    gitlab,
+    slack,
     bindings,
     jiraTransitions: raw.jiraTransitions ?? [...DEFAULTS.jiraTransitions],
     commitAuthor: { ...DEFAULTS.commitAuthor, ...(isObject(raw.commitAuthor) ? raw.commitAuthor : {}) },

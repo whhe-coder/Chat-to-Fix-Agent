@@ -56,10 +56,12 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
 
   return {
     store, gate, queue, runner, monitor, recorder, tools, http,
-    // The two functions the bot layer calls back (spec 5, section 3).
+    // The functions the bot layer calls back (spec 5, section 3). `codingOptions(taskId)` gives the
+    // Claude Code launcher the test commands of the task's binding (bot/src/host/local-agents/launch.ts).
     taskLayer: {
       attachRoleTools: agent => tools.attachRoleTools(agent),
       bridgedToolNames: sessionId => tools.bridgedToolNames(sessionId),
+      codingOptions: taskId => runner.codingOptions(taskId),
     },
     async start() {
       recorder.start()

@@ -12,7 +12,7 @@ import { createApp } from '../src/app.ts'
 import { ROLES } from '../src/task/contracts.ts'
 import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
-async function rig() {
+async function rig({ binding = {} }: any = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-app-'))
   const configPath = join(dir, 'config.json')
   await writeFile(configPath, JSON.stringify({
@@ -20,7 +20,7 @@ async function rig() {
     worktreesDir: join(dir, 'worktrees'),
     httpPort: 0,
     apiModel: 'anthropic/test',
-    bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
+    bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO', ...binding }],
   }))
   const config = loadConfig({ path: configPath, env: {} })
   const botlayer = createFakeBotLayer()
@@ -132,6 +132,19 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   assert.ok(records.some(entry => entry.type === 'refused'))
 
   assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings))
+})
+
+test('the task layer hands the Claude Code launcher the test commands of the task\'s binding', async (t) => {
+  const r = await rig({ binding: { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] } })
+  t.after(() => r.app.stop())
+  assert.equal(typeof r.app.taskLayer.codingOptions, 'function')
+  const id = (await r.post('/events', event('E10', '10.1'))).body.taskId
+  await r.inState(id, 'running')
+  assert.deepEqual(r.app.taskLayer.codingOptions(id), { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
+  assert.equal(r.app.taskLayer.codingOptions('T-999'), undefined)
+  await r.post(`/tasks/${id}/stop`, undefined)
+  await r.inState(id, 'stopped')
+  assert.equal(r.app.taskLayer.codingOptions(id), undefined, 'gone with the run')
 })
 
 test('a task that runs past its total time is ended by the monitor, the person is told, and the next task starts', async (t) => {

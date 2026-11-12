@@ -270,6 +270,29 @@ test('restore: a running task with a live group is watched again, one without is
   assert.equal(order.filter((n) => n === 'queue.release').length, 1)
 })
 
+test('codingOptions: the binding\'s commands are readable (synchronously) while the task runs and gone after it ends', async () => {
+  const r = await rig()
+  assert.equal(r.runner.codingOptions(r.id), undefined, 'nothing before the run starts')
+  assert.equal(r.runner.codingOptions('T-404'), undefined)
+  const withCommands = await r.store.createTask({ ...ORIGIN, eventId: 'E9', threadTs: '9.9', messageTs: '9.9' }, { ...BINDING, testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
+  await r.runner.start(withCommands.id)
+  assert.deepEqual(r.runner.codingOptions(withCommands.id), { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
+  await r.runner.start(r.id)
+  assert.deepEqual(r.runner.codingOptions(r.id), { testCommands: undefined, setupCommands: undefined }, 'a binding without commands leaves the caller to fall back')
+  await r.runner.end(withCommands.id, 'failed', 'test')
+  assert.equal(r.runner.codingOptions(withCommands.id), undefined)
+})
+
+test('codingOptions after a restart: restore keeps the binding of a task whose group survived', async () => {
+  const r = await rig()
+  const task = await r.store.createTask({ ...ORIGIN, eventId: 'E8', threadTs: '8.8', messageTs: '8.8' }, { ...BINDING, testCommands: ['make check'] })
+  const member = await r.botlayer.createBot({ name: 'y', label: 'y', instructions: 'y', model: 'y', permission: 'y' })
+  const groupId = await r.botlayer.createGroup({ name: 'g', memberIds: [member], adminId: member, notice: 'n' })
+  await r.store.startRun(task.id, { groupId, bots: { main: 'b1', slack: 'b2', jira: 'b3', pipeline: 'b4', coding: 'b5' } })
+  await r.runner.restore()
+  assert.deepEqual(r.runner.codingOptions(task.id)?.testCommands, ['make check'])
+})
+
 test('cleanupWorktrees: removes only directories of tasks that ended more than worktreeKeepDays ago', async () => {
   const removed = []
   const day = 86_400_000

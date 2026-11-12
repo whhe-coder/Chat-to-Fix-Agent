@@ -96,7 +96,7 @@ fi
 # settings leak in. Credentials named here are passed through by name, never written anywhere.
 KEEP="PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM
 HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY http_proxy https_proxy no_proxy all_proxy
-ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN
+ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN
 CHAT_TO_FIX_HTTP_TOKEN ${CHAT_TO_FIX_PASS_ENV:-}"
 (
   # This script's own values are copied to _FB_* names first: the calling environment may export
