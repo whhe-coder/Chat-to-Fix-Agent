@@ -34,7 +34,7 @@
 
 ```bash
 npm ci                                     # TypeScript（类型检查用）
-cd bot && npm ci --ignore-scripts && cd ..
+cd bot && npm ci --ignore-scripts && cd ..    # 只装 deep-view；bot/.npmrc 让 npm 不在这里装 @deepseek-ai/*，它们来自 runtime/
 cd runtime && npm install --legacy-peer-deps=false --no-package-lock --no-fund --no-audit && cd ..   # DSH 0.2.2-rc.1，约 930 MB
 ```
 
