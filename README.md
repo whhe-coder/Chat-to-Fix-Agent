@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以指定频道的 `/fix` 命令为入口。Slack Bot 接收�
 
 ## 当前状态
 
-截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。根目录的旧私信测试 Bot 和模拟 Bot 仍是历史测试工具。`chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但只在本机模拟服务上验证。现在可用 [接入脚本](chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量；真实三方链路尚未验收。本地 Node.js 服务已验证 Jira 工单和评论写入；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
+截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。根目录的旧私信测试 Bot 和模拟 Bot 仍是历史测试工具。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但只在本机模拟服务上验证。根目录的 `package.json` 统一管理 Agent 与本地服务的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量；真实三方链路尚未验收。本地 Node.js 服务已验证 Jira 工单和评论写入；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
 
 ## 目标流程
 

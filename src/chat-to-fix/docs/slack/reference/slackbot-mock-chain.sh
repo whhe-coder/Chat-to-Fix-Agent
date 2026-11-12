@@ -4,14 +4,14 @@
 # No Slack, no real model, no cost. It submits /fix, an @ while the task runs, stops the task, an @ after it
 # ended, prints the outbox and the mock thread, and stops everything it started.
 # Needs the reference implementation applied to the repo root first (docs/slack/reference/README.md).
-#   sh docs/slack/reference/slackbot-mock-chain.sh        (from chat-to-fix/; data in .data/outbox-demo)
+#   sh docs/slack/reference/slackbot-mock-chain.sh        (from src/chat-to-fix/; data in .data/outbox-demo)
 set -u
-REPO=$(cd "$(dirname "$0")/../../../.." && pwd)
+REPO=$(cd "$(dirname "$0")/../../../../.." && pwd)
 if ! grep -q createFixCommandHandler "$REPO/src/slackBot/mock-slack-bot.js" 2>/dev/null; then
-  echo "The mock Slack Bot in $REPO/src/slackBot has no /fix yet: apply the reference first (chat-to-fix/docs/slack/reference/README.md)." >&2
+  echo "The mock Slack Bot in $REPO/src/slackBot has no /fix yet: apply the reference first (src/chat-to-fix/docs/slack/reference/README.md)." >&2
   exit 2
 fi
-PROJ=$REPO/chat-to-fix
+PROJ=$REPO/src/chat-to-fix
 cd "$PROJ" && . scripts/dev-env.sh >/dev/null 2>&1
 DATA=$PROJ/.data/outbox-demo
 rm -rf "$DATA"; mkdir -p "$DATA"; chmod 700 "$DATA"

@@ -1,5 +1,7 @@
 # Slack Bot 参考实现（给 Yuzhao）
 
+本参考实现包含当前不启用的讨论串 @ 入口；如使用它，须先移除该入口。
+
 我们照 [../slackbot.md](../slackbot.md) 第 4.4 节和 [../slackenter.md](../slackenter.md) 第 2 节写的一版 Slack Bot 一侧，**只是参考**：
 
 - 没放进仓库根目录的 `src/slackBot/`，Logan 的代码一行没动。
@@ -23,9 +25,9 @@
 在你自己的分支上，从仓库根目录执行：
 
 ```sh
-cp chat-to-fix/docs/slack/reference/src/slackBot/*.js src/slackBot/
-cp chat-to-fix/docs/slack/reference/test/*.test.js test/
-git apply chat-to-fix/docs/slack/reference/changes-to-root-files.patch
+cp src/chat-to-fix/docs/slack/reference/src/slackBot/*.js src/slackBot/
+cp src/chat-to-fix/docs/slack/reference/test/*.test.js test/
+git apply src/chat-to-fix/docs/slack/reference/changes-to-root-files.patch
 npm ci && npm test
 ```
 

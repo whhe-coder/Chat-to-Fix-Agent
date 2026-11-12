@@ -1,5 +1,7 @@
 # Slack Bot 对接交接（给 Yuzhao）
 
+> 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。
+
 - 日期：2026-11-12。写的人：Zihui（Chat-to-Fix）。
 - 一句话：Slack Bot（仓库根目录 `src/slackBot/`，Logan 的代码）只管 Slack 收发；修 bug 的业务逻辑在 `chat-to-fix/`，两边通过本机 HTTP 接口对接。
 - 分工：业务接口是 Chat-to-Fix 这边做的，已经写好；**Slack Bot 一侧归你**。我们的东西全在 `chat-to-fix/` 里，没动 `chat-to-fix/` 以外的任何文件。
@@ -43,7 +45,7 @@ Slack Bot 不写进度文案，讨论串里的话都来自发件箱。它只自�
 
 ### 3.1 环境变量
 
-放在仓库根目录的 `.env.local`，原有变量见 [config/local-env/README.md](../../../config/local-env/README.md)。
+放在仓库根目录的 `.env.local`，原有变量见 [config/local-env/README.md](../../../../config/local-env/README.md)。
 
 | 变量 | 值 |
 |---|---|

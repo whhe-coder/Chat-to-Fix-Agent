@@ -1,6 +1,6 @@
 # Chat-to-Fix
 
-在绑定的 Slack 频道里用 `/fix 问题描述` 提一个小问题（文案、样式、表单这类前端小修），系统就组一个机器人群，把它一路做成一个待审查的 Draft MR。系统先在频道里发一条开头消息，之后的进度和结果都回在这条消息的讨论串里；bot 追问时，在讨论串里 @ 机器人回答。（`/fix` 已实现，只在本机模拟服务上测过；真实 Slack 应用和 token 还没到位。）
+在绑定的 Slack 频道里用 `/fix 问题描述` 提一个小问题（文案、样式、表单这类前端小修），系统就组一个机器人群，把它一路做成一个待审查的 Draft MR。系统先在频道里发一条开头消息，之后的进度和结果都回在这条消息的讨论串里。本期不接收用户在讨论串中的二次修改。`/fix` 已实现，但只在本机模拟服务上测过；真实 Slack 应用和 token 还没到位。
 
 ## 怎么工作
 
@@ -18,7 +18,7 @@
 
 - 流程和状态归系统，内容和判断归 bot。每一步要有记录在案的证据才能推进，没有评审通过就不能开 MR。
 - 提交是一行的 Conventional Commit；MR 一直是 Draft，bot 从不合并、批准或部署。
-- 运行在 DeepSeek Harness（DSH，`runtime/`，整包使用、不修改）上；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.zh.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
+- 运行在 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）上；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.zh.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
 
 ## 现在做到哪（2026-11-12）
 
@@ -30,40 +30,38 @@
 
 ## 运行
 
-需要：Node 24、Claude Code 命令行、Anthropic API key。
+以下命令都从仓库根目录执行。需要：Node 24、Claude Code 命令行、Anthropic API key。
 
 ```bash
-npm ci                                     # TypeScript（类型检查用）
-cd bot && npm ci --ignore-scripts && cd ..    # 只装 deep-view；bot/.npmrc 让 npm 不在这里装 @deepseek-ai/*，它们来自 runtime/
-cd runtime && npm install --legacy-peer-deps=false --no-package-lock --no-fund --no-audit && cd ..   # DSH 0.2.2-rc.1，约 930 MB
+npm ci
 ```
 
 每次运行前在项目根目录：
 
 ```bash
-. scripts/dev-env.sh
+. src/chat-to-fix/scripts/dev-env.sh
 ```
 
-本机路径（node 或 claude 不在 PATH 上时）写在 `scripts/dev-env.local.sh`，这个文件不进 git，写法见 `scripts/dev-env.sh` 开头。
+本机路径（node 或 claude 不在 PATH 上时）写在 `src/chat-to-fix/scripts/dev-env.local.sh`，这个文件不进 git，写法见 `dev-env.sh` 开头。
 
 | 做什么 | 命令 |
 |---|---|
-| 测试 | `npm test`、`npm run test:layer`、`npm run test:bot` |
+| 测试 | `npm test`（根服务、Agent、Agent 层、Bot） |
 | 类型检查 | `npm run typecheck` |
-| 冒烟（本机假模型，不花钱） | `npm run smoke` |
-| 准备一次真实运行（只生成目录和命令，不启动） | `node scripts/first-run.ts` |
-| 端到端测试集（真实模型，花钱） | `node scripts/e2e/run.ts --prepare-only`，再按它打印的命令运行 |
-| 调试页 | `node scripts/flow-page.ts --dir <运行目录>`，打开 http://127.0.0.1:3092/ |
-| 终端里看一个任务 | `node scripts/watch.ts --dir <运行目录>` |
+| 冒烟（本机假模型，不花钱） | `npm run smoke:agent` |
+| 准备一次真实运行（只生成目录和命令，不启动） | `node src/chat-to-fix/scripts/first-run.ts` |
+| 端到端测试集（真实模型，花钱） | `node src/chat-to-fix/scripts/e2e/run.ts --prepare-only`，再按它打印的命令运行 |
+| 调试页 | `node src/chat-to-fix/scripts/flow-page.ts --dir <运行目录>`，打开 http://127.0.0.1:3092/ |
+| 终端里看一个任务 | `node src/chat-to-fix/scripts/watch.ts --dir <运行目录>` |
 
 ## 接入现有 GitLab、Jira、Slack 配置
 
-根目录的 `.env.local` 保存现有连接的 token。`scripts/connected.ts` 复用这些变量，生成不含 token 的 Agent 配置。配置和隔离的 F2P 仓库放在 `chat-to-fix/.data/connected/`。
+根目录的 `.env.local` 保存现有连接的 token。`src/chat-to-fix/scripts/connected.ts` 复用这些变量，生成不含 token 的 Agent 配置。配置和隔离的 F2P 仓库放在 `src/chat-to-fix/.data/connected/`。迁移前保存在旧目录的本地数据可通过 `CHAT_TO_FIX_DATA` 指向原路径。
 
 ```bash
-node scripts/connected.ts --check
-node scripts/connected.ts --channel C频道ID --repo /本机/F2P仓库路径
-node scripts/connected.ts --start
+npm run check:agent-connections
+npm run prepare:agent-connections -- --channel C频道ID --repo /本机/F2P仓库路径
+node src/chat-to-fix/scripts/connected.ts --start
 ```
 
 第一条命令只读检查 GitLab 分支和 Jira board。第二条命令在取得频道 ID 后准备配置和隔离仓库；也可以在根目录 `.env.local` 中设置 `CHAT_TO_FIX_SLACK_CHANNEL` 与 `CHAT_TO_FIX_LOCAL_REPO`。第三条命令只启动 Agent；Slack 一侧由公司的 Slack Bot（仓库根目录 `src/slackBot/`）负责，单独启动。本机使用 Node 24 运行这些命令。
@@ -72,7 +70,7 @@ Agent 使用现有 `GITLAB_TOKEN` 和 `JIRA_TOKEN`，不再需要 Slack 令牌�
 
 ## 和 Slack Bot 对接
 
-`adapters.slack: "outbox"` 是和公司 Slack Bot 一起用的模式（`connected.ts` 生成的配置就是它）：Slack Bot 是唯一连 Slack 的程序，Chat-to-Fix 不持有 Slack 令牌。Slack Bot 把 `/fix` 和讨论串里的 @ 用 `POST /events`（`source: "fix"` / `"mention"`）送进来，再每隔几秒用 `GET /outbox?after=<seq>&limit=<n>` 拉取要发给用户的消息；消息存在 `<数据目录>/outbox.jsonl`。接口、字段和状态码见 [docs/slack/slackbot.md](docs/slack/slackbot.md) 第 4.2、4.3 节，Slack 一侧的行为见 [docs/slack/slackenter.md](docs/slack/slackenter.md)。`adapters.slack: "real"`（服务端自己连 Slack，用 `scripts/slack-forwarder.ts`）仍可用，但不能和 Slack Bot 同时连同一个 Slack 应用。
+`adapters.slack: "outbox"` 是和公司 Slack Bot 一起用的模式（`connected.ts` 生成的配置就是它）：Slack Bot 是唯一连 Slack 的程序，Chat-to-Fix 不持有 Slack 令牌；`slack.mentions` 当前为 `false`。Slack Bot 把 `/fix` 用 `POST /events`（`source: "fix"`）送进来，再每隔几秒用 `GET /outbox?after=<seq>&limit=<n>` 拉取要发给用户的消息；消息存在 `<数据目录>/outbox.jsonl`。接口、字段和状态码见 [docs/slack/slackbot.md](docs/slack/slackbot.md) 第 4.2、4.3 节，Slack 一侧的行为见 [docs/slack/slackenter.md](docs/slack/slackenter.md)。`adapters.slack: "real"`（服务端自己连 Slack，用 `scripts/slack-forwarder.ts`）仍可用，但不能和 Slack Bot 同时连同一个 Slack 应用。
 
 真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
 

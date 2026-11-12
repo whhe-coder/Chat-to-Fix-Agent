@@ -8,6 +8,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$ROOT/../.." && pwd)"
 DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data}"
 PIDFILE="$DATA/run/chat-to-fix.pid"
 
@@ -23,7 +24,7 @@ fi
 # The group leader must still be this project's DSH; a recycled pid is not ours to signal.
 leader="$(ps -o command= -p "$pid" 2>/dev/null || true)"
 case "$leader" in
-  *"$ROOT/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js"*) ;;
+  *"$PROJECT_ROOT/node_modules/@deepseek-ai/dsh/lib/bin.js"*) ;;
   '') ;; # leader already gone, other members of its group remain: they are ours (same group id)
   *) echo "stop-chat-to-fix: process $pid is not this project's DSH ($leader); not signalling it" >&2; exit 1 ;;
 esac
