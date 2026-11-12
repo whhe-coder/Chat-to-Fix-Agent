@@ -1,12 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import { agentAlreadyRunning, bridgeEnv, connectedConfig, prepareAgentRepo, saveConfig } from '../scripts/connected.ts'
+
+const execFileAsync = promisify(execFile)
 
 test('已运行 Agent 的有效 token 和健康接口可避免重复启动', async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), 'chat-to-fix-running-'))
@@ -22,6 +25,14 @@ test('已运行 Agent 的有效 token 和健康接口可避免重复启动', asy
   try {
     assert.equal(await agentAlreadyRunning({ env: {}, dataRoot, port }), true)
     assert.equal(await agentAlreadyRunning({ env: { CHAT_TO_FIX_HTTP_TOKEN: 'wrong' }, dataRoot, port }), false)
+    writeFileSync(join(dataRoot, 'chat-to-fix.json'), JSON.stringify({ httpPort: port }))
+    await assert.rejects(execFileAsync('sh', [join(import.meta.dirname, '../scripts/stop-chat-to-fix.sh')], {
+      env: { ...process.env, CHAT_TO_FIX_DATA: dataRoot, CHAT_TO_FIX_HTTP_TOKEN: '' }, encoding: 'utf8',
+    }), (error: any) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /Agent is running but .* is missing/)
+      return true
+    })
   } finally {
     server.closeAllConnections()
     await new Promise<void>((done) => server.close(() => done()))

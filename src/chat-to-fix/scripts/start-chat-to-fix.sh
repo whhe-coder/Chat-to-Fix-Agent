@@ -57,7 +57,12 @@ $f"; shift 2 ;;
   esac
 done
 
-alive() { [ -f "$PIDFILE" ] && kill -0 "-$(cat "$PIDFILE")" 2>/dev/null; }
+alive() {
+  [ -f "$PIDFILE" ] || return 1
+  pid="$(cat "$PIDFILE")"
+  case "$pid" in ''|*[!0-9]*) echo "start-chat-to-fix: bad pid file $PIDFILE" >&2; exit 1 ;; esac
+  "$NODE" -e 'try { process.kill(-Number(process.argv[1]), 0) } catch (error) { if (error.code === "ESRCH") process.exit(1) }' "$pid"
+}
 if alive; then echo "start-chat-to-fix: already running (process group $(cat "$PIDFILE"))"; exit 0; fi
 rm -f "$PIDFILE"
 

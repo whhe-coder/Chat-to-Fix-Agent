@@ -8,6 +8,8 @@
 
 Agent 已在本机运行时，`npm start` 先用数据目录中的 token 验证 `/health`，成功后继续启动页面。若 4001 端口被其他进程占用，启动命令报错并打印可检查的地址；它不会接管或停止该进程。页面地址显示在 `npm start` 的终端输出中，不写入 Agent 的运行日志。
 
+`npm stop` 只停止有 PID 记录且能确认归属的后台进程。若旧服务仍在监听但 PID 文件缺失，命令会报错；它不会把“无法管理”当作“已经停止”。
+
 默认频道是 `CLOCAL`，与未配置真实 Slack 频道时 Agent 的绑定一致；若设置 `CHAT_TO_FIX_SLACK_CHANNEL`，模拟频道使用同一 ID。`MOCK_SLACK_PORT` 默认是 `4001`，`MOCK_SLACK_AGENT_URL` 默认是 `http://127.0.0.1:3090`，只能指向本机。Agent 使用其他数据目录时，给模拟 Bot 设置相同的 `CHAT_TO_FIX_DATA`。模拟页面的后台进程使用独立的 PID 和日志，默认位于 `src/slackBot/.data/run/`；可用 `MOCK_SLACK_STATE_DIR` 指定状态目录。
 
 模拟 Bot 在服务端读取 Agent 的 `http-token` 文件，或使用 `CHAT_TO_FIX_HTTP_TOKEN`。浏览器不会收到 token，模拟 Bot 也无需 Slack token。Agent 尚未启动时，页面显示连接失败；启动 Agent 后会自动重试。命令转发失败时，点击该讨论串的“重试发送”会保留原 `eventId` 和讨论串 ID。

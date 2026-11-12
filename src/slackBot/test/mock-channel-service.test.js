@@ -113,6 +113,7 @@ test('其他程序占用端口时明确报错，Agent 保持运行', async (t) =
     assert.match(error.message, new RegExp(`http://127\\.0\\.0\\.1:${env.MOCK_SLACK_PORT}/`));
     return true;
   });
+  await assert.rejects(stopMockService(env), /没有 PID 文件/);
   assert.equal(existsSync(pidFile), false);
   assert.equal((await fetch(`http://127.0.0.1:${agentPort}/tasks`, { headers: { 'x-chat-to-fix-token': 'test-token' } })).status, 200);
 });

@@ -48,7 +48,7 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。Chat-to-Fix Agent 
 
 用户要求在真实 Slack 配置尚未完成时先建立本机模拟频道。M1 的本地接口部分已独立验证：页面转发 `/fix` 到 Agent 的实际 HTTP 接口，并读取发件箱和任务状态；重复事件只启动一个任务。M0 仍是当前未完成的外部配置里程碑。本机模拟测试未提交真实 Jira 或 GitLab 写入。
 
-根目录 `package.json` 直接调用两个独立入口：`npm start` 依次在后台启动 Agent 和模拟页面，`npm stop` 停止两者。Agent 已运行时，启动入口用当前数据目录的 token 验证其健康状态，然后继续启动页面。隔离端口验证了现有 Agent 加新页面的启动输出和 `CLOCAL`。当前开发机的默认 4001 端口仍被旧版验证进程占用；命令现会明确打印可检查的页面地址，但不会接管该进程。当前运行的旧 Agent 没有 PID 文件，`npm stop` 无法管理该旧进程。清理旧进程后需在默认端口复测。此项不阻止 M0 的 Slack 配置工作。真实 Slack Bot 接入后，再调整 `package.json` 的启动入口。
+根目录 `package.json` 直接调用两个独立入口：`npm start` 依次在后台启动 Agent 和模拟页面，`npm stop` 停止两者。Agent 已运行时，启动入口用当前数据目录的 token 验证其健康状态，然后继续启动页面。隔离端口验证了现有 Agent 加新页面的启动输出和 `CLOCAL`。旧模拟页面已停止，默认 4001 端口待复测。当前 3090 的旧 Agent 仍在运行，但其 PID 文件缺失；当前执行环境不能发送停止信号，需要在本机 Terminal 停止该旧进程。新版停止命令对此明确报错，保留无法确认已停止的 PID 文件。此项不阻止 M0 的 Slack 配置工作。真实 Slack Bot 接入后，再调整 `package.json` 的启动入口。
 
 接入代码已提前准备：`src/chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。此项不改变 M0 的验收状态。真实 Slack 安装获批、频道 ID 确定后，才能完成真实入口验证；GitLab 写入和完整 CI 循环仍需真实环境验证。
 

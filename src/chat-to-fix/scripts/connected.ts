@@ -133,6 +133,7 @@ function argsOf(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--check') { out.action = 'check'; continue }
     if (argv[i] === '--start') { out.action = 'start'; continue }
+    if (argv[i] === '--running') { out.action = 'running'; continue }
     const key = { '--channel': 'channel', '--repo': 'localRepo', '--site-url': 'jiraSite', '--data': 'dataRoot' }[argv[i]]
     if (!key || !argv[i + 1]) throw new Error(`unknown or incomplete argument: ${argv[i]}`)
     out[key] = argv[++i]
@@ -151,6 +152,13 @@ async function main() {
     return
   }
   const dataRoot = args.dataRoot ?? (text(env.CHAT_TO_FIX_DATA) ? env.CHAT_TO_FIX_DATA : join(ROOT, '.data', 'connected'))
+  if (args.action === 'running') {
+    let port = 3090
+    try { port = JSON.parse(readFileSync(join(resolve(dataRoot), 'chat-to-fix.json'), 'utf8')).httpPort ?? port }
+    catch { /* Use the connected Agent's default port when its saved config is unavailable. */ }
+    if (!Number.isInteger(port) || port < 1 || !await agentAlreadyRunning({ env, dataRoot, port })) process.exitCode = 1
+    return
+  }
   const configuredChannel = args.channel ?? env.CHAT_TO_FIX_SLACK_CHANNEL
   const channel = text(configuredChannel) ? configuredChannel : args.action === 'start' ? 'CLOCAL' : configuredChannel
   if (channel === 'CLOCAL' && !text(configuredChannel)) {

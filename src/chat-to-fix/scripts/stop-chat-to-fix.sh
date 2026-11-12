@@ -11,12 +11,21 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_ROOT="$(cd "$ROOT/../.." && pwd)"
 DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data/connected}"
 PIDFILE="$DATA/run/chat-to-fix.pid"
+NODE="$(command -v node)"
 
-if [ ! -f "$PIDFILE" ]; then echo "chat-to-fix: not running (no pid file)"; exit 0; fi
+if [ ! -f "$PIDFILE" ]; then
+  if "$NODE" "$ROOT/scripts/connected.ts" --running >/dev/null 2>&1; then
+    echo "stop-chat-to-fix: Agent is running but $PIDFILE is missing; cannot stop it safely" >&2
+    exit 1
+  fi
+  echo "chat-to-fix: not running (no pid file)"
+  exit 0
+fi
 pid="$(cat "$PIDFILE")"
 case "$pid" in ''|*[!0-9]*) echo "stop-chat-to-fix: bad pid file $PIDFILE" >&2; rm -f "$PIDFILE"; exit 1 ;; esac
 
-if ! kill -0 "-$pid" 2>/dev/null; then
+group_alive() { "$NODE" -e 'try { process.kill(-Number(process.argv[1]), 0) } catch (error) { if (error.code === "ESRCH") process.exit(1) }' "$pid"; }
+if ! group_alive; then
   echo "chat-to-fix: not running (stale pid file removed)"
   rm -f "$PIDFILE"
   exit 0
@@ -29,15 +38,21 @@ case "$leader" in
   *) echo "stop-chat-to-fix: process $pid is not this project's DSH ($leader); not signalling it" >&2; exit 1 ;;
 esac
 
-kill -TERM "-$pid" 2>/dev/null || true
+if ! kill -TERM "-$pid" 2>/dev/null; then
+  echo "stop-chat-to-fix: cannot signal process group $pid; PID file retained" >&2
+  exit 1
+fi
 grace="${CHAT_TO_FIX_STOP_GRACE:-15}"
 i=0
-while kill -0 "-$pid" 2>/dev/null && [ "$i" -lt "$((grace * 5))" ]; do sleep 0.2; i=$((i + 1)); done
-if kill -0 "-$pid" 2>/dev/null; then
+while group_alive && [ "$i" -lt "$((grace * 5))" ]; do sleep 0.2; i=$((i + 1)); done
+if group_alive; then
   echo "stop-chat-to-fix: still running after ${grace}s, sending SIGKILL to process group $pid" >&2
-  kill -KILL "-$pid" 2>/dev/null || true
+  if ! kill -KILL "-$pid" 2>/dev/null; then
+    echo "stop-chat-to-fix: cannot signal process group $pid; PID file retained" >&2
+    exit 1
+  fi
   sleep 0.5
 fi
+if group_alive; then echo "stop-chat-to-fix: process group $pid did not exit; PID file retained" >&2; exit 1; fi
 rm -f "$PIDFILE"
-if kill -0 "-$pid" 2>/dev/null; then echo "stop-chat-to-fix: process group $pid did not exit" >&2; exit 1; fi
 echo "chat-to-fix: stopped (process group $pid)"

@@ -141,7 +141,11 @@ export async function startMockService(env = process.env) {
 export async function stopMockService(env = process.env) {
   const s = settings(env);
   const record = recordOf(s.pidFile);
-  if (!record) { console.log('模拟 Slack 频道未运行（无 PID 文件）'); return; }
+  if (!record) {
+    if (await portOpen(s.port)) throw new Error(`模拟 Slack 端口 ${s.port} 仍被占用，但没有 PID 文件；不会停止未知进程`);
+    console.log('模拟 Slack 频道未运行（无 PID 文件）');
+    return;
+  }
   if (!alive(record.pid)) {
     rmSync(s.pidFile);
     console.log('模拟 Slack 频道未运行（已清理旧 PID 文件）');
