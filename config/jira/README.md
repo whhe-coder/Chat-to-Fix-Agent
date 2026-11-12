@@ -36,8 +36,6 @@ Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments �
 
 2026-11-12 用新 token 执行 `npm run check:jira`，成功读取目标 board。初次创建请求返回 `400`，Jira 指明 `Work type` 必填。通过 Jira 页面确认该字段为单选，并从字段元数据取得 ID；该 ID 只在本地配置，Git 跟踪文件不记录实际值。补齐 `Task` 类型和 `Tech Research` 值后，本地服务真实创建一张标明为验证用途的工单，返回 `201`。服务新增评论返回 `201`，修改自身评论返回 `200`。新 token 回读到修改后的评论；目标 board 的 issue 查询返回该工单。完整本地测试 28 项通过。Cloud ID、board ID、个人邮箱、字段 ID 和测试工单编号均不写入 Git 跟踪文件。
 
-同一 token 调用项目元数据、字段查询和单个工单读取接口时返回 `401 scope does not match`。这不影响已验证的创建、评论和 board 查询，但后续若需要动态发现字段或读取完整工单，须先查明这些读取接口的授权差异。不能把已选的 scope 清单直接等同于所有读取 API 均可用。
-
 复测时，从 `https://<site>.atlassian.net/_edge/tenant_info` 读取 Cloud ID，从目标 board 页面 URL 读取 board ID。个人 token 需要该 Atlassian 账号的邮箱。仓库不记录这些实际值。运行：
 
 ```sh
