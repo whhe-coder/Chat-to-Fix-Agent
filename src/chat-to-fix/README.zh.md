@@ -47,6 +47,7 @@ npm ci
 | 做什么 | 命令 |
 |---|---|
 | 启动 Agent 和模拟 Slack 页面（后台） | `npm start`，页面地址 `http://127.0.0.1:4001/`；不自动打开浏览器 |
+| 启动两者并在当前终端查看 Agent 日志 | `npm run start:dev`；按 Ctrl+C 只结束日志查看，服务继续运行 |
 | 停止两者 | `npm stop` |
 | 只停止 Agent | `npm run stop:agent` |
 | 查看 Agent 实时日志 | `npm run logs:agent`；收到 `/fix` 时先输出频道、发送者和问题正文 |

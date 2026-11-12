@@ -87,7 +87,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 ## 模拟 Slack Bot
 
-运行 `npm start` 会先启动 Agent，再在后台启动模拟 Slack 页面；命令打印页面地址 `http://127.0.0.1:4001/` 后返回，不会自动打开浏览器。若 Agent 已在 3090 运行，启动命令会验证其健康状态并继续启动页面。重复运行不会再创建一个模拟页面进程。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。若旧进程仍在运行但没有 PID 文件，停止命令会报错，不会声称已停止或结束未知进程。`npm run start:mock-slack` 可单独在前台启动页面。页面模拟一个频道：输入 `/fix 问题描述` 后，模拟 Bot 将任务交给本机 Agent，并显示 Agent 回传的进度。运行 `npm run logs:agent` 可查看 Agent 收到命令时的日志；页面地址显示在 `npm start` 的终端输出中。模拟 Bot 无需 Slack token。**如果 Agent 已连接真实 Jira 和 GitLab，发送命令会触发真实任务。**启动方式和边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。旧私信测试接口改用 `npm run start:mock-dm`。
+运行 `npm start` 会先启动 Agent，再在后台启动模拟 Slack 页面；命令打印页面地址 `http://127.0.0.1:4001/` 后返回，不会自动打开浏览器。若 Agent 已在 3090 运行，启动命令会验证其健康状态并继续启动页面。重复运行不会再创建一个模拟页面进程。运行 `npm run start:dev` 可启动两者并在当前终端持续显示 Agent 日志；按 Ctrl+C 只结束日志查看，服务继续运行。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。若旧进程仍在运行但没有 PID 文件，停止命令会报错，不会声称已停止或结束未知进程。`npm run start:mock-slack` 可单独在前台启动页面。页面模拟一个频道：输入 `/fix 问题描述` 后，模拟 Bot 将任务交给本机 Agent，并显示 Agent 回传的进度。运行 `npm run logs:agent` 可查看 Agent 收到命令时的日志；页面地址显示在 `npm start` 的终端输出中。模拟 Bot 无需 Slack token。**如果 Agent 已连接真实 Jira 和 GitLab，发送命令会触发真实任务。**启动方式和边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。旧私信测试接口改用 `npm run start:mock-dm`。
 
 ## 文档分工
 
