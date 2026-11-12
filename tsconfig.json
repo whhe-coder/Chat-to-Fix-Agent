@@ -3,7 +3,7 @@
   // directly by stripping types, so this config only type-checks (noEmit) and allows only
   // type syntax Node can strip (erasableSyntaxOnly). Tighten group by group later.
   // Resolution is "bundler" only so that `paths` can point @deepseek-ai/* at the DSH packages in
-  // runtime/ (the runtime itself resolves them through bot/test/harness-resolve.mjs and DSH).
+  // runtime/ (the runtime itself resolves them through bot/test/harness-resolve.ts and DSH).
   "compilerOptions": {
     "target": "esnext",
     "module": "preserve",
@@ -20,5 +20,5 @@
       "@deepseek-ai/*": ["./runtime/node_modules/@deepseek-ai/*"]
     }
   },
-  "include": ["src/**/*.ts", "bot/src/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "bot/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "bot/test/**/*.ts"]
 }

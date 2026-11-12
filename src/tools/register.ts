@@ -7,7 +7,7 @@
 import { allBotDefs, toolsOfRole } from '../registry/bots.ts'
 
 // DS Bot's team tools list, copied from bot/src/host/constants.ts:65 (TEAM_TOOLS). A role tool
-// must not use one of these names. The copy is checked against the original in test/tools.test.js.
+// must not use one of these names. The copy is checked against the original in test/tools.test.ts.
 export const TEAM_TOOL_NAMES = Object.freeze([
   'list_bots', 'message_bot', 'stop_bot', 'post_to_group',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',

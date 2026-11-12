@@ -39,7 +39,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', config = {} } =
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
   })
-  adapter._spawned = spawned
+  adapter["_spawned"] = spawned
   return adapter
 }
 
@@ -70,7 +70,7 @@ test('session-title and compaction stay deterministic, no CLI is started', async
 })
 
 test('a first turn replays the conversation, a later one sends only the delta', async (t) => {
-  const records = {}
+  const records: any = {}
   const adapter = makeAdapter({ records })
   t.after(() => adapter.dispose())
   const first = await collect(adapter.stream(options('s1', [system('sys', 'You are Kai, a coder.'), user('m1', 'hello')])))
@@ -88,7 +88,7 @@ test('a first turn replays the conversation, a later one sends only the delta', 
 })
 
 test('each DS Bot Session maps to its own CLI session', async (t) => {
-  const records = {}
+  const records: any = {}
   const adapter = makeAdapter({ records })
   t.after(() => adapter.dispose())
   await collect(adapter.stream(options('own', [user('m1', 'one')])))
@@ -198,7 +198,7 @@ test('abort cancels the turn, and the stopped turn does not answer the next one'
 test('a CLI that exits ends the turn with a typed error and the next prompt starts a new one', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  await assert.rejects(collect(adapter.stream(options('s1', [user('m1', '[exit]')]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  await assert.rejects(collect(adapter.stream(options('s1', [user('m1', '[exit]')]))), (error: any) => error.code === 'LOCAL_AGENT_EXIT')
   const next = await collect(adapter.stream(options('s1', [user('m1', '[exit]'), user('m2', 'again')])))
   assert.match(next.text, /ok: /)
 })
@@ -288,7 +288,7 @@ test('a fresh part carries the deterministic handoff', async () => {
   const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'acp-fake/default', segments: [] }
   const followed = []
   const delivered = []
-  const rt = {
+  const rt: any = {
     ctx,
     config: {},
     state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },

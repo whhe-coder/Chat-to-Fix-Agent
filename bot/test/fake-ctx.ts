@@ -17,7 +17,7 @@ export function fakeAttachments() {
   }
 }
 
-export function fakeApproval(outcome = 'allowed-once') {
+export function fakeApproval(outcome: any = 'allowed-once') {
   const requests = []
   return {
     requests,
@@ -38,7 +38,7 @@ export function fakeContext({ services = {} } = {}) {
   // Listeners by event name, in registration order.
   const listeners = new Map()
   const sections = new Map()
-  const ctx = {
+  const ctx: any = {
     calls,
     registeredTools,
     guards,

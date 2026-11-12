@@ -33,8 +33,8 @@ function makeAdapter(records = {}) {
   })
 }
 
-async function boot({ approval } = {}) {
-  const ctx = new Context()
+async function boot({ approval }: { approval?: any } = {}) {
+  const ctx: any = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const adapter = makeAdapter()
   ctx.llm.registerAdapter(['claude-code'], adapter)
@@ -47,7 +47,7 @@ async function boot({ approval } = {}) {
 const send = (agent, text) => agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 
 function waitForIdle(ctx, agent) {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
@@ -81,7 +81,7 @@ test('a bridged team tool round-trips through real DSH dispatch', async (t) => {
     description: 'Message another Bot',
     parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } },
     output,
-    async execute(args) { calls.push(args); return `delivered to ${args.to ?? args.bot}` },
+    async execute(args: any) { calls.push(args); return `delivered to ${args.to ?? args.bot}` },
   })
   send(agent, 'please [mcp:message_bot {"to":"Chief"}]')
   await waitForIdle(ctx, agent)
@@ -116,7 +116,7 @@ test('a permission prompt reaches the approval service and fails closed', async 
     description: 'Ask the user to approve an action',
     parameters: { type: 'object', properties: { action: { type: 'string' }, detail: { type: 'string' } } },
     output,
-    async execute(args, exec) {
+    async execute(args: any, exec) {
       const outcome = await ctx.get('approval').request({ agent: exec.agent, toolName: exec.name, callId: exec.callId, reason: args.action })
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
     },

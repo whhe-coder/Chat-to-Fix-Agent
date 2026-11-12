@@ -118,7 +118,7 @@ test('childEnv: allow-list plus extra, nothing else', () => {
   }
   const env = childEnv({ source })
   assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'TMPDIR', 'USER'])
-  const withExtra = childEnv({ source, extra: { ANTHROPIC_API_KEY: 'given', FOO: 1, GONE: undefined } })
+  const withExtra: any = childEnv({ source, extra: { ANTHROPIC_API_KEY: 'given', FOO: 1, GONE: undefined } })
   assert.equal(withExtra.ANTHROPIC_API_KEY, 'given')
   assert.equal(withExtra.FOO, '1')
   assert.ok(!('GONE' in withExtra) && !('SLACK_TOKEN' in withExtra) && !('GITLAB_TOKEN' in withExtra))
@@ -137,7 +137,7 @@ test('authEnv: login passes no key, apiKey passes ANTHROPIC_API_KEY', () => {
 })
 
 const SOURCE = { PATH: process.env.PATH, HOME: '/home/x', SLACK_TOKEN: 'leak', GITLAB_TOKEN: 'leak', ANTHROPIC_API_KEY: 'leak' }
-async function open(extra = {}, options = {}, startOptions = {}) {
+async function open(extra = {}, options: any = {}, startOptions = {}) {
   const session = new ClaudeSession()
   await session.start({ bin: process.execPath, cwd: process.cwd(), args: [FAKE, ...(options.args ?? claudeArgs(options))], env: childEnv({ source: SOURCE, extra }), ...startOptions })
   return session
@@ -504,7 +504,7 @@ test('session: kill ends the stream without an error event', async () => {
 test('session: child that exits before initialize rejects start and yields an error event', async () => {
   const session = new ClaudeSession()
   await assert.rejects(
-    session.start({ bin: process.execPath, args: [FAKE], env: childEnv({ source: SOURCE, extra: { FAKE_EXIT_BEFORE_INIT: '1' } }) }),
+    session.start({ bin: process.execPath, args: [FAKE], env: childEnv({ source: SOURCE, extra: { FAKE_EXIT_BEFORE_INIT: '1' } }) } as any),
     /exited/,
   )
   const event = await session.next()

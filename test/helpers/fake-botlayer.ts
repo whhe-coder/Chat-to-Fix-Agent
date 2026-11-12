@@ -38,7 +38,7 @@ export function createFakeBotLayer({ fail = {} } = {}) {
   let nextBot = 1
   let nextGroup = 1
 
-  const layer = { calls, bots, groups, posts, bindings, answers, fail }
+  const layer: any = { calls, bots, groups, posts, bindings, answers, fail }
 
   // Logs the call and throws when the function was told to fail.
   function enter(name, args) {

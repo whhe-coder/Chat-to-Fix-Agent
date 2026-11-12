@@ -59,7 +59,7 @@ async function rig({ limits = {} } = {}) {
   const config = loadConfig({ path: configPath, env: {} })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
   const fake = fakeAdapters()
-  const gate = createGate({ store, repo: fake.adapters.repo, limits: config.limits })
+  const gate = createGate({ store, repo: fake.adapters.repo, limits: config.limits } as any)
   const task = await store.createTask(
     { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'tester' }, text: 'the button does nothing', files: [], permalink: 'https://example.slack.com/p1' },
     config.bindings[0],
@@ -306,7 +306,7 @@ async function prepared(r) {
 
 test('the read tools refuse before the code directory exists', async () => {
   const r = await rig()
-  for (const [name, args] of [['repo_diff', {}], ['repo_read_file', { path: 'a.js' }], ['repo_log', {}]]) {
+  for (const [name, args] of [['repo_diff', {}], ['repo_read_file', { path: 'a.js' }], ['repo_log', {}]] as [string, any][]) {
     assert.match(await r.call('pipeline', name, args), /^tool failed: the code directory is not prepared yet/, name)
   }
   assert.match(await r.call('pipeline', 'mr_get'), /^tool failed: the task has no branch yet/)

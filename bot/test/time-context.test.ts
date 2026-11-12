@@ -26,7 +26,7 @@ function setup(t, { events = [], config = {}, owned = true } = {}) {
   install(rt)
   const hook = ctx.listeners.get('agent/pre-step')[0]
   const message = { role: 'user', content: [{ type: 'text', text: 'Hello' }], source: { kind: 'user' } }
-  const step = (decision = { kind: 'enter', messages: [message] }, payload = {}) => hook({
+  const step = (decision: any = { kind: 'enter', messages: [message] }, payload = {}) => hook({
     agent: { id: 'bot', session: { id: 'bot' } }, turn: 1, step: 1,
     signal: new AbortController().signal, ...payload,
   }, async () => decision)
@@ -50,7 +50,7 @@ test('a resumed session suppresses readings before ten minutes and refreshes at 
   const { step } = setup(t, { events: [reading(NOW - 599_999)] })
   const decision = { kind: 'enter', messages: [] }
   assert.equal(await step(decision), decision)
-  Date.now.mock.mockImplementation(() => NOW + 1)
+  ;(Date.now as any).mock.mockImplementation(() => NOW + 1)
   assert.equal((await step(decision)).messages.length, 1)
 })
 

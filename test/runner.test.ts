@@ -12,7 +12,7 @@ const ORIGIN = { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1'
 const BINDING = { repo: 'group/project', defaultBranch: 'master', jiraProject: 'DEMO', issueType: 'Bug', labels: [] }
 const config = { apiModel: 'anthropic/test', codingPermission: 'workspace-write', limits: { worktreeKeepDays: 7 } }
 
-async function rig({ fail, repo, nowMs, warnings = [] } = {}) {
+async function rig({ fail, repo, nowMs, warnings = [] }: any = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-runner-'))
   const store = createStore({ dataDir: dir, warn: () => {} })
   const botlayer = createFakeBotLayer({ fail })
@@ -215,7 +215,7 @@ test('end: even when endRun and notify throw, release and dispatch still run', a
   const broken = createRunner({
     store: r.store, botlayer: r.botlayer, config, monitor: r.monitor, notify: async () => { throw new Error('slack down') },
     loadPrompt: () => '', groupNotice: () => '', warn: () => {},
-  })
+  } as any)
   broken.bind({ queue: r.queue })
   // `broken` has no memory of the run: it finds it in the store (the restart path).
   await broken.end(r.id, 'failed', 'stalled')

@@ -21,7 +21,7 @@ function fakeStore() {
     async getTask(id) { return tasks.get(id) },
     async findByThread(c, t) { return tasks.get(threads.get(`${c}/${t}`)) },
     async patchTask(id, patch) { const t = { ...tasks.get(id), ...patch }; tasks.set(id, t); return t },
-    async listTasks({ state } = {}) { return [...tasks.values()].filter((t) => state === undefined || t.state === state) },
+    async listTasks({ state }: any = {}) { return [...tasks.values()].filter((t) => state === undefined || t.state === state) },
     async readRecords(id) { return records.get(id) ?? [] },
   }
 }
@@ -48,7 +48,7 @@ beforeEach(async () => {
 })
 afterEach(() => srv.close())
 
-async function call(method, path, body, headers = { 'x-chat-to-fix-token': TOKEN }) {
+async function call(method, path, body?, headers: any = { 'x-chat-to-fix-token': TOKEN }) {
   const res = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)) })
   return { status: res.status, body: await res.json() }
 }

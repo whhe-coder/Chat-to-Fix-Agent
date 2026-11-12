@@ -31,12 +31,12 @@ function fakeStore(initial = {}) {
 const limits = { diffMaxFiles: 10, diffMaxLines: 300 }
 const ok = { ok: true }
 
-function setup(initial, diff = { files: ['a.js'], totalFiles: 1, totalLines: 5 }, options = {}) {
+function setup(initial, diff: any = { files: ['a.js'], totalFiles: 1, totalLines: 5 }, options = {}) {
   const store = fakeStore(initial)
   const diffCalls = []
   const repo = { diff: async (dir, base) => { diffCalls.push([dir, base]); return typeof diff === 'function' ? diff() : diff } }
   const closed = []
-  const gate = createGate({ store, repo, limits, onClosed: (...args) => closed.push(args), now: () => 'NOW', ...options })
+  const gate: any = createGate({ store, repo, limits, onClosed: (...args) => closed.push(args), now: () => 'NOW', ...options })
   return { store, gate, diffCalls, closed }
 }
 
@@ -234,7 +234,7 @@ test('close failed and needs_person: need a note; mapping of state and end reaso
 
 test('close refusal appends a refused record with the reason', async () => {
   const { gate, store } = setup({})
-  const r = await gate.close('T-1', 'done')
+  const r: any = await gate.close('T-1', 'done')
   assert.equal(r.ok, false)
   assert.equal(store.records.at(-1).type, 'refused')
   assert.match(store.records.at(-1).text, /close\(done\) refused/)

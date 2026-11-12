@@ -255,7 +255,7 @@ function onPrompt(text) {
 
 // A tools/call over the MCP http transport; the answer is read from the SSE stream.
 async function callMcp(tool, args) {
-  const [server, entry] = Object.entries(JSON.parse(flag('--mcp-config')).mcpServers)[0]
+  const [server, entry]: [string, any] = Object.entries(JSON.parse(flag('--mcp-config')).mcpServers)[0]
   const id = toolId()
   assistant([{ type: 'tool_use', id, name: `mcp__${server}__${tool}`, input: args }])
   let reply

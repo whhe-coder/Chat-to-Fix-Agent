@@ -11,10 +11,10 @@ test('the lines follow the model: its window less the room for its reply', () =>
 })
 
 test('a model without a window counts as the default, and odd settings fall back', () => {
-  assert.equal(linesFor({}).window, DEFAULT_WINDOW)
-  assert.equal(linesFor({ window: 0 }).window, DEFAULT_WINDOW)
+  assert.equal(linesFor({} as any).window, DEFAULT_WINDOW)
+  assert.equal(linesFor({ window: 0 } as any).window, DEFAULT_WINDOW)
   // A reply that would take the whole window still leaves half of it.
-  assert.equal(linesFor({ window: 100_000, reserve: 200_000 }).usable, 50_000)
+  assert.equal(linesFor({ window: 100_000, reserve: 200_000 } as any).usable, 50_000)
   for (const checkRatio of [0, 1, 1.5, -1, 'x', undefined]) {
     assert.equal(linesFor({ window: 100_000, reserve: 0, checkRatio }).check, 80_000, String(checkRatio))
   }

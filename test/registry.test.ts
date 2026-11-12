@@ -40,14 +40,14 @@ test('seven steps in order, with the spec data', () => {
 })
 
 test('stepOfWriteTool: bound, purpose-keyed, unbound, unknown', () => {
-  assert.equal(stepOfWriteTool('mr_open_draft'), 'mr')
-  assert.equal(stepOfWriteTool('slack_reply', 'ack'), 'fetch')
-  assert.equal(stepOfWriteTool('slack_reply', 'result'), 'writeback')
-  assert.equal(stepOfWriteTool('slack_reply', 'question'), null)
-  assert.equal(stepOfWriteTool('needs_info_confirm'), null)
-  assert.equal(stepOfWriteTool('task_close'), null)
-  assert.equal(stepOfWriteTool('slack_reply'), undefined)
-  assert.equal(stepOfWriteTool('rm_rf'), undefined)
+  assert.equal((stepOfWriteTool as any)('mr_open_draft'), 'mr')
+  assert.equal((stepOfWriteTool as any)('slack_reply', 'ack'), 'fetch')
+  assert.equal((stepOfWriteTool as any)('slack_reply', 'result'), 'writeback')
+  assert.equal((stepOfWriteTool as any)('slack_reply', 'question'), null)
+  assert.equal((stepOfWriteTool as any)('needs_info_confirm'), null)
+  assert.equal((stepOfWriteTool as any)('task_close'), null)
+  assert.equal((stepOfWriteTool as any)('slack_reply'), undefined)
+  assert.equal((stepOfWriteTool as any)('rm_rf'), undefined)
 })
 
 test('the real registry and flow validate', () => {

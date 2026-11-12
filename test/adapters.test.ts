@@ -25,20 +25,20 @@ async function setup(overrides = {}) {
     adapters: { slack: 'fake', jira: 'fake', gitlab: 'fake' }, bindings: [b],
     commitAuthor: { name: 'chat-to-fix', email: 'chat-to-fix@example.com' }, ...overrides,
   }
-  return { config, adapters: createAdapters(config), binding: b, made, dir }
+  return { config, adapters: createAdapters(config) as any, binding: b, made, dir }
 }
 
 before(async () => { tmp = await mkdtemp(join(tmpdir(), 'chat-to-fix-adapters-')) })
 after(async () => { await rm(tmp, { recursive: true, force: true }) })
 
-const git = (args, cwd) => runGit(args, { cwd, author: { name: 'x', email: 'x@example.com' } }).then((r) => r.stdout)
+const git = (args, cwd?) => runGit(args, { cwd, author: { name: 'x', email: 'x@example.com' } }).then((r) => r.stdout)
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'))
 
 test('real adapters are refused at creation, per adapter', async () => {
   const { config } = await setup()
   for (const [name, key] of [['slack', 'slack'], ['jira', 'jira'], ['gitlab', 'gitlab']]) {
     const bad = { ...config, adapters: { ...config.adapters, [name]: 'real' } }
-    assert.throws(() => createAdapters(bad), (e) => e.code === 'not_implemented' && /not implemented yet: waiting for the hookup design/.test(e.message) && e.message.includes(`adapters.${key}`))
+    assert.throws(() => createAdapters(bad), (e: any) => e.code === 'not_implemented' && /not implemented yet: waiting for the hookup design/.test(e.message) && e.message.includes(`adapters.${key}`))
   }
   const all = createAdapters(config)
   assert.deepEqual(Object.keys(all).sort(), ['jira', 'repo', 'slack'])
@@ -47,7 +47,7 @@ test('real adapters are refused at creation, per adapter', async () => {
 test('slack: readThread and reply', async () => {
   const { config, adapters: a } = await setup()
   const origin = { channel: 'C1', threadTs: '100.1' }
-  await assert.rejects(a.slack.readThread(origin), (e) => e.code === 'thread_not_found' && e.retryable === false)
+  await assert.rejects(a.slack.readThread(origin), (e: any) => e.code === 'thread_not_found' && e.retryable === false)
   await mkdir(join(config.dataDir, 'fake/slack/threads'), { recursive: true })
   await writeFile(join(config.dataDir, 'fake/slack/threads/C1-100.1.json'), JSON.stringify([
     { user: { id: 'U1', name: 'ann' }, at: '2026-11-12T01:00:00Z', text: 'It is broken', files: [{ name: 'a.png', url: 'u' }] },
@@ -62,12 +62,12 @@ test('slack: readThread and reply', async () => {
   const id2 = await a.slack.reply(origin, 'result', 'done')
   assert.equal(typeof id1, 'string')
   assert.notEqual(id1, id2)
-  const lines = (await readFile(join(config.dataDir, 'fake/slack/replies.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+  const lines: any[] = (await readFile(join(config.dataDir, 'fake/slack/replies.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse as any)
   assert.deepEqual(lines.map((l) => [l.purpose, l.text, l.channel, l.threadTs]), [['ack', 'received', 'C1', '100.1'], ['result', 'done', 'C1', '100.1']])
   assert.ok(lines[0].at)
-  await assert.rejects(a.slack.reply(origin, 'shout', 'x'), (e) => e.code === 'bad_purpose')
-  await assert.rejects(a.slack.reply({ channel: '../x', threadTs: '1' }, 'ack', 'x'), (e) => e.code === 'bad_origin')
-  await assert.rejects(a.slack.readThread({ channel: 'C1', threadTs: '../../etc' }), (e) => e.code === 'bad_origin')
+  await assert.rejects(a.slack.reply(origin, 'shout', 'x'), (e: any) => e.code === 'bad_purpose')
+  await assert.rejects(a.slack.reply({ channel: '../x', threadTs: '1' }, 'ack', 'x'), (e: any) => e.code === 'bad_origin')
+  await assert.rejects(a.slack.readThread({ channel: 'C1', threadTs: '../../etc' }), (e: any) => e.code === 'bad_origin')
 })
 
 test('jira: create, get, comment, transition, keys and errors', async () => {
@@ -94,9 +94,9 @@ test('jira: create, get, comment, transition, keys and errors', async () => {
   assert.equal(after.comments.length, 1)
   assert.equal(after.comments[0].text, 'MR is open')
 
-  await assert.rejects(a.jira.getIssue('DEMO-99'), (e) => e.code === 'issue_not_found' && e.retryable === false)
-  await assert.rejects(a.jira.addComment('DEMO-99', 'x'), (e) => e.code === 'issue_not_found')
-  await assert.rejects(a.jira.transition('DEMO-99', 'x'), (e) => e.code === 'issue_not_found')
+  await assert.rejects(a.jira.getIssue('DEMO-99'), (e: any) => e.code === 'issue_not_found' && e.retryable === false)
+  await assert.rejects(a.jira.addComment('DEMO-99', 'x'), (e: any) => e.code === 'issue_not_found')
+  await assert.rejects(a.jira.transition('DEMO-99', 'x'), (e: any) => e.code === 'issue_not_found')
 })
 
 test('concurrent writes to the fake files lose no entry', async () => {
@@ -109,7 +109,7 @@ test('concurrent writes to the fake files lose no entry', async () => {
   assert.equal(Object.keys(issues).length, 25)
   const origin = { channel: 'C1', threadTs: '1.1' }
   await Promise.all(Array.from({ length: 40 }, (_, i) => a.slack.reply(origin, 'ack', `r${i}`)))
-  const lines = (await readFile(join(config.dataDir, 'fake/slack/replies.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+  const lines: any[] = (await readFile(join(config.dataDir, 'fake/slack/replies.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse as any)
   assert.equal(lines.length, 40)
   assert.equal(new Set(lines.map((l) => l.id)).size, 40)
   assert.deepEqual((await readdir(join(config.dataDir, 'fake/jira'))).filter((f) => f.endsWith('.tmp')), [])
@@ -119,12 +119,12 @@ test('make-test-repo: the sample repository fails its test because of the bug', 
   const dir = await mkdtemp(join(tmp, 'mk-'))
   const made = await createTestRepo({ dir })
   assert.ok(existsSync(join(made.localRepo, 'test.sh')))
-  const failing = await new Promise((resolve) => execFile('sh', ['test.sh'], { cwd: made.localRepo, env: { PATH: process.env.PATH } }, (error, stdout) => resolve({ code: error?.code ?? 0, stdout })))
+  const failing = await new Promise<any>((resolve) => execFile('sh', ['test.sh'], { cwd: made.localRepo, env: { PATH: process.env.PATH } }, (error, stdout) => resolve({ code: error?.code ?? 0, stdout })))
   assert.equal(failing.code, 1)
   assert.match(failing.stdout, /FAIL applyDiscount\(100, 10\): expected 90, got 110/)
   assert.equal((await git(['rev-parse', 'master'], made.remote)).trim(), made.commit)
   // The script prints the two paths for a binding.
-  const printed = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/make-test-repo.ts'), join(dir, 'viaScript')], (e, out) => (e ? reject(e) : resolve(out))))
+  const printed = await new Promise<any>((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/make-test-repo.ts'), join(dir, 'viaScript')], (e, out) => (e ? reject(e) : resolve(out))))
   assert.match(printed, /"localRepo": ".*viaScript\/project"/)
   assert.match(printed, /"remote": ".*viaScript\/project\.git"/)
 })
@@ -160,8 +160,8 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   assert.match(await a.repo.readFile(prepared.dir, 'src/new-file.js'), /two = 2/)
   assert.match(await a.repo.readFile(prepared.dir, 'src/price.js', 'master'), /price \+ \(price/)
   assert.match(await a.repo.readFile(prepared.dir, 'src/price.js'), /price - \(price/)
-  await assert.rejects(a.repo.readFile(prepared.dir, 'nope.js'), (e) => e.code === 'file_not_found')
-  await assert.rejects(a.repo.readFile(prepared.dir, 'nope.js', 'master'), (e) => e.code === 'git_failed')
+  await assert.rejects(a.repo.readFile(prepared.dir, 'nope.js'), (e: any) => e.code === 'file_not_found')
+  await assert.rejects(a.repo.readFile(prepared.dir, 'nope.js', 'master'), (e: any) => e.code === 'git_failed')
 
   // log
   const commits = await a.repo.log(prepared.dir, undefined, 5)
@@ -185,7 +185,7 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   assert.match(commit, /^chat-to-fix\|chat-to-fix@example\.com\|chat-to-fix\|chat-to-fix@example\.com\|Fix discount\|Subtract it/)
   assert.match(await git(['show', 'ai/DEMO-7:src/new-file.js'], made.remote), /one = 1/)
   assert.deepEqual(await a.repo.getMR(b, 'ai/DEMO-7'), { state: 'opened', pipeline: 'none', url: first.url, draft: true, title: 'Fix discount' })
-  await assert.rejects(a.repo.getMR(b, 'ai/NOPE-1'), (e) => e.code === 'mr_not_found')
+  await assert.rejects(a.repo.getMR(b, 'ai/NOPE-1'), (e: any) => e.code === 'mr_not_found')
 
   // second call with a further change: same url, still one entry, commit amended and pushed
   await writeFile(join(prepared.dir, 'src/more.js'), 'export default 3\n')
@@ -208,7 +208,7 @@ test('repo: prepare, diff with a new file, readFile, log, openDraftMR twice, cle
   await a.repo.openDraftMR(b, prepared.dir, 'ai/DEMO-7', { title: 'again', jiraKey: 'DEMO-7' })
   assert.equal((await git(['rev-list', '--count', 'master..ai/DEMO-7'], made.remote)).trim(), '3')
   // wrong branch
-  await assert.rejects(a.repo.openDraftMR(b, prepared.dir, 'ai/OTHER-1', { title: 't' }), (e) => e.code === 'wrong_branch')
+  await assert.rejects(a.repo.openDraftMR(b, prepared.dir, 'ai/OTHER-1', { title: 't' }), (e: any) => e.code === 'wrong_branch')
 
   // cleanup removes the directory and keeps the branch (locally and on the remote)
   await a.repo.cleanup(prepared.dir)
@@ -256,7 +256,7 @@ test('repo.readFile refuses paths that escape the repository', async () => {
   await symlink(secret, join(p.dir, 'link-to-file'))
   await symlink(dir, join(p.dir, 'link-to-dir'))
   await symlink('../../secret.txt', join(p.dir, 'rel-link'))
-  const refused = async (path, ref, code) => assert.rejects(a.repo.readFile(p.dir, path, ref), (e) => e.code === code && e.retryable === false && !String(e.message).includes('TOP SECRET'), `${path} ${ref ?? ''}`)
+  const refused = async (path, ref, code) => assert.rejects(a.repo.readFile(p.dir, path, ref), (e: any) => e.code === code && e.retryable === false && !String(e.message).includes('TOP SECRET'), `${path} ${ref ?? ''}`)
   await refused(secret, undefined, 'path_escape') // absolute
   await refused('/etc/passwd', undefined, 'path_escape')
   await refused('../secret.txt', undefined, 'path_escape')
@@ -278,12 +278,12 @@ test('repo.readFile refuses paths that escape the repository', async () => {
   await git(['commit', '-q', '-m', 'links'], p.dir)
   assert.equal(await a.repo.readFile(p.dir, 'link-to-file', 'HEAD'), secret)
   // log with an escaping path
-  await assert.rejects(a.repo.log(p.dir, '../secret.txt'), (e) => e.code === 'path_escape')
+  await assert.rejects(a.repo.log(p.dir, '../secret.txt'), (e: any) => e.code === 'path_escape')
   // a directory outside the worktrees folder is refused by every function
   for (const call of [() => a.repo.readFile(dir, 'secret.txt'), () => a.repo.diff(dir, 'master'), () => a.repo.log(dir), () => a.repo.cleanup(dir), () => a.repo.readFile(join(p.dir, '..'), 'x')]) {
-    await assert.rejects(call(), (e) => e.code === 'bad_dir')
+    await assert.rejects(call(), (e: any) => e.code === 'bad_dir')
   }
-  await assert.rejects(a.repo.diff(p.dir, '--output=/tmp/x'), (e) => e.code === 'bad_ref')
+  await assert.rejects(a.repo.diff(p.dir, '--output=/tmp/x'), (e: any) => e.code === 'bad_ref')
   assert.ok(existsSync(secret))
 })
 
@@ -312,16 +312,16 @@ test('git runs with a minimal environment: global config and hooks do not leak i
 test('repo.openDraftMR refuses an empty branch', async () => {
   const { adapters: a, binding: b } = await setup()
   const p = await a.repo.prepare(b, 'DEMO-12', 17)
-  await assert.rejects(a.repo.openDraftMR(b, p.dir, p.branch, { title: 't' }), (e) => e.code === 'nothing_to_commit')
-  await assert.rejects(a.repo.openDraftMR(b, p.dir, p.branch, {}), (e) => e.code === 'bad_title')
+  await assert.rejects(a.repo.openDraftMR(b, p.dir, p.branch, { title: 't' }), (e: any) => e.code === 'nothing_to_commit')
+  await assert.rejects(a.repo.openDraftMR(b, p.dir, p.branch, {}), (e: any) => e.code === 'bad_title')
 })
 
 test('repo.prepare reports bad arguments with an error code', async () => {
   const { adapters: a, binding: b } = await setup()
-  await assert.rejects(a.repo.prepare(b, 'not a key', 1), (e) => e.code === 'bad_key')
-  await assert.rejects(a.repo.prepare(b, 'DEMO-1', 'x; rm -rf /'), (e) => e.code === 'bad_task_no')
-  await assert.rejects(a.repo.prepare({ ...b, localRepo: '/nonexistent/repo' }, 'DEMO-1', 1), (e) => e.code === 'bad_binding')
-  await assert.rejects(a.repo.prepare({ ...b, remote: '/nonexistent/remote.git' }, 'DEMO-1', 1), (e) => e.code === 'git_failed' && e.retryable === true)
+  await assert.rejects(a.repo.prepare(b, 'not a key', 1), (e: any) => e.code === 'bad_key')
+  await assert.rejects(a.repo.prepare(b, 'DEMO-1', 'x; rm -rf /'), (e: any) => e.code === 'bad_task_no')
+  await assert.rejects(a.repo.prepare({ ...b, localRepo: '/nonexistent/repo' }, 'DEMO-1', 1), (e: any) => e.code === 'bad_binding')
+  await assert.rejects(a.repo.prepare({ ...b, remote: '/nonexistent/remote.git' }, 'DEMO-1', 1), (e: any) => e.code === 'git_failed' && e.retryable === true)
 })
 
 // --- fake-event script, against a real listener ---------------------------------------------------
@@ -346,7 +346,7 @@ test('fake-event: writes the discussion file and posts the event (function and c
   const { config, adapters: a } = await setup()
   const l = await listener()
   try {
-    const sent = await sendFakeEvent({ channel: 'C1', text: 'The button does nothing', dataDir: config.dataDir, url: l.url, token: 'tok' })
+    const sent = await (sendFakeEvent as any)({ channel: 'C1', text: 'The button does nothing', dataDir: config.dataDir, url: l.url, token: 'tok' })
     assert.equal(sent.status, 202)
     assert.equal(sent.body.state, 'queued')
     assert.equal(l.tasks.get(sent.body.taskId).origin.text, 'The button does nothing')
@@ -356,19 +356,19 @@ test('fake-event: writes the discussion file and posts the event (function and c
     assert.equal(thread[0].text, 'The button does nothing')
 
     // Continue the discussion: same thread, a second message, the task of the thread is found again.
-    const more = await sendFakeEvent({ channel: 'C1', text: 'It is the login page', threadTs: sent.threadTs, dataDir: config.dataDir, url: l.url, token: 'tok' })
+    const more = await (sendFakeEvent as any)({ channel: 'C1', text: 'It is the login page', threadTs: sent.threadTs, dataDir: config.dataDir, url: l.url, token: 'tok' })
     assert.equal(more.threadTs, sent.threadTs)
     assert.notEqual(more.messageTs, sent.messageTs)
     assert.equal(more.body.inProgress, true)
     assert.equal((await a.slack.readThread({ channel: 'C1', threadTs: sent.threadTs })).map((m) => m.text).join('|'), 'The button does nothing|It is the login page')
 
     // Wrong token and unbound channel are reported, not hidden.
-    assert.equal((await sendFakeEvent({ channel: 'C1', text: 'x', dataDir: config.dataDir, url: l.url, token: 'bad' })).status, 401)
-    assert.equal((await sendFakeEvent({ channel: 'C9', text: 'x', dataDir: config.dataDir, url: l.url, token: 'tok' })).status, 422)
-    await assert.rejects(sendFakeEvent({ channel: 'C1', dataDir: config.dataDir, url: l.url, token: 'tok' }), /missing: text/)
+    assert.equal((await (sendFakeEvent as any)({ channel: 'C1', text: 'x', dataDir: config.dataDir, url: l.url, token: 'bad' })).status, 401)
+    assert.equal((await (sendFakeEvent as any)({ channel: 'C9', text: 'x', dataDir: config.dataDir, url: l.url, token: 'tok' })).status, 422)
+    await assert.rejects((sendFakeEvent as any)({ channel: 'C1', dataDir: config.dataDir, url: l.url, token: 'tok' }), /missing: text/)
 
     // The command line, with URL and token from the environment.
-    const out = await new Promise((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/fake-event.ts'), '--channel', 'C1', '--text', 'From the command line', '--data-dir', config.dataDir], { env: { PATH: process.env.PATH, CHAT_TO_FIX_URL: l.url, CHAT_TO_FIX_HTTP_TOKEN: 'tok' } }, (e, stdout) => (e ? reject(e) : resolve(stdout))))
+    const out = await new Promise<any>((resolve, reject) => execFile(process.execPath, [join(root, 'scripts/fake-event.ts'), '--channel', 'C1', '--text', 'From the command line', '--data-dir', config.dataDir], { env: { PATH: process.env.PATH, CHAT_TO_FIX_URL: l.url, CHAT_TO_FIX_HTTP_TOKEN: 'tok' } }, (e, stdout) => (e ? reject(e) : resolve(stdout))))
     const printed = JSON.parse(out)
     assert.equal(printed.status, 202)
     assert.equal(printed.response.state, 'queued')

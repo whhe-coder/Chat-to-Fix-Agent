@@ -30,7 +30,7 @@ test('viewCardText records only a card the tool would show', () => {
   assert.equal(viewCardText({ title: 'X', view: { type: 'gauge' } }), '')
   assert.equal(viewCardText({ title: 'Meter', view: meter, await_reply: true }), '')
   assert.equal(viewCardText({ title: 'Pick', view: choices, await_reply: false }), '')
-  let children = [{ type: 'text', text: 'x' }]
+  let children: any = [{ type: 'text', text: 'x' }]
   while (viewBytes('', { type: 'stack', children }) <= VIEW_BYTE_LIMIT) children = { item: children }
   assert.equal(viewCardText({ title: 'Big', view: { type: 'stack', children } }), '')
   const shown = { type: 'tool/call', data: { name: 'show_view', arguments: { title: 'Meter', view: meter } } }
@@ -63,7 +63,7 @@ test('historyEntry keeps answers, user and Bot messages, and skips setup', () =>
 
 test('termQuery matches long words with FTS5 and short ones with LIKE', () => {
   const sessions = ['s1', 's2']
-  assert.deepEqual(termQuery(['needle', 'a"b"c'], sessions, 20), {
+  assert.deepEqual((termQuery as any)(['needle', 'a"b"c'], sessions, 20), {
     sql: 'SELECT text, session, seq, time, who FROM lines WHERE lines MATCH ? AND session IN (SELECT value FROM json_each(?)) ORDER BY rank LIMIT 20',
     args: ['"needle" "a""b""c"', '["s1","s2"]'],
   })

@@ -44,10 +44,10 @@ async function rig() {
     },
   }
   queue = createQueue({ store, limits: config.limits, runner, notify })
-  const gate = createGate({ store, repo, limits: config.limits, onClosed: (id, state, reason) => runner.end(id, state, reason) })
+  const gate: any = createGate({ store, repo, limits: config.limits, onClosed: (id, state, reason) => runner.end(id, state, reason) })
   const http = createHttp({ config, token: 'tok', store, queue, runner, notify })
   const port = await http.listen()
-  const call = async (method, path, body) => {
+  const call = async (method, path, body?) => {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
       headers: { 'x-chat-to-fix-token': 'tok', 'content-type': 'application/json' },

@@ -15,7 +15,7 @@ function runtime(defaultSelection) {
     },
     get: name => (name === 'agentDefaultModel' && defaultSelection ? { currentSelection: () => defaultSelection } : undefined),
   }
-  const rt = { ctx, state: { bots: {} } }
+  const rt: any = { ctx, state: { bots: {} } }
   install(rt)
   return rt
 }
@@ -81,7 +81,7 @@ test('choosing a Bot model leaves the user\'s DSH default model as it was', asyn
     // Like DSH: the selection is also saved as the default, in the background.
     sessionController: { selectModel: async ({ provider, model }) => { void defaults.saveSelection({ provider, model }) } },
   }
-  const rt = { ctx, state: { bots: {} }, warn() {} }
+  const rt: any = { ctx, state: { bots: {} }, warn() {} }
   install(rt)
   await Promise.all([
     rt.selectSessionModel('s1', { provider: 'deepseek', model: 'deepseek-v4-pro' }),
@@ -102,7 +102,7 @@ test('a Bot with no model yet changes nothing until the user picks one', async (
 
 // A runtime with two providers, a DSH default, and a session controller that, like
 // DSH, saves every Session selection as the default.
-function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fallback = { provider: 'stepfun', model: 'step-5' }, reasoning = {}, services = {} } = {}) {
+function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fallback = { provider: 'stepfun', model: 'step-5' }, reasoning = {}, services = {} }: any = {}) {
   let current = { ...fallback }
   const selected = []
   const saved = []
@@ -124,7 +124,7 @@ function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fa
       },
     },
   }
-  const rt = { ctx, state: { bots: {} }, chatOf: id => id, groupSessionsOf: () => [], save: async () => {}, warn: () => {} }
+  const rt: any = { ctx, state: { bots: {} }, chatOf: id => id, groupSessionsOf: () => [], save: async () => {}, warn: () => {} }
   install(rt)
   return { rt, selected, saved, providers, listeners, current: () => current }
 }
@@ -147,7 +147,7 @@ test('a fresh catalog sees a model list changed in DSH settings at once', async 
 
 test('applying a Bot model leaves the DSH default as the user set it', async () => {
   const { rt, selected, current } = bench()
-  const bot = { id: 'b1', model: 'deepseek/v4-flash' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash' }
   assert.equal(await rt.applyModel(bot), 'deepseek/v4-flash')
   assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
   assert.deepEqual(current(), { provider: 'stepfun', model: 'step-5' })
@@ -156,7 +156,7 @@ test('applying a Bot model leaves the DSH default as the user set it', async () 
 
 test('a Bot model applies its thinking level, and only re-selects on a change', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } } } })
-  const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low' }
   await rt.applyModel(bot)
   assert.deepEqual(selected, ['b1:deepseek/v4-flash:low'])
   assert.equal(bot.appliedEffort, 'low')
@@ -172,7 +172,7 @@ test('a Bot model applies its thinking level, and only re-selects on a change', 
 
 test('group selections sync per Session even when the Bot-level fields already match', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }], defaultEffort: 'high' } } } })
-  const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' }
   const groups = ['g1', 'g2']
   rt.groupSessionsOf = () => groups
   const select = rt.ctx.sessionController.selectModel
@@ -200,7 +200,7 @@ test('group selections sync per Session even when the Bot-level fields already m
 
 test('a failed group selection is retried without reselecting the own chat or successful groups', async () => {
   const { rt, selected } = bench()
-  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
   rt.groupSessionsOf = () => ['g1', 'g2']
   const select = rt.ctx.sessionController.selectModel
   let failed = false
@@ -260,7 +260,7 @@ test('a route refused for not being a model endpoint is chosen nowhere again', a
 test('a Bot on a clean record but a poisoned Session re-selects its own model', async () => {
   const { rt, selected } = bench({ providers: { external: ['default'], deepseek: ['v4-flash'] }, fallback: { provider: 'external', model: 'default' } })
   // Its group Session ran on another Bot's route; its own record never named it.
-  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
   rt.state.bots = { b1: bot }
   await rt.routeRefused('external/default', bot)
   assert.equal(bot.model, 'deepseek/v4-flash')
@@ -285,7 +285,7 @@ test('every Bot re-pinned off a refused route re-selects its Session', async () 
 // on a refusal, so an unfiltered key would never run the sync again.
 test('a refusal changes the sync key, so the next sync applies what the records say', async () => {
   const { rt, selected } = bench({ providers: { external: ['default'], deepseek: ['v4-flash'] } })
-  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  const bot: any = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
   rt.state.bots = { b1: bot }
   await rt.catalog()
   await rt.syncModels()

@@ -204,10 +204,10 @@ test('a failing task does not stop the pass over the others', async () => {
   const ended = []
   const m = createMonitor({
     store: { getTask: async (id) => { if (id === 'T-1') throw new Error('disk'); return s.tasks.get(id) }, appendRecord: async () => {} },
-    botlayer: { isQuiet: () => false, postTask: async () => {}, stopBot: async () => {}, answerApproval() {}, onSessionEvent: () => () => {}, onRoundEnd: () => () => {}, onGroupLine: () => () => {}, onApproval: () => () => {} },
+    botlayer: { isQuiet: () => false, postTask: async () => {}, stopBot: async () => {}, answerApproval() {}, onSessionEvent: () => () => {}, onRoundEnd: () => () => {}, onGroupLine: () => () => {}, onApproval: () => () => {} } as any,
     limits: LIMITS, now: () => s.clock.t, warn: (...a) => s.warnings.push(a),
     end: async (id) => { ended.push(id) },
-  })
+  } as any)
   m.watch('T-1'); m.watch('T-2'); await s.settle(); await m.tick()
   assert.deepEqual(ended, ['T-2'])
   assert.ok(s.warnings.length > 0)

@@ -30,7 +30,7 @@ test('stripOwnName drops an echoed "Name:" prefix', () => {
 })
 
 test('a referenced conversation rides with the user\'s queued message, not a Bot\'s post', () => {
-  const queued = [{ text: 'first' }, { text: 'look @Chat with K', images: [] }, { text: 'post', botId: 'k' }]
+  const queued: any[] = [{ text: 'first' }, { text: 'look @Chat with K', images: [] }, { text: 'post', botId: 'k' }]
   attachReference(queued, { kind: 'session-reference', references: [{ label: 'Chat with K' }, { label: '' }] }, '## Referenced sessions\n…')
   attachReference(queued, { kind: 'session-reference', references: [{ label: 'K notes' }] }, '## Referenced sessions\n2')
   attachReference(queued, { kind: 'session-reference' }, '')

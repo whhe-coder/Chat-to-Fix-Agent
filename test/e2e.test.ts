@@ -49,7 +49,7 @@ async function rig(t) {
     throw new Error(`task ${id} did not reach ${state}; warnings: ${warnings.join(' | ')}`)
   }
   // One @ in Slack: the discussion file is written and the event is posted to the listener.
-  const mention = async (text, threadTs) => {
+  const mention = async (text, threadTs?) => {
     const sent = await sendFakeEvent({ channel: 'C1', text, threadTs, dataDir: config.dataDir, url, token: 'tok' })
     return sent
   }

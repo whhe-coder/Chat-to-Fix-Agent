@@ -33,7 +33,7 @@ async function rig(t) {
   const app = createApp({ config, botlayer: host.botlayer, token: 'tok', warn: (...args) => warnings.push(args.join(' ')) })
   const port = await app.start()
   t.after(() => app.stop())
-  const call = async (method, path, body) => {
+  const call = async (method, path, body?) => {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
       headers: { 'x-chat-to-fix-token': 'tok', 'content-type': 'application/json' },

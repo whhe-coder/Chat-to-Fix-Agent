@@ -16,9 +16,9 @@ async function rig({ step = 'fetch' } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-rec-'))
   const warnings = []
   const store = createStore({ dataDir: dir, warn: () => {} })
-  const botlayer = createFakeBotLayer()
+  const botlayer: any = createFakeBotLayer()
   const task = await store.createTask(ORIGIN, BINDING)
-  const bots = {}
+  const bots: any = {}
   for (const role of ['main', 'slack', 'jira', 'pipeline', 'coding']) {
     bots[role] = await botlayer.createBot({ name: role, label: role, instructions: 'i', model: 'm', permission: 'p' })
     botlayer.bindBot(bots[role], { taskId: task.id, role })

@@ -8,7 +8,7 @@ const SESSION_ONLY = ['auto']
 function runtime({ presets = true, auto = false, fail = false, hold = false } = {}) {
   const writes = []
   const releases = []
-  const bots = {}
+  const bots: any = {}
   const control = { fail }
   const service = {
     catalog: () => ({ options: [...Object.keys(PRESETS), ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
@@ -16,7 +16,7 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
     set: (session, name) => { if (control.fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
   }
   const ctx = { get: name => (presets && name === 'permissionPresets' ? service : undefined) }
-  const rt = {
+  const rt: any = {
     ctx,
     chatOf: id => `${id}-chat`,
     groupSessionsOf: id => [`${id}-group`],
@@ -44,7 +44,7 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
 
 test('a Bot\'s preset is set on its chat and its group Sessions', async () => {
   const { rt, writes } = runtime()
-  const bot = { id: 'b1', name: 'Ada' }
+  const bot: any = { id: 'b1', name: 'Ada' }
   await rt.setPermission(bot, 'danger-full-access')
   assert.equal(bot.permission, 'danger-full-access')
   assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-group=danger-full-access'])
@@ -59,7 +59,7 @@ test('a fresh Session gets the Bot\'s preset, and a Bot without one keeps the de
 
 test('an unknown preset is refused and the Bot keeps its own', async () => {
   const { rt, writes } = runtime()
-  const bot = { id: 'b1', permission: 'workspace-write' }
+  const bot: any = { id: 'b1', permission: 'workspace-write' }
   await assert.rejects(rt.setPermission(bot, 'everything'), /unknown preset/)
   assert.equal(bot.permission, 'workspace-write')
   assert.deepEqual(writes, [])
@@ -73,7 +73,7 @@ test('the catalog lists the presets DSH offers, or nothing without the presets s
 test('Auto review is not offered or kept as a Bot\'s preset', async () => {
   const { rt, writes } = runtime({ auto: true })
   assert.deepEqual(rt.permissionCatalog().options.map(option => option.value), ['workspace-write', 'danger-full-access'])
-  const bot = { id: 'b1' }
+  const bot: any = { id: 'b1' }
   await assert.rejects(rt.setPermission(bot, 'auto'), /one Session only/)
   assert.equal(bot.permission, undefined)
   assert.deepEqual(writes, [])
@@ -81,14 +81,14 @@ test('Auto review is not offered or kept as a Bot\'s preset', async () => {
 
 test('a preset the Bot\'s own chat refuses is not kept', async () => {
   const { rt } = runtime({ fail: true })
-  const bot = { id: 'b1', permission: 'workspace-write' }
+  const bot: any = { id: 'b1', permission: 'workspace-write' }
   await assert.rejects(rt.setPermission(bot, 'danger-full-access'), /rejected/)
   assert.equal(bot.permission, 'workspace-write')
 })
 
 test('the last preset asked for wins when two Bot changes overlap', async () => {
   const { rt, writes, releases, settle } = runtime({ hold: true })
-  const bot = { id: 'b1', name: 'Ada' }
+  const bot: any = { id: 'b1', name: 'Ada' }
   const first = rt.setPermission(bot, 'workspace-write')
   const second = rt.setPermission(bot, 'danger-full-access')
   assert.equal(releases.length, 2)
@@ -103,7 +103,7 @@ test('the last preset asked for wins when two Bot changes overlap', async () => 
 
 test('a failed change does not roll back a newer one that already applied', async () => {
   const { rt, releases, settle, drop } = runtime({ hold: true })
-  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  const bot: any = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
   // Two windows ask for the same preset; the newer applies everywhere first.
   const first = rt.setPermission(bot, 'danger-full-access')
   const second = rt.setPermission(bot, 'danger-full-access')
@@ -119,7 +119,7 @@ test('a failed change does not roll back a newer one that already applied', asyn
 
 test('a failed change rolls back to the last applied preset, not to a failed request', async () => {
   const { rt, releases, settle, drop, control } = runtime({ hold: true })
-  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  const bot: any = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
   const first = rt.setPermission(bot, 'danger-full-access')
   const second = rt.setPermission(bot, 'danger-full-access')
   const firstFails = assert.rejects(first, /went away/)
@@ -134,7 +134,7 @@ test('a failed change rolls back to the last applied preset, not to a failed req
 
 test('a superseded change leaves no Session on a preset that lost', async () => {
   const { rt, writes, releases, settle, control } = runtime({ hold: true })
-  const bot = { id: 'b1', name: 'Ada' }
+  const bot: any = { id: 'b1', name: 'Ada' }
   const first = rt.setPermission(bot, 'workspace-write')
   await settle(0) // the older request sets the chat, then waits on the group Session
   const second = rt.setPermission(bot, 'danger-full-access')
@@ -155,7 +155,7 @@ test('the last preset asked for wins when two group changes overlap', async () =
   const { rt, writes, releases, bots, settle } = runtime({ hold: true })
   bots.b1 = { id: 'b1', name: 'Ada' }
   bots.b2 = { id: 'b2', name: 'Ben' }
-  const room = { name: 'Ops', sessions: { b1: 's1', b2: 's2' } }
+  const room: any = { name: 'Ops', sessions: { b1: 's1', b2: 's2' } }
   const first = rt.setRoomPermission(room, 'workspace-write')
   const second = rt.setRoomPermission(room, 'danger-full-access')
   assert.equal(releases.length, 2)

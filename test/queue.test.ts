@@ -5,7 +5,7 @@ import { createQueue } from '../src/task/queue.ts'
 function setup({ maxConcurrent = 1, queueMax = 20, queueWaitHours = 4 } = {}) {
   const tasks = new Map()
   const store = {
-    async listTasks({ state } = {}) { return [...tasks.values()].filter((t) => state === undefined || t.state === state) },
+    async listTasks({ state }: any = {}) { return [...tasks.values()].filter((t) => state === undefined || t.state === state) },
     async getTask(id) { return tasks.get(id) },
     async patchTask(id, patch) { const t = { ...tasks.get(id), ...patch }; tasks.set(id, t); return t },
   }

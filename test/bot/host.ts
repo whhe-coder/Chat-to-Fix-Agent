@@ -10,7 +10,7 @@ import { createApp } from '../../src/app.ts'
 import { connectTaskLayer, createRuntime, defineTool, runtimeOf } from '../../src/bot/index.ts'
 import { fakeContext } from '../../bot/test/fake-ctx.ts'
 
-export async function start(t, config = {}) {
+export async function start(t, config: any = {}) {
   const home = mkdtempSync(join(tmpdir(), 'chat-to-fix-botlayer-'))
   const services = {
     permissionPresets: { resolve: name => name, set() {}, catalog: () => ({ options: [], defaultPreset: 'standard' }) },
@@ -130,7 +130,7 @@ export const settle = async (check) => {
 // pointed at `cli` ({ command, args }: the fake CLI, or a wrapper of the real one). `runtime` is
 // extra runtime configuration (testCommands, permissionTimeoutMs, ...). Returns the host and
 // the app; `post(text)` starts a task and resolves with the running task and its bots.
-export async function startApp(t, { cli, runtime = {}, config: extra = {} } = {}) {
+export async function startApp(t, { cli, runtime = {}, config: extra = {} }: { cli?: any, runtime?: any, config?: any } = {}) {
   const host = await start(t, { claudeCommand: cli.command, claudeCommandArgs: cli.args, ...runtime })
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-app-'))
   const configPath = join(dir, 'config.json')

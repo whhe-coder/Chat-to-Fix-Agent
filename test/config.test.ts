@@ -75,13 +75,13 @@ test('duplicate channel is refused', () => {
 })
 
 test('all problems are reported together', () => {
-  assert.throws(() => load({}), (e) => /dataDir/.test(e.message) && /httpPort/.test(e.message) && /bindings/.test(e.message))
+  assert.throws(() => load({}), (e: any) => /dataDir/.test(e.message) && /httpPort/.test(e.message) && /bindings/.test(e.message))
 })
 
 test('a real adapter needs its token; the message names the variable only', () => {
   const cfg = { ...base(), adapters: { slack: 'real', jira: 'fake', gitlab: 'real' } }
-  assert.throws(() => load(cfg, {}), (e) => /CHAT_TO_FIX_SLACK_TOKEN/.test(e.message) && /CHAT_TO_FIX_GITLAB_TOKEN/.test(e.message) && !/JIRA/.test(e.message))
-  const c = load(cfg, { CHAT_TO_FIX_SLACK_TOKEN: 'xoxb-secret-1', CHAT_TO_FIX_GITLAB_TOKEN: 'glpat-secret-2' })
+  assert.throws(() => load(cfg, {}), (e: any) => /CHAT_TO_FIX_SLACK_TOKEN/.test(e.message) && /CHAT_TO_FIX_GITLAB_TOKEN/.test(e.message) && !/JIRA/.test(e.message))
+  const c: any = load(cfg, { CHAT_TO_FIX_SLACK_TOKEN: 'xoxb-secret-1', CHAT_TO_FIX_GITLAB_TOKEN: 'glpat-secret-2' })
   assert.equal(c.adapters.slack, 'real')
 })
 

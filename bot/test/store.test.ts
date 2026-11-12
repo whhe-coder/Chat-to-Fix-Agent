@@ -27,7 +27,7 @@ function patchSync(method, replace) {
   }
 }
 
-function runtime(t, saved) {
+function runtime(t, saved?) {
   const home = fs.mkdtempSync(join(tmpdir(), 'ds-bot-store-'))
   const statePath = join(home, 'state.json')
   if (saved !== undefined) fs.writeFileSync(statePath, typeof saved === 'string' ? saved : JSON.stringify(saved))
@@ -41,7 +41,7 @@ function runtime(t, saved) {
       if (typeof dispose === 'function') disposers.push(dispose)
     },
   }
-  const rt = {
+  const rt: any = {
     ctx,
     home,
     statePath,
