@@ -29,7 +29,13 @@ curl -X POST http://127.0.0.1:4000/jira/issues/F2PGBA-123/comments -H 'Content-T
 curl -X PUT http://127.0.0.1:4000/jira/issues/F2PGBA-123/comments/456 -H 'Content-Type: application/json' -d '{"body":"Investigation updated"}'
 ```
 
-Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments 和 Edit own comments 项目权限。当前只计划修改该账号自己创建的评论。官方 Create issue 接口列出 granular scopes `write:issue:jira`、`write:comment:jira`、`write:comment.property:jira`、`write:attachment:jira`、`read:issue:jira`；评论接口还列有读取相关 scopes。创建新的 scoped token 前，须根据所选身份和 Atlassian token 页面核对这三个实际接口的完整 scope 集，避免直接授予较宽的 `write:jira-work`。当前未创建写入 token，也未核对 F2PGBA 的可用 issue type、必填字段和 board 筛选规则。
+Jira 账号需要 `F2PGBA` 的 Browse projects、Create issues、Add comments 和 Edit own comments 项目权限。当前只计划修改该账号自己创建的评论。Atlassian 官方 OpenAPI 对创建工单、新增评论和修改评论三个接口列出的 granular OAuth scope 并集如下；它属于接口文档中的 Beta granular 清单，创建 scoped API token 时仍需核对管理页面实际提供的选项：
+
+| 写入 | 读取 |
+| --- | --- |
+| `write:issue:jira`、`write:comment:jira`、`write:comment.property:jira`、`write:attachment:jira` | `read:issue:jira`、`read:comment:jira`、`read:comment.property:jira`、`read:group:jira`、`read:project:jira`、`read:project-role:jira`、`read:user:jira`、`read:avatar:jira` |
+
+这些 scopes 不限制到单一项目；实际访问范围还取决于账号的 Jira 项目权限。不要把 `write:jira-work` 当作最小权限。当前未创建写入 token，也未核对 F2PGBA 的可用 issue type、必填字段和 board 筛选规则。
 
 ## 真实连接验证
 
@@ -52,5 +58,6 @@ env JIRA_CLOUD_ID='<cloud-id>' JIRA_BOARD_ID='<board-id>' JIRA_EMAIL='<account-e
 - [Atlassian：Get board](https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/)
 - [Atlassian：Create issue](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post)
 - [Atlassian：Issue comments](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/)
+- [Atlassian：Jira Cloud v3 OpenAPI](https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json)
 - [Atlassian：管理 scoped API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
 - [Atlassian：服务账号 API token](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/)

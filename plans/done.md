@@ -31,3 +31,4 @@
 - [x] 用该 token 通过目标 board 的真实只读 API 验证。返回名称为 `F2PGBA board`；响应未给出项目 key。工单创建和评论尚未验证。
 - [x] 在本地 Node.js 服务增加 `GET /jira/board`、`POST /jira/issues`、`POST /jira/issues/:key/comments`、`PUT /jira/issues/:key/comments/:id`。工单固定在 `F2PGBA` 项目；评论路径仅接受该项目的工单 key。
 - [x] Jira 连接函数新增工单创建、评论新增和评论修改方法。普通文本转为 ADF；工单类型必须显式提供。本地模拟测试和服务路由测试通过；完整测试共 27 项通过。真实 Jira 写入和 board 展示仍待验证。
+- [x] 根据 Atlassian 官方 OpenAPI 核对三个写入端点的 granular OAuth scope 并集。文档已记录 12 项 scopes；scoped API token 管理页面的实际选项及目标账号项目权限仍待核对。
