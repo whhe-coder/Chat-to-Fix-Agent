@@ -4,7 +4,7 @@
 
 ## 当前已接通：只读 API
 
-本地 Node.js 服务调用 GitLab REST API，读取目标项目的 `master` 分支。服务优先使用环境变量 `GITLAB_TOKEN`；在 Mac 上也可从登录钥匙串读取账号为 `local-agent`、名称为 `Chat-to-Fix-Agent/GITLAB_TOKEN` 的条目。服务不读取 `glab` 的凭据配置。
+本地 Node.js 服务调用 GitLab REST API，读取目标项目的 `master` 分支。它使用 `GITLAB_TOKEN`，不读取 `glab` 的凭据配置。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
 ```text
 npm run start:server
@@ -13,7 +13,7 @@ GET http://127.0.0.1:4000/gitlab/status
 GET http://127.0.0.1:4000/gitlab/merge-requests/<MR_IID>/checks
 ```
 
-启动前，设置 `GITLAB_TOKEN` 或准备上述钥匙串条目。可选变量：`GITLAB_URL`、`GITLAB_PROJECT`、`GITLAB_BRANCH`、`PORT`。不要把 token 写入仓库、命令行参数、日志或 Slack 消息。当前服务只监听本机。
+启动前按 [本地环境变量配置](../local-env/README.md) 提供 `GITLAB_TOKEN`。当前服务只监听本机。
 
 GitLab 连接现由 [`createGitlabConnection()`](../../src/gitlab/connection.js) 独立创建。后续本地 agent 可直接调用它，无需经过 HTTP 服务。进程启动时创建一次连接并复用；服务处理请求时不再读取钥匙串。每次重启仍可能出现 macOS 钥匙串授权提示。连接函数和当前验证范围见 [连接规格](../../spec/gitlab-connection.md)。
 
@@ -29,7 +29,7 @@ GitLab 连接现由 [`createGitlabConnection()`](../../src/gitlab/connection.js)
 
 ## 新项目 token 状态
 
-2026-11-11 已在目标项目创建名为 `chat-to-fix-agent` 的项目 token：角色 `Developer`，scopes 为 `api`、`write_repository`，到期日为 2026-12-11。完整 token 已保存在本机登录钥匙串中账号为 `local-agent`、名称为 `Chat-to-Fix-Agent/GITLAB_TOKEN` 的条目。
+2026-11-11 已在目标项目创建名为 `chat-to-fix-agent` 的项目 token：角色 `Developer`，scopes 为 `api`、`write_repository`，到期日为 2026-12-11。当前凭据保存位置见 [本地环境变量配置](../local-env/README.md)。
 
 首次保存时遗漏了 token 点号后的后缀，读取验证返回 `401`；随后已修正钥匙串条目。使用修正后的 token，仓库分支、MR 列表、pipeline 列表、jobs 列表及一条 job trace 的只读请求均返回 `200`。尚未尝试 Git push、创建 Draft MR 或修改 MR；这些写入能力仍待对应功能实施时验证。不要把 token 值写入仓库或聊天记录。
 
