@@ -181,3 +181,18 @@ export async function startApp(t, { cli, runtime = {}, config: extra = {} }: { c
   }
   return { host, app, post, warnings, config }
 }
+
+// A real DSH loop (test/bot/loop.ts mountLoop) runs on a context of its own; the bot layer listens on the host's.
+// This hands the loop's session events and tool results on to the host's listeners, as one DSH would, so the task
+// layer's recorder sees what the loop does (tool calls, tool results, round ends). Returns the stop function.
+export function forwardLoopEvents(host, loopCtx) {
+  const offs = [
+    loopCtx.on('session/event', (session, event) => {
+      for (const listener of host.ctx.listeners.get('session/event') ?? []) if (listener.length >= 2) listener(session, event)
+    }),
+    loopCtx.on('tools/result', (exec, result) => {
+      for (const listener of host.ctx.listeners.get('tools/result') ?? []) if (listener.length >= 2) listener(exec, result)
+    }),
+  ]
+  return () => { for (const off of offs) off?.() }
+}

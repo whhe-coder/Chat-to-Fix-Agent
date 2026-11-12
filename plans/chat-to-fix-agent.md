@@ -29,10 +29,10 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。本地 agent 或�
 | --- | --- | --- |
 | M0a 旧版模拟私信入口 | 已完成，仅作历史测试工具 | 无 Slack token 时，可通过本机接口提交模拟私信、读取原 thread 回复；相同事件只处理一次。行为见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。 |
 | M0 固定频道 `/fix` 配置 | 进行中：权限已调整 | Bot scopes 仅有 `commands`、`chat:write`，无消息事件；注册 `/fix`；确定唯一允许的频道 ID；核对安装申请采用新 scopes。真实安装和调用在 M6 验收。 |
-| M1 Bot 与本地 agent 对接 | 未开始 | 模拟入口改为 `/fix` 任务输入；将问题正文、发送者和频道标识交给 agent；异步状态可追踪；相同命令不会重复启动任务。 |
+| M1 Bot 与本地 agent 对接 | 代码准备中，未验收 | 模拟入口改为 `/fix` 任务输入；将问题正文、发送者和频道标识交给 agent；异步状态可追踪；相同命令不会重复启动任务。 |
 | M2 Jira 工单 | 写入能力已验证，任务联动未开始 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
 | M3 代码修改与 Draft MR | 未开始 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
-| M4 CI 观察与修复 | 未开始 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
+| M4 CI 观察与修复 | 模拟 CI 已实现，真实链路未验收 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
 | M5 模拟入口端到端验收 | 未开始 | 从模拟 `/fix` 到 Jira、Draft MR、CI 结果、thread/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
 | M6 真实 Slack 切换与验收 | 待审批 | 工作区安装采用新 scopes 并取得 Bot token；真实 Bot 仅接受指定频道的 `/fix`，其他频道拒绝；验证命令到最终回报的链路。 |
 
@@ -45,6 +45,8 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。本地 agent 或�
 - [ ] 核对审批人看到的待审申请是否采用新 scopes；如未更新，按新权限重新提交申请。
 
 本里程碑完成后再推进 M1。管理员审批阻塞真实安装和 M6 验收。已完成事项见 [done.md](done.md)。
+
+接入代码已提前准备：`chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。此项不改变 M0 的验收状态。真实 Slack 安装获批、频道 ID 确定后，才能完成真实入口验证；GitLab 写入和完整 CI 循环仍需真实环境验证。
 
 ## 执行规则
 

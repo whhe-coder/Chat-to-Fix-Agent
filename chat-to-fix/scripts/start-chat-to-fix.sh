@@ -34,7 +34,7 @@ RUN="$DATA/run"
 PIDFILE="$RUN/chat-to-fix.pid"
 LOG="$RUN/chat-to-fix.log"
 
-if ! command -v node >/dev/null 2>&1; then . "$ROOT/scripts/dev-env.sh"; fi
+if ! command -v node >/dev/null 2>&1; then CHAT_TO_FIX_ROOT="$ROOT" . "$ROOT/scripts/dev-env.sh"; fi
 NODE="$(command -v node)"
 [ -f "$DSH_BIN" ] || { echo "start-chat-to-fix: the bundled DSH is missing ($DSH_BIN)" >&2; exit 1; }
 [ -f "$CONFIG" ] || { echo "start-chat-to-fix: no configuration at $CONFIG (copy config.example.json and set CHAT_TO_FIX_CONFIG)" >&2; exit 1; }

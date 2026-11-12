@@ -171,7 +171,7 @@
   window.chatMarkdown = chatMarkdown
 
   // ---------------------------------------------------------------------------------------------- helpers
-  var STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', writeback: '回写', close: '结束' }
+  var STEP_LABEL = { fetch: '取讨论', issue: '建工单', prepare: '准备代码', code: '写代码', mr: '开 MR', ci: 'CI', writeback: '回写', close: '结束' }
   var STATE_LABEL = { queued: '排队中', running: '运行中', done: '已完成', needs_info: '需要补充信息', failed: '失败', timed_out: '超时', stopped: '已停止', expired: '已过期' }
   function pad(n) { return n < 10 ? '0' + n : '' + n }
   // The message clock (text.js messageClock, here always the clock with seconds: the pane is for debugging).

@@ -34,7 +34,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   // The monitor ends tasks through the runner and the runner is built after it, so the call is late-bound.
   let runner
   const send = adapters.slack ? (origin, text) => adapters.slack.reply(origin, 'system', text) : undefined
-  const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, now, warn })
+  const monitor = createMonitor({ store, botlayer, limits: config.limits, end: (id, state, reason) => runner.end(id, state, reason), send, repo: adapters.repo, language: config.language, now, warn })
   runner = createRunner({ store, botlayer, config, monitor, notify: monitor.notify, loadPrompt, groupNotice, repo: adapters.repo, warn, now })
   const queue = createQueue({ store, limits: config.limits, runner, notify: monitor.notify as any, now })
   runner.bind({ queue })
@@ -52,7 +52,7 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   registerAllTools(tools)
   const undefinedTools = tools.validate()
   if (undefinedTools.length) throw new Error(`chat-to-fix: the tool definitions do not match the bot registry: ${undefinedTools.join('; ')}`)
-  const http = createHttp({ config, token, store, queue, runner, notify: monitor.notify })
+  const http = createHttp({ config, token, store, queue, runner, notify: monitor.notify, startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
 
   return {
     store, gate, queue, runner, monitor, recorder, tools, http,

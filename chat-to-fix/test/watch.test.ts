@@ -66,13 +66,13 @@ test('pickTask: wanted id, else newest running, else newest; newestFirst sorts b
 
 test('stepStates: done before the current step, current marked, pending after', () => {
   const marks = (t) => stepStates(t).map((s) => s.mark)
-  assert.deepEqual(marks(task({ step: 'code' })), ['done', 'done', 'done', 'current', 'pending', 'pending', 'pending'])
-  assert.deepEqual(marks(task({ step: 'fetch' })), ['current', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'])
-  assert.deepEqual(marks(task({ state: 'done', step: 'close' })), Array(7).fill('done'))
+  assert.deepEqual(marks(task({ step: 'code' })), ['done', 'done', 'done', 'current', 'pending', 'pending', 'pending', 'pending'])
+  assert.deepEqual(marks(task({ step: 'fetch' })), ['current', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'])
+  assert.deepEqual(marks(task({ state: 'done', step: 'close' })), Array(8).fill('done'))
   assert.equal(marks(task({ state: 'failed', step: 'mr' }))[4], 'failed')
-  assert.deepEqual(marks(task({ step: null })), Array(7).fill('pending'))
-  assert.deepEqual(stepStates(task()).map((s) => s.label), ['取讨论', '建工单', '准备代码', '写代码', '开 MR', '回写', '结束'])
-  assert.deepEqual(marks(undefined), Array(7).fill('pending'))
+  assert.deepEqual(marks(task({ step: null })), Array(8).fill('pending'))
+  assert.deepEqual(stepStates(task()).map((s) => s.label), ['取讨论', '建工单', '准备代码', '写代码', '开 MR', 'CI', '回写', '结束'])
+  assert.deepEqual(marks(undefined), Array(8).fill('pending'))
 })
 
 test('botStates: five roles; working when the last record is not a round end or the step is theirs', () => {
@@ -145,7 +145,7 @@ test('layout: exactly height lines, none wider than width, for many sizes', () =
 
 test('layout: header shows id, state, channel, repo, Jira, MR, elapsed, steps, bots', () => {
   const text = layout({ width: 120, height: 24, tasks: [{ id: 'T-1', state: 'running' }], task: task({ mr: { url: 'http://gl.test/mr/1' } }), records: sample(3), now: T0 + 65_000 }).join('\n')
-  for (const needle of ['T-1', '运行中', 'C0456', 'local/sample-shop', 'DEMO-1', 'http://gl.test/mr/1', '经过 1m00s', '[x]取讨论', '[x]准备代码', '[>]写代码', '[ ]开 MR', '[ ]结束', '主控', 'Slack', 'Jira', '流水线', '写代码 工作中', 'record number 2', '跟随最新']) {
+  for (const needle of ['T-1', '运行中', 'C0456', 'local/sample-shop', 'DEMO-1', 'http://gl.test/mr/1', '经过 1m00s', '[x]取讨论', '[x]准备代码', '[>]写代码', '[ ]开 MR', '[ ]结束', '主控', 'Slack', 'Jira', 'Git Pipeline', '写代码 工作中', 'record number 2', '跟随最新']) {
     assert.ok(text.includes(needle), `missing ${needle}`)
   }
 })

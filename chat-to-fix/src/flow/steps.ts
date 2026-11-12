@@ -27,8 +27,11 @@ export const STEPS = deepFreeze([
   { no: 3, id: 'prepare', roles: ['pipeline'], evidence: ['repo.dir', 'repo.branch', 'repo.base'], writeTools: ['repo_prepare'] },
   { no: 4, id: 'code', roles: ['coding'], evidence: ['diff', 'review.verdict == pass'], writeTools: ['review_report'] },
   { no: 5, id: 'mr', roles: ['pipeline'], evidence: ['mr.url'], writeTools: ['mr_open_draft'] },
-  { no: 6, id: 'writeback', roles: ['jira', 'slack'], evidence: ['jira.commentedMr', 'slack.sent.result'], writeTools: ['jira_add_comment', 'jira_transition', 'slack_reply:result'] },
-  { no: 7, id: 'close', roles: ['main'], evidence: ['ended'], writeTools: [] },
+  // Step ci (spec 7, 4.2): the system waits for the MR pipeline and counts rounds (monitor.ts); the fix loop runs
+  // inside this step. review_report is also a write tool of step code, so a tool may belong to several steps.
+  { no: 6, id: 'ci', roles: ['pipeline', 'coding'], evidence: ['ci.settled'], writeTools: ['mr_push_fix', 'review_report', 'ci_stop'] },
+  { no: 7, id: 'writeback', roles: ['jira', 'slack'], evidence: ['jira.commentedMr', 'slack.sent.result'], writeTools: ['jira_add_comment', 'jira_transition', 'slack_reply:result'] },
+  { no: 8, id: 'close', roles: ['main'], evidence: ['ended'], writeTools: [] },
 ])
 
 /**
@@ -52,6 +55,22 @@ export const TOOL_EXTRA_EVIDENCE = deepFreeze({
     { evidence: 'review.verdict == pass', reason: 'the review has not passed' },
     { evidence: 'diff.withinLimits', reason: 'the change exceeds the size limit' },
   ],
+  // Spec 7, 4.2: the monitor clears task.review whenever a CI round fails, so a pass here is this round's.
+  mr_push_fix: [
+    { evidence: 'review.verdict == pass', reason: 'the review has not passed' },
+    { evidence: 'diff.withinLimits', reason: 'the change exceeds the size limit' },
+  ],
+})
+
+/** Spec 7, 4.8: the end reason of outcome `done` by task.ci.outcome. `passed` and no ci at all give `completed`. */
+export const CI_END_REASONS = deepFreeze({
+  passed: 'completed',
+  rounds_exhausted: 'completed_ci_failed',
+  not_locatable: 'completed_ci_stopped',
+  out_of_scope: 'completed_ci_stopped',
+  not_fixable: 'completed_ci_stopped',
+  branch_changed: 'completed_ci_stopped',
+  no_pipeline: 'completed_no_ci',
 })
 
 /**
@@ -59,11 +78,26 @@ export const TOOL_EXTRA_EVIDENCE = deepFreeze({
  * literal, or "$note" for the note text.
  */
 export const OUTCOME_RULES = deepFreeze({
-  done: { requires: ['step == close'], state: 'done', endReason: 'completed', reason: 'the task is not in step close' },
+  // endReason is the default; `endReasonBy` (spec 7, 4.8) picks the reason from a task field. Use closeEndReason().
+  done: { requires: ['step == close'], state: 'done', endReason: 'completed', endReasonBy: { path: 'ci.outcome', map: CI_END_REASONS }, reason: 'the task is not in step close' },
   needs_info: { requires: ['needsInfo.main', 'needsInfo.coding', 'slack.sent.question'], state: 'needs_info', endReason: 'needs_info', reason: 'both confirmations and the question to Slack are required first' },
   failed: { requires: ['note'], state: 'failed', endReason: '$note', reason: 'a note is required' },
   needs_person: { requires: ['note'], state: 'failed', endReason: 'needs_person', reason: 'a note is required' },
 })
+
+/** The end reason close(outcome) writes for a task: the rule's literal, "$note", or (done) the one chosen by ci.outcome. */
+export function closeEndReason(outcome, task, note = '', rules = OUTCOME_RULES) {
+  const rule = Object.hasOwn(rules, outcome) ? rules[outcome] : undefined
+  if (!rule) return undefined
+  if (rule.endReason === '$note') return String(note ?? '').trim()
+  const by = rule.endReasonBy
+  if (by) {
+    let value = task
+    for (const key of by.path.split('.')) value = value?.[key]
+    if (typeof value === 'string' && Object.hasOwn(by.map, value)) return by.map[value]
+  }
+  return rule.endReason
+}
 
 const baseTool = (entry) => String(entry).split(':')[0]
 
@@ -74,15 +108,24 @@ export function createFlow(steps = STEPS, unbound = UNBOUND_WRITE_TOOLS) {
     const index = steps.findIndex((step) => step.id === id)
     return index < 0 ? undefined : steps[index + 1]
   }
-  // Returns the step id the tool belongs to; null when it is not bound to a step (any step);
-  // undefined when it is no known write tool. A tool with a purpose is looked up as
-  // "tool:purpose" first, then as plain "tool".
-  const stepOfWriteTool = (toolName, purpose) => {
+  // Spec 7, 4.2 (D2): a write tool may be listed by several steps. Returns every step id that lists
+  // the tool; [] when it is not bound to any step. A tool with a purpose is looked up as
+  // "tool:purpose" first, then as plain "tool"; the first key that any step lists decides.
+  const stepsOfWriteTool = (toolName: string, purpose?: string) => {
     const keys = purpose ? [`${toolName}:${purpose}`, toolName] : [toolName]
     for (const key of keys) {
-      const step = steps.find((candidate) => candidate.writeTools.includes(key))
-      if (step) return step.id
+      const hits = steps.filter((candidate) => candidate.writeTools.includes(key))
+      if (hits.length > 0) return hits.map((step) => step.id)
     }
+    return []
+  }
+  // Single-step view, the old contract: the first step that lists the tool; null when it is not
+  // bound to a step (any step); undefined when it is no known write tool. A tool that belongs to
+  // several steps must be checked with stepsOfWriteTool (gate.allow does, after spec 7 3b).
+  const stepOfWriteTool = (toolName: string, purpose?: string) => {
+    const [first] = stepsOfWriteTool(toolName, purpose)
+    if (first !== undefined) return first
+    const keys = purpose ? [`${toolName}:${purpose}`, toolName] : [toolName]
     for (const key of keys) if (unbound.some((entry) => entry.tool === key)) return null
     return undefined
   }
@@ -94,13 +137,14 @@ export function createFlow(steps = STEPS, unbound = UNBOUND_WRITE_TOOLS) {
     }
     return undefined
   }
-  return { steps, unbound, stepDef, nextStep, stepOfWriteTool, unboundEntry }
+  return { steps, unbound, stepDef, nextStep, stepOfWriteTool, stepsOfWriteTool, unboundEntry }
 }
 
 const defaultFlow = createFlow()
 export const stepDef = defaultFlow.stepDef
 export const nextStep = defaultFlow.nextStep
 export const stepOfWriteTool = defaultFlow.stepOfWriteTool
+export const stepsOfWriteTool = defaultFlow.stepsOfWriteTool
 
 /**
  * Startup checks on a flow (default: the real one) against a registry (list of bot

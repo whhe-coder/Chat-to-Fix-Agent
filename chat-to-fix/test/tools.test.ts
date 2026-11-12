@@ -297,6 +297,45 @@ test('every task tool the registry gives a role is defined, with matching roles'
   assert.deepEqual(write, ['needs_info_confirm', 'review_report', 'task_advance', 'task_close'])
 })
 
+test('review_report: cannot_fix only in step ci (spec 7, 4.6); in step ci it is the review of the round', async () => {
+  const { registry, store, task } = await rig()
+  registerTaskTools(registry)
+  const args = { verdict: 'cannot_fix', comments: 'the failing job needs a service we cannot start', rounds: 1 }
+  await store.patchTask(task.id, { step: 'code' })
+  assert.match(await registry.call('review_report', 'S-coding', args), /^tool failed: the verdict cannot_fix can be used only in step ci, the task is in step code/)
+  assert.equal((await store.getTask(task.id)).review, null)
+  // In step code the ordinary verdicts still work.
+  assert.equal(await registry.call('review_report', 'S-coding', { ...args, verdict: 'pass' }), 'Recorded: review pass, round 1.')
+  await store.patchTask(task.id, { step: 'ci' })
+  assert.equal(await registry.call('review_report', 'S-coding', args), 'Recorded: review cannot_fix, round 1.')
+  assert.equal((await store.getTask(task.id)).review.verdict, 'cannot_fix')
+  // The last call counts: a later pass in the same step replaces it.
+  assert.equal(await registry.call('review_report', 'S-coding', { ...args, verdict: 'pass', comments: 'fixed after all' }), 'Recorded: review pass, round 1.')
+  assert.equal((await store.getTask(task.id)).review.verdict, 'pass')
+  // Not allowed from the steps it does not belong to.
+  await store.patchTask(task.id, { step: 'mr' })
+  assert.match(await registry.call('review_report', 'S-coding', args), /belongs to step code or ci, the task is in step mr/)
+})
+
+test('task_read shows ci (status, round, failed jobs with id and link, pipeline, outcome) and null before the CI step', async () => {
+  const { registry, store, task } = await rig()
+  registerTaskTools(registry)
+  assert.equal(JSON.parse(await registry.call('task_read', 'S-main', {})).ci, null)
+  await store.patchTask(task.id, {
+    ci: {
+      status: 'failed', sha: 'abc', round: 1, retried: true, since: at, waitedMs: 1000, pipelineUrl: 'fake://gitlab/pipelines/7',
+      failedJobs: [{ id: 11, name: 'lint', url: 'fake://gitlab/jobs/11', pipelineId: 7, projectId: 5 }], logRead: true, settled: false, outcome: null, note: null,
+    },
+  })
+  for (const role of ROLES) {
+    const { ci } = JSON.parse(await registry.call('task_read', `S-${role}`, {}))
+    assert.deepEqual(ci, {
+      status: 'failed', sha: 'abc', round: 1, pipelineUrl: 'fake://gitlab/pipelines/7',
+      failedJobs: [{ id: 11, name: 'lint', url: 'fake://gitlab/jobs/11' }], logRead: true, settled: false, outcome: null, note: null,
+    })
+  }
+})
+
 test('task_read returns the task subset and nothing else', async () => {
   const { registry, store, task } = await rig()
   registerTaskTools(registry)
@@ -418,11 +457,11 @@ test('task_close done in step close, and failed with a note', async () => {
   assert.deepEqual(two.closed, [[two.task.id, 'failed', 'cannot reproduce']])
 })
 
-test('review_report: refused outside step code, recorded in step code, the last call counts', async () => {
+test('review_report: refused outside steps code and ci, recorded there, the last call counts', async () => {
   const { registry, store, task } = await rig()
   registerTaskTools(registry)
   const args = { verdict: 'pass', comments: 'looks fine', rounds: 1 }
-  assert.match(await registry.call('review_report', 'S-coding', args), /review_report belongs to step code, the task is in step fetch/)
+  assert.match(await registry.call('review_report', 'S-coding', args), /review_report belongs to step code or ci, the task is in step fetch/)
   assert.equal((await store.getTask(task.id)).review, null)
 
   await store.patchTask(task.id, { step: 'code' })
@@ -433,7 +472,7 @@ test('review_report: refused outside step code, recorded in step code, the last 
   assert.deepEqual({ verdict: review.verdict, comments: review.comments, rounds: review.rounds }, { verdict: 'pass', comments: 'looks fine', rounds: 4 })
   assert.ok(review.at)
 
-  assert.match(await registry.call('review_report', 'S-coding', { ...args, verdict: 'maybe' }), /must be one of pass, fail/)
+  assert.match(await registry.call('review_report', 'S-coding', { ...args, verdict: 'maybe' }), /must be one of pass, fail, cannot_fix/)
   assert.match(await registry.call('review_report', 'S-coding', { ...args, rounds: 0 }), /^tool failed: rounds must be at least 1/)
   assert.match(await registry.call('review_report', 'S-main', args), /not available to the main bot/)
 })

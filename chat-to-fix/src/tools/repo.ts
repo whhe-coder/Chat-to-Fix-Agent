@@ -155,7 +155,7 @@ export function repoTools() {
       name: 'mr_open_draft',
       roles: ['pipeline'],
       write: true,
-      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory as one commit with a one-line Conventional Commit message (no body), pushes the branch and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is updated and its link returned.',
+      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory as one commit with a one-line Conventional Commit message (no body), pushes the branch (a normal push, never a force push) and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is reused and its link returned; the new changes are added to the branch as a further commit. A rejected push means someone else pushed to the branch.',
       parameters: {
         title: { type: 'string', required: true, description: 'Title of the MR, one line' },
         description: { type: 'string', required: true, description: 'What the change does and why' },
@@ -175,9 +175,19 @@ export function repoTools() {
         const description = `${title}\n${body}`.includes(key) ? body : `${body}\n\nJira: ${key}`
         const existed = Boolean(task.mr?.url)
         // For an MR that exists the adapter reuses it (one MR per branch) and returns its link.
-        const mr = await ctx.adapters.repo.openDraftMR(task.binding, dir, task.repo.branch, { title, description, jiraKey: key, commitMessage })
+        let mr
+        try {
+          mr = await ctx.adapters.repo.openDraftMR(task.binding, dir, task.repo.branch, { title, description, jiraKey: key, commitMessage })
+        } catch (error) {
+          // Spec 7, 4.5: the branch is only appended to, never force-pushed; a refused push means someone else pushed to it.
+          if (error?.code === 'push_rejected') {
+            throw Object.assign(new Error(`the push to ${task.repo.branch} was rejected: the branch has commits that are not in the code directory (someone else pushed to it). Nothing was overwritten; report this to a person (task_close needs_person)`), { code: 'push_rejected', retryable: false })
+          }
+          throw error
+        }
         const url = mr?.url ?? task.mr?.url
-        await ctx.store.patchTask(task.id, { mr: { url } })
+        // Spec 7, 4.3: iid and sha are what the CI step reads; the monitor starts task.ci (pending) when the task enters step ci.
+        await ctx.store.patchTask(task.id, { mr: { url, iid: mr?.iid, sha: mr?.sha } })
         return existed ? `The task already had a Draft MR; it was updated: ${url}` : `Opened the Draft MR: ${url}`
       },
     },

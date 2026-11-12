@@ -104,6 +104,7 @@ export function jiraTools() {
       async run(ctx, args) {
         const key = needKey(ctx.task)
         const allowed = ctx.config?.jiraTransitions ?? []
+        if (allowed.length === 0) return 'No Jira status transition is configured; the issue status was left unchanged.'
         const wanted = args.status.trim()
         const status = allowed.find((name) => name.toLowerCase() === wanted.toLowerCase())
         if (!status) throw new Error(`status "${wanted}" is not allowed; allowed: ${allowed.join(', ') || 'none'}`)

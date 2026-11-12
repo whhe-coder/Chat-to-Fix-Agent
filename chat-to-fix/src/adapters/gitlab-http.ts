@@ -1,8 +1,12 @@
 // The real merge-request half of the repository adapter: GitLab REST API v4 (spec 4, section 2.2, I5).
 // Same three functions as the fake (./repo.ts createFakeGitlab):
 //   find(binding, branch)                                              -> { url, headSha, iid, ... } | undefined
-//   upsertDraft(binding, { branch, title, description, jiraKey, headSha }) -> { url }
+//   upsertDraft(binding, { branch, title, description, jiraKey, headSha }) -> { url, iid }
 //   get(binding, branch)                                               -> { state, pipeline, url, draft, title }
+// and the CI functions of spec 7 (4.5), same shapes as the simulated CI (./fake/ci.ts):
+//   getChecks(binding, iid)                -> { status, sha, pipelineUrl, failedJobs: [{ id, name, url, pipelineId, projectId }] }
+//   getJobLog(binding, job, { maxChars })  -> the log tail as text, colour codes and section markers removed
+//   retryJobs(binding, jobs)               -> { retried: [id] }   (NOT verified on a real GitLab yet)
 //
 // Rules (analysis notes B, section 1.4):
 //  - Every request has its own timeout, shorter than the tool layer's (toolTimeoutSeconds, default 30 s):
@@ -23,6 +27,21 @@ const DRAFT_PREFIX = /^\s*(\[draft\]|\(draft\)|draft:)\s*/i
 export const isDraftTitle = (title) => DRAFT_PREFIX.test(String(title ?? ''))
 /** The title with the Draft prefix (exactly one, not doubled). */
 export const draftTitle = (title) => `Draft: ${String(title ?? '').replace(DRAFT_PREFIX, '').trim()}`
+
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g
+// GitLab's collapsible-section markers: "section_start:<unix time>:<name>[options]\r\e[0K" (and section_end).
+const SECTION_MARKER = /section_(?:start|end):\d+:[^\r\n\x1b]*\r?(?:\x1b\[0K)?/g
+
+/**
+ * A job log as plain text: GitLab section markers and ANSI control codes removed, line ends normalised
+ * (a lone carriage return, used for progress bars, becomes a line break), then only the last `maxChars`
+ * characters kept (the end of a log is where the failure is).
+ */
+export function cleanJobLog(raw, maxChars = 12000) {
+  const text = String(raw ?? '').replace(SECTION_MARKER, '').replace(ANSI, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const limit = Number(maxChars) > 0 ? Math.floor(Number(maxChars)) : 12000
+  return text.length > limit ? text.slice(text.length - limit) : text
+}
 
 /** Retry-After as milliseconds: seconds ("3") or an HTTP date; undefined when absent or unreadable. */
 export function retryAfterMs(value, now = Date.now()) {
@@ -68,9 +87,11 @@ export function createRealGitlab(config, options: any = {}) {
 
   const clean = (text) => redactSecrets(text, secrets)
 
+  /** A project in a URL: a numeric id or a path (encoded). */
+  const refOf = (project) => encodeURIComponent(String(project).trim().replace(/^\/+|\/+$/g, ''))
   const projectOf = (binding) => {
     if (!isText(binding?.repo)) throw new AdapterError('bad_binding', 'the binding has no repo (GitLab project path)')
-    return encodeURIComponent(binding.repo.trim().replace(/^\/+|\/+$/g, ''))
+    return refOf(binding.repo)
   }
 
   /** What GitLab said, short and without any secret. */
@@ -101,9 +122,10 @@ export function createRealGitlab(config, options: any = {}) {
   /**
    * One API call. `method` GET is retried (429, 5xx, network error, timeout) up to `retries` times inside the
    * time budget; anything else is sent exactly once. Resolves with { status, body }; a status that is not
-   * in `accept` throws.
+   * in `accept` throws. `text: true` returns the body as a string (job logs) instead of parsed JSON; `headers` is
+   * the answer's header list (for pagination).
    */
-  async function request(method, path, { query, body, accept = [200] }: { query?: object, body?: object, accept?: number[] } = {}) {
+  async function request(method, path, { query, body, accept = [200], text = false }: { query?: object, body?: object, accept?: number[], text?: boolean } = {}) {
     const what = `${method} ${path.replace(/%2F/gi, '/')}`
     const url = new URL(`${api}${path}`)
     for (const [key, value] of Object.entries(query ?? {})) if (value !== undefined) url.searchParams.set(key, String(value))
@@ -118,7 +140,7 @@ export function createRealGitlab(config, options: any = {}) {
         response = await doFetch(url, {
           method,
           redirect: 'manual',
-          headers: { 'PRIVATE-TOKEN': token, accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+          headers: { 'PRIVATE-TOKEN': token, accept: text ? 'text/plain, */*' : 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: AbortSignal.timeout(Math.max(1, canRetry ? Math.min(requestTimeoutMs, left) : requestTimeoutMs)),
         })
@@ -133,8 +155,8 @@ export function createRealGitlab(config, options: any = {}) {
       if (response !== undefined) {
         if (accept.includes(response.status)) {
           let parsed
-          try { parsed = await response.json() } catch { throw new AdapterError('gitlab_bad_response', `GitLab sent an unreadable answer for ${what}`) }
-          return { status: response.status, body: parsed }
+          try { parsed = text ? await response.text() : await response.json() } catch { throw new AdapterError('gitlab_bad_response', `GitLab sent an unreadable answer for ${what}`) }
+          return { status: response.status, body: parsed, headers: response.headers }
         }
         const after = retryAfterMs(response.headers?.get?.('retry-after'))
         error = failure(response.status, await detailOf(response), what, after)
@@ -167,24 +189,27 @@ export function createRealGitlab(config, options: any = {}) {
   async function upsertDraft(binding, { branch, title, description }: any) {
     const project = projectOf(binding)
     const fields = { title: draftTitle(title), description: description ?? '' }
-    const update = async (iid) => {
-      const { body } = await request('PUT', `/projects/${project}/merge_requests/${iid}`, { body: fields })
-      return { url: body.web_url }
+    const update = async (existing) => {
+      if (!existing.draft || existing.target !== (binding?.defaultBranch ?? 'master')) {
+        throw new AdapterError('mr_not_owned', 'the task branch already has an open MR that is not the expected Draft MR')
+      }
+      const { body } = await request('PUT', `/projects/${project}/merge_requests/${existing.iid}`, { body: fields })
+      return { url: body.web_url, iid: body.iid ?? existing.iid }
     }
     const existing = await find(binding, branch)
-    if (existing !== undefined) return update(existing.iid)
+    if (existing !== undefined) return update(existing)
     const created = await request('POST', `/projects/${project}/merge_requests`, {
       body: { source_branch: branch, target_branch: binding?.defaultBranch ?? 'master', ...fields },
       accept: [201, 409],
     })
     if (created.status === 201) {
       if (!isText(created.body?.web_url)) throw new AdapterError('gitlab_bad_response', 'GitLab created the MR but sent no link')
-      return { url: created.body.web_url }
+      return { url: created.body.web_url, iid: created.body.iid }
     }
     // 409: another open MR for this source branch exists (made in between): update that one.
     const again = await find(binding, branch)
     if (again === undefined) throw new AdapterError('gitlab_conflict', `GitLab reports a conflict creating the MR for ${branch} but no open MR was found`)
-    return update(again.iid)
+    return update(again)
   }
 
   async function get(binding, branch) {
@@ -203,5 +228,130 @@ export function createRealGitlab(config, options: any = {}) {
     }
   }
 
-  return { find, upsertDraft, get }
+  // ---------- CI (spec 7, 4.5) ----------
+
+  // GitLab pipeline statuses: still going (wait), or ended badly. Everything else (success, skipped, manual) is not a failure.
+  const ACTIVE = new Set(['created', 'waiting_for_resource', 'preparing', 'pending', 'running', 'scheduled', 'waiting_for_callback', 'canceling'])
+  const BAD = new Set(['failed', 'canceled', 'cancelled']) // a cancelled job or pipeline counts as failed
+  const MAX_DOWNSTREAM_DEPTH = 4
+
+  /** All pages of a list endpoint (per_page 100, at most 10 pages). */
+  async function listAll(path) {
+    const all: any[] = []
+    for (let page = 1; page <= 10; page++) {
+      const { body, headers } = await request('GET', path, { query: { per_page: 100, page } })
+      if (Array.isArray(body)) all.push(...body)
+      const next = Number(headers?.get?.('x-next-page'))
+      if (!Number.isInteger(next) || next <= page) break
+      page = next - 1
+    }
+    return all
+  }
+
+  /**
+   * One pipeline and what it triggers: { pending, failed: [CiJob] }.
+   * Active pipeline: pending (nothing more is read). Otherwise the failed jobs that count (allow_failure ones do not),
+   * trigger jobs without a downstream pipeline that failed, and the downstream pipelines, read with their own project id.
+   * A downstream pipeline we cannot read (403/404) counts as failed, and the failed job's name says so.
+   */
+  async function evaluate(projectId, pipeline, depth) {
+    const ref = refOf(projectId)
+    if (ACTIVE.has(pipeline.status)) return { pending: true, failed: [] }
+    const failed: any[] = []
+    let pending = false
+    const entry = (job, name = job.name) => ({ id: job.id, name, url: job.web_url ?? pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })
+    for (const bridge of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/trigger_jobs`)) {
+      const down = bridge?.downstream_pipeline
+      if (down?.id === undefined || down === null) {
+        if (BAD.has(bridge?.status) && bridge?.allow_failure !== true) failed.push(entry(bridge))
+        else if (ACTIVE.has(bridge?.status)) pending = true
+        continue
+      }
+      if (depth >= MAX_DOWNSTREAM_DEPTH) continue
+      const downProject = down.project_id ?? projectId
+      let body
+      try {
+        body = (await request('GET', `/projects/${refOf(downProject)}/pipelines/${down.id}`)).body
+      } catch (error) {
+        if (error?.code !== 'gitlab_forbidden' && error?.code !== 'gitlab_not_found') throw error
+        failed.push({ id: bridge.id, name: `${bridge.name} (downstream pipeline ${down.id} of project ${downProject} cannot be read: ${error.code === 'gitlab_forbidden' ? 'access denied' : 'not found'})`, url: down.web_url ?? bridge.web_url ?? null, pipelineId: pipeline.id, projectId })
+        continue
+      }
+      // The trigger job and the pipeline it points at must agree on the commit; otherwise it is being replaced: wait.
+      if (isText(down.sha) && isText(body?.sha) && down.sha !== body.sha) { pending = true; continue }
+      const inner = await evaluate(body?.project_id ?? downProject, body, depth + 1)
+      pending ||= inner.pending
+      failed.push(...inner.failed)
+    }
+    // Jobs of the pipeline (retried-and-replaced jobs are not listed by default).
+    for (const job of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/jobs`)) {
+      if (BAD.has(job?.status) && job?.allow_failure !== true) failed.push(entry(job))
+    }
+    // A failed pipeline without any failed job (a broken CI file, a pipeline cancelled before its jobs existed) still counts.
+    if (BAD.has(pipeline.status) && failed.length === 0 && !pending) {
+      failed.push({ id: `pipeline:${pipeline.id}`, name: `pipeline ${pipeline.id} (${pipeline.status}, no failed job listed)`, url: pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })
+    }
+    return { pending, failed }
+  }
+
+  /**
+   * The CI result of a merge request, for the MR's CURRENT commit only: an old head_pipeline of an earlier commit
+   * is ignored (status pending until the new one exists). Several pipelines for the commit: the highest id.
+   * Pending while any pipeline (main or downstream) is still going; failed only when all ended and some job counts.
+   */
+  async function getChecks(binding, iid) {
+    const n = String(iid ?? '').trim()
+    if (!/^\d+$/.test(n)) throw new AdapterError('bad_iid', 'the merge request iid is missing or not a number')
+    const project = projectOf(binding)
+    const { body: mr } = await request('GET', `/projects/${project}/merge_requests/${n}`)
+    const sha = mr?.sha
+    if (!isText(sha)) throw new AdapterError('gitlab_bad_response', `GitLab sent merge request ${n} without a commit`)
+    const waiting = { status: 'pending', sha, pipelineUrl: null, failedJobs: [] }
+    const ids = (await listAll(`/projects/${project}/merge_requests/${n}/pipelines`))
+      .filter((p) => p?.sha === sha && (p.source === undefined || p.source === 'merge_request_event'))
+      .map((p) => Number(p.id))
+    if (mr.head_pipeline?.sha === sha && mr.head_pipeline.id !== undefined) ids.push(Number(mr.head_pipeline.id))
+    if (ids.length === 0) return waiting
+    const id = Math.max(...ids)
+    const { body: pipeline } = await request('GET', `/projects/${project}/pipelines/${id}`)
+    if (pipeline?.sha !== sha) return { ...waiting, pipelineUrl: pipeline?.web_url ?? null }
+    const result = await evaluate(pipeline.project_id ?? mr.project_id ?? binding.repo, pipeline, 0)
+    const status = result.pending ? 'pending' : result.failed.length > 0 ? 'failed' : 'passed'
+    return { status, sha, pipelineUrl: pipeline.web_url ?? null, failedJobs: status === 'failed' ? result.failed : [] }
+  }
+
+  const jobIdOf = (job) => {
+    const id = String(job?.id ?? '')
+    if (!/^\d+$/.test(id)) throw new AdapterError('bad_job', `"${id}" is not a GitLab job id (it stands for a pipeline without a failed job)`)
+    return id
+  }
+  const jobProjectOf = (binding, job) => (job?.projectId !== undefined && job.projectId !== null && String(job.projectId) !== '' ? refOf(job.projectId) : projectOf(binding))
+
+  /** The end of a job's log (the job's own project, which may not be the MR's), as plain text. */
+  async function getJobLog(binding, job, { maxChars }: { maxChars?: number } = {}) {
+    const id = jobIdOf(job)
+    const { body } = await request('GET', `/projects/${jobProjectOf(binding, job)}/jobs/${id}/trace`, { text: true })
+    return cleanJobLog(body, maxChars ?? config?.limits?.ciLogMaxChars ?? 12000)
+  }
+
+  /**
+   * Re-runs the given failed jobs, one POST each, never repeated (an error is not retryable here). Stops at the
+   * first error; the message then lists the jobs already re-run. Not verified on a real GitLab yet.
+   */
+  async function retryJobs(binding, jobs) {
+    const retried: Array<number | string> = []
+    for (const job of Array.isArray(jobs) ? jobs : []) {
+      const id = jobIdOf(job)
+      try {
+        await request('POST', `/projects/${jobProjectOf(binding, job)}/jobs/${id}/retry`, { accept: [200, 201] })
+      } catch (error) {
+        if (retried.length === 0 || !(error instanceof AdapterError)) throw error
+        throw new AdapterError(error.code, `${error.message} (jobs already re-run before this error: ${retried.join(', ')})`)
+      }
+      retried.push(job.id)
+    }
+    return { retried }
+  }
+
+  return { find, upsertDraft, get, getChecks, getJobLog, retryJobs }
 }

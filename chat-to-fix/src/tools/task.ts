@@ -3,7 +3,7 @@
 // are thin calls to ctx.store and ctx.gate; the checks themselves live in src/task/gate.ts.
 // Purposes are from tools-and-limits.md section 2. Who has which tool is decided by the bot
 // registry (src/registry/bots.ts); the roles below must agree with it (the tests check this).
-import { CLOSE_OUTCOMES, STEP_IDS } from '../task/contracts.ts'
+import { CLOSE_OUTCOMES, REVIEW_VERDICTS, STEP_IDS } from '../task/contracts.ts'
 
 const RECORDS_MAX = 200
 const LINE_TEXT_MAX = 300
@@ -22,7 +22,24 @@ function taskView(task) {
     repo: { dir: task.repo?.dir ?? null, branch: task.repo?.branch ?? null },
     review: task.review ?? null,
     mr: { url: task.mr?.url ?? null },
+    ci: ciView(task.ci),
     needsInfo: task.needsInfo ?? { main: null, coding: null },
+  }
+}
+
+// Spec 7, 4.3: what a bot sees of the CI state. The failed jobs keep their id so ci_read_log can name one.
+function ciView(ci) {
+  if (!ci) return null
+  return {
+    status: ci.status ?? null,
+    sha: ci.sha ?? null,
+    round: ci.round ?? 0,
+    pipelineUrl: ci.pipelineUrl ?? null,
+    failedJobs: (ci.failedJobs ?? []).map((job) => ({ id: job.id, name: job.name, url: job.url ?? null })),
+    logRead: ci.logRead === true,
+    settled: ci.settled === true,
+    outcome: ci.outcome ?? null,
+    note: ci.note ?? null,
   }
 }
 
@@ -39,7 +56,7 @@ export function taskTools() {
       name: 'task_read',
       roles: 'all',
       write: false,
-      description: 'Read this task: the Slack discussion link and message, the current step, the summary of each finished step, the Jira key and link, the code directory and branch, the review verdict, the MR link, and which bots have confirmed that information is missing.',
+      description: 'Read this task: the Slack discussion link and message, the current step, the summary of each finished step, the Jira key and link, the code directory and branch, the review verdict, the MR link, the CI state (status, round, failed jobs, outcome), and which bots have confirmed that information is missing.',
       parameters: {},
       async run(ctx) {
         return JSON.stringify(taskView(ctx.task), null, 2)
@@ -110,14 +127,16 @@ export function taskTools() {
       name: 'review_report',
       roles: ['coding'],
       write: true,
-      description: 'Record the verdict of the internal review of the change: pass or fail, the review comments and the number of review rounds. Allowed only in step code. If called again, the last call counts.',
+      description: 'Record the verdict of the internal review of the change: pass or fail, the review comments and the number of review rounds. Allowed in step code and step ci (in step ci it records the review of this CI round\'s fix). In step ci only, cannot_fix says the CI failure cannot be fixed; the comments must say why. If called again, the last call counts.',
       parameters: {
-        verdict: { type: 'string', required: true, enum: ['pass', 'fail'], description: 'Whether the review passed' },
+        verdict: { type: 'string', required: true, enum: [...REVIEW_VERDICTS], description: 'Whether the review passed; cannot_fix (only in step ci) when the CI failure cannot be fixed' },
         comments: { type: 'string', required: true, description: 'The review comments' },
         rounds: { type: 'integer', required: true, description: 'How many review rounds were run' },
       },
       async run(ctx, args) {
         if (args.rounds < 1) throw new Error('rounds must be at least 1')
+        // Spec 7, 4.6: "cannot fix" is a CI-step verdict only.
+        if (args.verdict === 'cannot_fix' && ctx.task.step !== 'ci') throw new Error(`the verdict cannot_fix can be used only in step ci, the task is in step ${ctx.task.step}`)
         // Rounds above 3 are still recorded; the monitor applies the limit (spec 1 section 5).
         await ctx.store.patchTask(ctx.task.id, { review: { verdict: args.verdict, comments: args.comments, rounds: args.rounds, at: new Date().toISOString() } })
         return `Recorded: review ${args.verdict}, round ${args.rounds}.`

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, bindingOf, secret } from '../src/config.ts'
+import { loadConfig, bindingOf, secret, DEFAULT_SLASH_COMMAND } from '../src/config.ts'
 
 const base = () => ({
   dataDir: '/d', worktreesDir: '/d/w', httpPort: 3090, apiModel: 'anthropic/x',
@@ -191,6 +191,15 @@ test('slack.apiBase is an optional http(s) URL without credentials and is passed
   assert.throws(() => load({ ...base(), slack: { apiBase: 'https://u:hunter2@slack.example.com' } }), (e: any) => /slack\.apiBase must not contain/.test(e.message) && !/hunter2/.test(e.message))
 })
 
+test('slack.slashCommand is optional, looks like /fix, and is passed through', () => {
+  assert.equal(DEFAULT_SLASH_COMMAND, '/fix')
+  assert.equal((load(base()) as any).slack.slashCommand, undefined) // the default is applied by the forwarder
+  assert.equal((load({ ...base(), slack: { slashCommand: '/fix-it' } }) as any).slack.slashCommand, '/fix-it')
+  for (const bad of ['fix', '/', '/Fix', '/a b', '', 3, '/' + 'x'.repeat(33)]) {
+    assert.throws(() => load({ ...base(), slack: { slashCommand: bad } }), /slack\.slashCommand must look like \/fix/, String(bad))
+  }
+})
+
 test('codingEffort defaults to high and is checked; pricing rows are checked and passed on', () => {
   assert.equal(load(base()).codingEffort, 'high')
   assert.equal(load({ ...base(), codingEffort: 'max' }).codingEffort, 'max')
@@ -199,4 +208,43 @@ test('codingEffort defaults to high and is checked; pricing rows are checked and
   const pricing = { 'claude-sonnet-5-5': { input: 3, output: 15, cacheRead: 0.3 } }
   assert.deepEqual(load({ ...base(), pricing }).pricing, pricing)
   assert.throws(() => load({ ...base(), pricing: { x: { input: 'a' } } }), /pricing\.x\.input must be a number/)
+})
+
+test('CI limits: defaults of spec 7, 4.9; partial overrides; stepMinutes.ci', () => {
+  const c = load(base())
+  assert.equal(c.limits.ciPollSeconds, 15)
+  assert.equal(c.limits.ciWaitMinutes, 30)
+  assert.equal(c.limits.ciTotalMinutes, 90)
+  assert.equal(c.limits.ciMaxRounds, 3)
+  assert.equal(c.limits.ciLogMaxChars, 12000)
+  assert.equal(c.limits.stepMinutes.ci, 30)
+  const o = load({ ...base(), limits: { ciPollSeconds: 2, ciMaxRounds: 5, stepMinutes: { ci: 12 } } })
+  assert.equal(o.limits.ciPollSeconds, 2)
+  assert.equal(o.limits.ciMaxRounds, 5)
+  assert.equal(o.limits.ciWaitMinutes, 30)
+  assert.equal(o.limits.stepMinutes.ci, 12)
+  assert.equal(o.limits.stepMinutes.code, 40)
+})
+
+test('CI limits: bad values are named; counts must be whole numbers', () => {
+  assert.throws(() => load({ ...base(), limits: { ciPollSeconds: 0 } }), /limits\.ciPollSeconds/)
+  assert.throws(() => load({ ...base(), limits: { ciWaitMinutes: -1 } }), /limits\.ciWaitMinutes/)
+  assert.throws(() => load({ ...base(), limits: { ciTotalMinutes: 'x' } }), /limits\.ciTotalMinutes/)
+  assert.throws(() => load({ ...base(), limits: { ciMaxRounds: 2.5 } }), /limits\.ciMaxRounds must be a whole number/)
+  assert.throws(() => load({ ...base(), limits: { stepMinutes: { ci: 0 } } }), /limits\.stepMinutes\.ci/)
+})
+
+test('binding ciJobs and ciNone (simulated CI) are validated and passed through', () => {
+  const jobs = [{ name: 'lint', command: 'sh lint.sh', delaySeconds: 1, allowFailure: true, flaky: false }, { name: 'test', command: 'sh test.sh', downstream: true }]
+  const c = load({ ...base(), bindings: [{ ...base().bindings[0], ciJobs: jobs, ciNone: false }] })
+  assert.deepEqual((c.bindings[0] as any).ciJobs, jobs)
+  assert.equal((c.bindings[0] as any).ciNone, false)
+  assert.equal((load(base()).bindings[0] as any).ciJobs, undefined)
+  const bad = (extra) => load({ ...base(), bindings: [{ ...base().bindings[0], ...extra }] })
+  assert.throws(() => bad({ ciJobs: 'x' }), /bindings\[0\]\.ciJobs must be an array/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a' }] }), /ciJobs\[0\]\.command/)
+  assert.throws(() => bad({ ciJobs: [{ command: 'x' }] }), /ciJobs\[0\]\.name/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', delaySeconds: -1 }] }), /ciJobs\[0\]\.delaySeconds/)
+  assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', flaky: 'yes' }] }), /ciJobs\[0\]\.flaky/)
+  assert.throws(() => bad({ ciNone: 'yes' }), /bindings\[0\]\.ciNone/)
 })

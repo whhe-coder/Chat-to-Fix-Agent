@@ -5,7 +5,9 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { appMentionToEvent, createForwarder } from '../scripts/slack-forwarder.ts'
+import { execFile } from 'node:child_process'
+import { sendFakeSlash } from '../scripts/fake-event.ts'
+import { appMentionToEvent, createForwarder, slashCommandToEvent, slashFeedback } from '../scripts/slack-forwarder.ts'
 
 const APP_TOKEN = 'xapp-1-secret-app-token'
 const BOT_TOKEN = 'xoxb-secret-bot-token'
@@ -309,4 +311,252 @@ test('injected socket: the ack is sent before the event is handled; a silent con
   await forwarder.stop()
   await done
   assert.equal(FakeSocket.instances[2].closed, true)
+})
+
+
+// ---- the slash command /fix ----
+const slashPayload = (extra: any = {}) => ({
+  command: '/fix', text: 'login page: the "forgot password" link does nothing', channel_id: 'C0123ABC', channel_name: 'dev-team',
+  user_id: 'U1', user_name: 'ann', team_id: 'T1', trigger_id: 'trig.1', response_url: 'https://hooks.slack.test/commands/T1/secretpath/xyz',
+  api_app_id: 'A1', ...extra,
+})
+const slashEnvelope = (n, extra: any = {}) => ({ type: 'slash_commands', envelope_id: `env-s${n}`, accepts_response_payload: true, payload: slashPayload({ trigger_id: `trig.${n}`, ...extra }) })
+
+test('slashCommandToEvent: the /events body of a slash command', () => {
+  const r: any = slashCommandToEvent(slashPayload())
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.body, {
+    source: 'slash', eventId: 'slash:trig.1', channel: 'C0123ABC', user: { id: 'U1', name: 'ann' },
+    text: 'login page: the "forgot password" link does nothing',
+  })
+  // no threadTs and no responseUrl: the forwarder keeps response_url to itself
+  assert.ok(!('threadTs' in r.body) && !('responseUrl' in r.body) && !JSON.stringify(r.body).includes('hooks.slack'))
+  // escaped entities are unescaped, links and mentions stay; the name is left out when Slack gave none; a private channel is fine
+  const escaped: any = slashCommandToEvent(slashPayload({ text: '  fix &lt;b&gt; &amp; ask <@U9|bob>  ', user_name: undefined, channel_id: 'G0PRIVATE', channel_name: 'privategroup' }))
+  assert.equal(escaped.ok, true)
+  assert.equal(escaped.body.text, 'fix <b> & ask <@U9|bob>')
+  assert.deepEqual(escaped.body.user, { id: 'U1' })
+  assert.equal(escaped.body.channel, 'G0PRIVATE')
+  // a configured command name, with or without the slash
+  assert.equal((slashCommandToEvent(slashPayload({ command: '/repair' }), { command: '/repair' }) as any).ok, true)
+  assert.equal((slashCommandToEvent(slashPayload({ command: '/repair' }), { command: 'repair' }) as any).ok, true)
+})
+
+test('slashCommandToEvent: wrong command, empty text, DMs and other non-channel contexts', () => {
+  const wrong: any = slashCommandToEvent(slashPayload({ command: '/other' }))
+  assert.equal(wrong.ok, false)
+  assert.match(wrong.reason, /wrong_command/)
+  assert.equal(wrong.message, undefined) // ignored, nothing to tell the user
+  assert.match((slashCommandToEvent(slashPayload(), { command: '/repair' }) as any).reason, /wrong_command/)
+  assert.equal((slashCommandToEvent({}) as any).ok, false)
+  assert.equal((slashCommandToEvent(undefined) as any).ok, false)
+
+  for (const text of ['', '   ', undefined]) {
+    const empty: any = slashCommandToEvent(slashPayload({ text }))
+    assert.equal(empty.ok, false)
+    assert.equal(empty.reason, 'empty_text')
+    assert.match(empty.message, /用法：\/fix /)
+  }
+  assert.equal((slashCommandToEvent(slashPayload({ text: '' }), { command: '/repair' }) as any).message, undefined) // a /fix payload is not ours when the command is /repair
+  assert.match((slashCommandToEvent(slashPayload({ command: '/repair', text: '' }), { command: '/repair' }) as any).message, /用法：\/repair /)
+
+  const dm: any = slashCommandToEvent(slashPayload({ channel_id: 'D0DM', channel_name: 'directmessage' }))
+  assert.equal(dm.ok, false)
+  assert.equal(dm.reason, 'dm')
+  assert.match(dm.message, /请在绑定的频道里用 \/fix/)
+  assert.equal((slashCommandToEvent(slashPayload({ channel_id: 'D0DM', channel_name: undefined })) as any).reason, 'dm')
+  assert.equal((slashCommandToEvent(slashPayload({ channel_id: 'G0MPIM', channel_name: 'mpdm-a--b-1' })) as any).reason, 'not_a_channel')
+  assert.match((slashCommandToEvent(slashPayload({ channel_id: 'X0' })) as any).message, /请在绑定的频道里用 \/fix/)
+  for (const gone of ['channel_id', 'user_id', 'trigger_id']) assert.equal((slashCommandToEvent(slashPayload({ [gone]: undefined })) as any).reason, 'incomplete_command')
+})
+
+test('slashFeedback: every answer of /events has its ephemeral text', () => {
+  assert.equal(slashFeedback({ status: 202, body: { taskId: 'T-12', permalink: 'https://example.slack.com/archives/C1/p1' } }), '已建任务 T-12：https://example.slack.com/archives/C1/p1')
+  assert.equal(slashFeedback({ status: 202, body: { taskId: 'T-12' } }), '已建任务 T-12')
+  assert.match(slashFeedback({ status: 200, body: { taskId: 'T-12', duplicate: true } }), /^已建任务 T-12/)
+  assert.equal(slashFeedback({ status: 422, body: { error: 'channel_not_bound' } }), '这个频道没有接入 Chat-to-Fix，请在绑定的频道里用 /fix。')
+  assert.equal(slashFeedback({ status: 429, body: { error: 'queue_full' } }), '修复队列已满，请稍后再试。')
+  assert.equal(slashFeedback({ status: 502, body: { error: 'not_in_channel' } }), '机器人不在这个频道，请先邀请它。')
+  assert.match(slashFeedback({ status: 502, body: { error: 'channel_not_found' } }), /开头消息（channel_not_found）/)
+  assert.match(slashFeedback({ status: 502, body: { error: 'bad<script> code' } }), /（badscriptcode）/)
+  assert.equal(slashFeedback(undefined), '服务暂时不可用，请稍后再试。')
+  assert.equal(slashFeedback({ status: 503, body: {} }), '服务暂时不可用，请稍后再试。')
+  assert.match(slashFeedback({ status: 401, body: { error: 'unauthorized' } }), /HTTP 401/)
+})
+
+// A stub of Slack's response_url plus a control interface that answers with a chosen status.
+async function slashSetup(extra: any = {}) {
+  const hooks = await httpStub((req, res) => { res.writeHead(200); res.end('ok') })
+  const answers: any[] = []
+  const control = await httpStub((req, res) => {
+    const [status, body] = answers.shift() ?? [202, { taskId: 'T-1', permalink: 'https://example.slack.com/archives/C0123ABC/p1731377400000100' }]
+    json(res, body, status)
+  })
+  const logs = []
+  const forwarder = createForwarder({
+    appToken: APP_TOKEN, botToken: BOT_TOKEN, url: control.origin, token: CONTROL_TOKEN, apiBase: 'http://127.0.0.1:1/api',
+    log: (m) => logs.push(m), postRetryMs: 2, postAttempts: 3, ...extra,
+  })
+  const responseUrl = `${hooks.origin}/commands/T1/secretpath/xyz`
+  return { hooks, control, answers, logs, forwarder, responseUrl }
+}
+
+test('slash: each answer of /events becomes one ephemeral message to response_url, once, never logged', async () => {
+  const { hooks, control, answers, logs, forwarder, responseUrl } = await slashSetup()
+  const cases: [number, any, RegExp][] = [
+    [202, { taskId: 'T-7', permalink: 'https://example.slack.com/archives/C0123ABC/p1' }, /^已建任务 T-7：https:\/\/example\.slack\.com\/archives\/C0123ABC\/p1$/],
+    [422, { error: 'channel_not_bound' }, /^这个频道没有接入 Chat-to-Fix，请在绑定的频道里用 \/fix。$/],
+    [429, { error: 'queue_full' }, /^修复队列已满，请稍后再试。$/],
+    [502, { error: 'not_in_channel' }, /^机器人不在这个频道，请先邀请它。$/],
+    [200, { taskId: 'T-7', state: 'queued', duplicate: true }, /^已建任务 T-7/],
+  ]
+  for (const [i, [status, body, expected]] of cases.entries()) {
+    answers.push([status, body])
+    const result: any = await forwarder.handleEnvelope(slashEnvelope(i + 1, { response_url: responseUrl }))
+    assert.equal(result.status, status)
+    assert.equal(result.sent, true)
+    assert.equal(hooks.requests.length, i + 1) // exactly one message per command
+    const message = hooks.requests[i]
+    assert.equal(message.method, 'POST')
+    assert.equal(message.path, '/commands/T1/secretpath/xyz')
+    assert.equal(message.headers.authorization, undefined)
+    assert.equal(message.json.response_type, 'ephemeral')
+    assert.match(message.json.text, expected)
+    assert.deepEqual(Object.keys(message.json).sort(), ['response_type', 'text'])
+  }
+  // 502 with an adapter code is an answer, not retried; one POST per command in total
+  assert.equal(control.requests.length, 5)
+  const sent = control.requests[0]
+  assert.equal(sent.path, '/events')
+  assert.equal(sent.headers['x-chat-to-fix-token'], CONTROL_TOKEN)
+  assert.deepEqual(sent.json, { source: 'slash', eventId: 'slash:trig.1', channel: 'C0123ABC', user: { id: 'U1', name: 'ann' }, text: 'login page: the "forgot password" link does nothing' })
+  const everything = logs.join('\n')
+  for (const secret of [APP_TOKEN, BOT_TOKEN, CONTROL_TOKEN, 'secretpath', 'hooks.slack', responseUrl, 'forgot password']) assert.ok(!everything.includes(secret), `the log holds ${secret}`)
+})
+
+test('slash: a 5xx without a code is retried; an unreachable service and a failing response_url are survived', async () => {
+  const { hooks, control, answers, logs, forwarder, responseUrl } = await slashSetup()
+  answers.push([503, {}], [202, { taskId: 'T-2' }])
+  const retried: any = await forwarder.handleEnvelope(slashEnvelope(1, { response_url: responseUrl }))
+  assert.equal(retried.status, 202)
+  assert.equal(control.requests.length, 2)
+  assert.equal(hooks.requests[0].json.text, '已建任务 T-2')
+
+  const down = createForwarder({ appToken: APP_TOKEN, url: 'http://127.0.0.1:1', token: CONTROL_TOKEN, log: (m) => logs.push(m), postRetryMs: 2, postAttempts: 2 })
+  const unreachable: any = await down.handleEnvelope(slashEnvelope(2, { response_url: responseUrl }))
+  assert.equal(unreachable.status, undefined)
+  assert.equal(unreachable.sent, true)
+  assert.equal(hooks.requests[1].json.text, '服务暂时不可用，请稍后再试。')
+
+  // a response_url that refuses or cannot be reached: logged without the URL, no retry, no throw
+  const refusing = await httpStub((req, res) => { res.writeHead(404); res.end('no_service') })
+  const refused: any = await forwarder.handleEnvelope(slashEnvelope(3, { response_url: `${refusing.origin}/commands/secretpath` }))
+  assert.equal(refused.sent, false)
+  assert.equal(refusing.requests.length, 1)
+  const dead: any = await forwarder.handleEnvelope(slashEnvelope(4, { response_url: 'http://127.0.0.1:1/commands/secretpath' }))
+  assert.equal(dead.sent, false)
+  const none: any = await forwarder.handleEnvelope(slashEnvelope(5, { response_url: undefined }))
+  assert.equal(none.sent, false)
+  const everything = logs.join('\n')
+  assert.ok(/HTTP 404/.test(everything) && /could not be sent/.test(everything))
+  assert.ok(!everything.includes('secretpath') && !everything.includes(refusing.origin) && !everything.includes('127.0.0.1:1'))
+})
+
+test('slash: a redelivered envelope (same trigger_id) answers only once; wrong command, empty text and DMs never reach /events', async () => {
+  const { hooks, control, logs, forwarder, responseUrl } = await slashSetup()
+  assert.ok(await forwarder.handleEnvelope(slashEnvelope(1, { response_url: responseUrl })))
+  assert.equal(await forwarder.handleEnvelope(slashEnvelope(1, { response_url: responseUrl })), undefined)
+  assert.equal(control.requests.length, 1)
+  assert.equal(hooks.requests.length, 1)
+  for (const extra of [{ command: '/other' }, { text: '  ' }, { channel_id: 'D1', channel_name: 'directmessage' }]) {
+    assert.equal(await forwarder.handleEnvelope(slashEnvelope(9, { ...extra, response_url: responseUrl })), undefined)
+  }
+  assert.equal(control.requests.length, 1)
+  assert.equal(hooks.requests.length, 1) // the immediate texts travel in the acknowledgement, not through response_url
+  assert.ok(logs.some((l) => /already handled/.test(l)) && logs.some((l) => /empty_text/.test(l)) && logs.some((l) => /wrong_command/.test(l)) && logs.some((l) => /ignored a slash command: dm/.test(l)))
+})
+
+test('slash: the acknowledgement comes first, with a usage text for empty text and DMs; app_mention keeps working', async () => {
+  FakeSocket.instances = []
+  const { hooks, control, logs } = await slashSetup()
+  const slack = await httpStub((req, res) => json(res, { ok: true, url: 'ws://fake/link' }))
+  const forwarder = createForwarder({
+    appToken: APP_TOKEN, url: control.origin, token: CONTROL_TOKEN, apiBase: `${slack.origin}/api`, log: (m) => logs.push(m),
+    WebSocketImpl: FakeSocket, minBackoffMs: 5, maxBackoffMs: 10, helloTimeoutMs: 2000, postRetryMs: 2,
+  })
+  const done = forwarder.run()
+  const socket: any = await until(() => FakeSocket.instances[0])
+  socket.emit('message', { data: JSON.stringify({ type: 'hello' }) })
+  const responseUrl = `${hooks.origin}/commands/T1/secretpath/xyz`
+  const emit = (envelope) => socket.emit('message', { data: JSON.stringify(envelope) })
+
+  // a valid command: the plain acknowledgement is already sent when emit returns, /events and response_url come after
+  emit(slashEnvelope(1, { response_url: responseUrl }))
+  assert.deepEqual(socket.sent, [{ envelope_id: 'env-s1' }])
+  assert.equal(control.requests.length, 0)
+  await until(() => hooks.requests.length === 1)
+  assert.equal(control.requests.length, 1)
+  assert.equal(hooks.requests[0].json.text, '已建任务 T-1：https://example.slack.com/archives/C0123ABC/p1731377400000100')
+
+  // empty text and a DM: the usage text is in the acknowledgement; nothing else happens
+  emit(slashEnvelope(2, { text: '', response_url: responseUrl }))
+  emit(slashEnvelope(3, { channel_id: 'D0DM', channel_name: 'directmessage', response_url: responseUrl }))
+  emit(slashEnvelope(4, { command: '/other', response_url: responseUrl }))
+  assert.equal(socket.sent[1].envelope_id, 'env-s2')
+  assert.equal(socket.sent[1].payload.response_type, 'ephemeral')
+  assert.match(socket.sent[1].payload.text, /用法：\/fix /)
+  assert.equal(socket.sent[2].envelope_id, 'env-s3')
+  assert.match(socket.sent[2].payload.text, /请在绑定的频道里用 \/fix/)
+  assert.deepEqual(socket.sent[3], { envelope_id: 'env-s4' })
+
+  // an app_mention (the follow-up path in a thread) is handled as before, after a slash command
+  emit(mention('M', { thread_ts: '1731377000.000900', text: '<@UBOT> here is the answer' }))
+  await until(() => control.requests.length === 2)
+  assert.equal(control.requests[1].json.eventId, 'EvM')
+  assert.equal(control.requests[1].json.threadTs, '1731377000.000900')
+  assert.equal(hooks.requests.length, 1)
+  assert.equal(control.requests.length, 2)
+
+  await forwarder.stop()
+  await done
+  const everything = logs.join('\n')
+  for (const secret of [APP_TOKEN, CONTROL_TOKEN, 'secretpath', responseUrl]) assert.ok(!everything.includes(secret), `the log holds ${secret}`)
+})
+
+test('slash: a custom command name is the one that is handled', async () => {
+  const { hooks, control, forwarder: _unused, responseUrl } = await slashSetup()
+  const forwarder = createForwarder({ appToken: APP_TOKEN, url: control.origin, token: CONTROL_TOKEN, log: () => {}, slashCommand: '/repair', postRetryMs: 2 })
+  assert.equal(await forwarder.handleEnvelope(slashEnvelope(1, { response_url: responseUrl })), undefined) // /fix is not ours now
+  const r: any = await forwarder.handleEnvelope(slashEnvelope(2, { command: '/repair', response_url: responseUrl }))
+  assert.equal(r.status, 202)
+  assert.equal(hooks.requests.length, 1)
+})
+
+test('fake-event --slash: posts the slash body to /events and prints the result with the ephemeral text', async () => {
+  const control = await httpStub((req, res) => json(res, { taskId: 'T-3', permalink: 'fake://slack/C1/1.1' }, 202))
+  const r: any = await sendFakeSlash({ channel: 'C1', text: 'From the fake', url: control.origin, token: CONTROL_TOKEN })
+  assert.equal(r.ok, true)
+  assert.equal(r.status, 202)
+  assert.equal(r.ephemeral, '已建任务 T-3：fake://slack/C1/1.1')
+  const sent = control.requests[0]
+  assert.equal(sent.path, '/events')
+  assert.equal(sent.headers['x-chat-to-fix-token'], CONTROL_TOKEN)
+  assert.equal(sent.json.source, 'slash')
+  assert.match(sent.json.eventId, /^slash:fake\./)
+  assert.deepEqual({ channel: sent.json.channel, text: sent.json.text, user: sent.json.user }, { channel: 'C1', text: 'From the fake', user: { id: 'U-FAKE', name: 'tester' } })
+  assert.ok(!('threadTs' in sent.json))
+  // empty text and a DM never reach /events
+  const empty: any = await sendFakeSlash({ channel: 'C1', text: ' ', url: control.origin, token: CONTROL_TOKEN })
+  assert.equal(empty.ok, false)
+  assert.match(empty.ephemeral, /用法/)
+  assert.equal((await sendFakeSlash({ channel: 'D1', text: 'x', url: control.origin, token: CONTROL_TOKEN }) as any).ok, false)
+  assert.equal(control.requests.length, 1)
+
+  const root = new URL('..', import.meta.url).pathname
+  const out: string = await new Promise((resolve, reject) => execFile(process.execPath, [`${root}scripts/fake-event.ts`, '--slash', '--channel', 'C1', '--text', 'From the command line'], { env: { PATH: process.env.PATH, CHAT_TO_FIX_URL: control.origin, CHAT_TO_FIX_HTTP_TOKEN: CONTROL_TOKEN } }, (e, stdout) => (e ? reject(e) : resolve(stdout))))
+  const printed = JSON.parse(out)
+  assert.equal(printed.status, 202)
+  assert.equal(printed.response.taskId, 'T-3')
+  assert.equal(printed.ephemeral, '已建任务 T-3：fake://slack/C1/1.1')
+  assert.equal(control.requests[1].json.text, 'From the command line')
 })

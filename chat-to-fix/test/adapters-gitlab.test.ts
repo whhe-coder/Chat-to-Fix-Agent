@@ -99,7 +99,7 @@ test('upsertDraft: no open MR -> POST a Draft MR to the target branch; the answe
   const s = await stub((r) => (r.method === 'GET' ? { status: 200, body: [] } : { status: 201, body: mr({ web_url: 'http://gitlab.test/mr/9' }) }))
   try {
     const out = await real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'Fix price', description: 'Why\n\nJira: DEMO-1', jiraKey: 'DEMO-1', headSha: 'x' })
-    assert.deepEqual(out, { url: 'http://gitlab.test/mr/9' })
+    assert.deepEqual(out, { url: 'http://gitlab.test/mr/9', iid: 7 })
     assert.deepEqual(s.requests.map((r) => r.method), ['GET', 'POST'])
     assert.equal(s.requests[1].rawPath, '/api/v4/projects/group%2Fsub%2Fproject/merge_requests')
     assert.deepEqual(s.requests[1].body, { source_branch: 'ai/DEMO-1', target_branch: 'main', title: 'Draft: Fix price', description: 'Why\n\nJira: DEMO-1' })
@@ -111,10 +111,21 @@ test('upsertDraft: an open MR exists -> PUT title and description to it, same li
   const s = await stub((r) => (r.method === 'GET' ? { status: 200, body: [mr()] } : { status: 200, body: mr() }))
   try {
     const out = await real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'Draft: Better', description: 'More' })
-    assert.deepEqual(out, { url: mr().web_url })
+    assert.deepEqual(out, { url: mr().web_url, iid: 7 })
     assert.deepEqual(s.requests.map((r) => `${r.method} ${r.path}`), ['GET /api/v4/projects/group%2Fsub%2Fproject/merge_requests', 'PUT /api/v4/projects/group%2Fsub%2Fproject/merge_requests/7'])
     assert.deepEqual(s.requests[1].body, { title: 'Draft: Better', description: 'More' })
   } finally { await s.close() }
+})
+
+test('upsertDraft leaves a non-Draft or differently targeted MR untouched', async () => {
+  for (const existing of [mr({ draft: false, title: 'Ready' }), mr({ target_branch: 'other' })]) {
+    const s = await stub(() => ({ status: 200, body: [existing] }))
+    try {
+      await assert.rejects(real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'Fix price' }),
+        (e: any) => e.code === 'mr_not_owned' && e.retryable === false)
+      assert.deepEqual(s.requests.map((r) => r.method), ['GET'])
+    } finally { await s.close() }
+  }
 })
 
 test('upsertDraft: 409 on create (an MR appeared in between) -> find again and update it; no second create', async () => {
@@ -125,7 +136,7 @@ test('upsertDraft: 409 on create (an MR appeared in between) -> find again and u
     return { status: 200, body: mr() }
   })
   try {
-    assert.deepEqual(await real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'T', description: 'd' }), { url: mr().web_url })
+    assert.deepEqual(await real(s.baseUrl).upsertDraft(binding, { branch: 'ai/DEMO-1', title: 'T', description: 'd' }), { url: mr().web_url, iid: 7 })
     assert.deepEqual(s.requests.map((r) => r.method), ['GET', 'POST', 'GET', 'PUT'])
   } finally { await s.close() }
 })
@@ -255,7 +266,8 @@ test('repo adapter with adapters.gitlab=real: commit, push to the git remote, MR
     const p = await repo.prepare(b, 'DEMO-1', 1)
     await writeFile(join(p.dir, 'x.txt'), 'x')
     const out = await repo.openDraftMR(b, p.dir, p.branch, { title: 'Fix x', description: 'because', jiraKey: 'DEMO-1', commitMessage: 'fix(x): add x' })
-    assert.deepEqual(out, { url: 'http://gitlab.test/mr/1' })
+    const head = (await runGit(['rev-parse', p.branch], { cwd: made.remote })).stdout.trim()
+    assert.deepEqual(out, { url: 'http://gitlab.test/mr/1', iid: 7, sha: head })
     assert.deepEqual(s.requests.map((r) => r.method), ['GET', 'GET', 'POST'])
     assert.equal(s.requests[2].body.title, 'Draft: Fix x')
     assert.equal(s.requests[2].body.target_branch, 'master')
@@ -264,13 +276,15 @@ test('repo adapter with adapters.gitlab=real: commit, push to the git remote, MR
     // the same task again: the MR is found, the title and description are updated
     s.requests.length = 0
     await writeFile(join(p.dir, 'y.txt'), 'y')
-    const mrs = [mr({ sha: 'whatever' })]
+    const mrs = [mr({ sha: 'whatever', target_branch: 'master' })]
     const s2 = await stub((r) => (r.method === 'GET' ? { status: 200, body: mrs } : { status: 200, body: mr() }))
     try {
       const repo2 = createRepoAdapter({ ...config, gitlab: { baseUrl: s2.baseUrl } }, { env: { CHAT_TO_FIX_GITLAB_TOKEN: TOKEN }, warn() {} }) as any
-      assert.deepEqual(await repo2.openDraftMR(b, p.dir, p.branch, { title: 'Fix x', jiraKey: 'DEMO-1' }), { url: mr().web_url })
+      const second = await repo2.openDraftMR(b, p.dir, p.branch, { title: 'Fix x', jiraKey: 'DEMO-1' })
+      assert.deepEqual(second, { url: mr().web_url, iid: 7, sha: (await runGit(['rev-parse', p.branch], { cwd: made.remote })).stdout.trim() })
+      assert.notEqual(second.sha, head)
       assert.deepEqual(s2.requests.map((r) => r.method), ['GET', 'GET', 'PUT'])
-      assert.equal((await runGit(['rev-list', '--count', `master..${p.branch}`], { cwd: made.remote })).stdout.trim(), '2', 'a foreign head sha does not amend')
+      assert.equal((await runGit(['rev-list', '--count', `master..${p.branch}`], { cwd: made.remote })).stdout.trim(), '2', 'a second call appends a commit: no amend, whatever head sha GitLab reports')
     } finally { await s2.close() }
     // getMR goes through the same backend
     const g = await stub((r) => (r.path.endsWith('/merge_requests') ? { status: 200, body: [mr()] } : { status: 200, body: mr({ head_pipeline: { status: 'running' } }) }))

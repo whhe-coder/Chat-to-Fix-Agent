@@ -75,7 +75,7 @@ test('the shipped registry and flow definitions pass their own startup checks', 
   assert.deepEqual(validateFlow(allBotDefs()), [])
 })
 
-test('one task goes from the @ event through all seven steps to done', async (t) => {
+test('one task goes from the @ event through all eight steps to done', async (t) => {
   const r = await rig()
   t.after(() => r.http.close())
 
@@ -112,12 +112,15 @@ test('one task goes from the @ event through all seven steps to done', async (t)
   // Step 5 and 6.
   assert.equal((await r.gate.allow(id, 'mr_open_draft')).ok, true)
   await r.store.patchTask(id, { mr: { url: 'fake://gitlab/group/project/mr/1' } })
+  assert.equal((await r.gate.advance(id, 'ci')).ok, true)
+  assert.deepEqual((await r.gate.advance(id, 'writeback') as any).missing, ['ci.settled'])
+  await r.store.patchTask(id, { ci: { status: 'passed', settled: true, outcome: 'passed' } })
   assert.equal((await r.gate.advance(id, 'writeback')).ok, true)
   assert.equal((await r.gate.allow(id, 'slack_reply', 'result')).ok, true)
   await r.store.patchTask(id, { jira: { commentedMr: true }, slack: { sent: { result: true } } })
   assert.equal((await r.gate.advance(id, 'close')).ok, true)
 
-  // Step 7.
+  // Step 8.
   assert.equal((await r.gate.close(id, 'done')).ok, true)
   task = await r.store.getTask(id)
   assert.equal(task.state, 'done')
@@ -131,7 +134,7 @@ test('one task goes from the @ event through all seven steps to done', async (t)
   const shown = await r.call('GET', `/tasks/${id}?records=1`)
   assert.equal(shown.body.state ?? shown.body.task?.state, 'done')
   const records = await r.store.readRecords(id)
-  assert.equal(records.filter(entry => entry.type === 'advance').length, 6)
+  assert.equal(records.filter(entry => entry.type === 'advance').length, 7)
   assert.ok(records.some(entry => entry.type === 'refused'))
 
   // The same event again creates nothing.
