@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以 Slack 私信为入口。Slack Bot 接收问题消息，并
 
 ## 当前状态
 
-截至 2026-11-12，M0 Slack 私信入口仍在进行中。工作区安装申请已提交，等待管理员批准；Bot OAuth token 尚未取得。仓库已有最小私信测试 Bot，但尚未完成真实私信收发验证。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。新的 Jira scoped token 已保存到本机钥匙串；本地服务已通过真实工单创建、评论新增和修改验证，目标 board 查询也返回该工单。创建工单需要配置 `Work type` 字段 ID。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。服务尚未接入 Slack Bot 或本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
+截至 2026-11-12，模拟 Slack 私信入口已完成，可在本机提交测试消息并读取 thread 回复。真实 Slack 工作区安装申请仍待管理员批准；Bot OAuth token 尚未取得，也未完成真实私信验收。本地 Node.js 服务提供 GitLab 只读检查，以及 Jira board 读取、`F2PGBA` 工单创建、评论新增和评论修改接口。新的 Jira scoped token 已保存到本机钥匙串；本地服务已通过真实工单创建、评论新增和修改验证，目标 board 查询也返回该工单。创建工单需要配置 `Work type` 字段 ID。Draft MR 的创建及更新调用已编写，但尚未进行真实写入验证。模拟入口尚未接入本地 agent，也不会自行创建 Jira 工单或 GitLab MR。下文描述的是目标流程，不代表当前功能已经上线。
 
 ## 目标流程
 
@@ -30,6 +30,7 @@ flowchart LR
 | 交付物 | 作用 |
 | --- | --- |
 | Slack Bot | 接收问题消息，在原消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
+| 模拟 Slack Bot | 在真实 Slack 待审批期间提供本机私信和 thread，用于开发及验证后续任务链路。 |
 | 本地服务 | 提供健康检查、GitLab 只读检查、Jira board 读取，以及 `F2PGBA` 工单和评论写入接口；后续承接 Bot 任务。 |
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
 | 配置文档 | 记录 Slack、GitLab 和 Jira 的接入状态、权限与验证边界。文档不保存密钥值。 |
@@ -65,6 +66,10 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 本机变量使用 [`.env.example`](.env.example) 模板。变量来源、保存方式、优先级和验证结果统一记录在 [本地环境变量配置](config/local-env/README.md)。
 
+## 模拟 Slack Bot
+
+运行 `npm run start:mock-slack` 后，可向 `http://127.0.0.1:4001/messages` 提交测试私信。它无需 Slack token，不会访问 Jira 或 GitLab。请求格式、thread 查询和行为边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。真实 Slack 接入仍按原计划单独验收。
+
 ## 文档分工
 
 | 文档 | 记录内容 | 更新时机 |
@@ -72,6 +77,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Plan：实施计划](plans/chat-to-fix-agent.md) | 整体目标、里程碑、验收标准、未完成事项和当前阻塞。已完成的事项从待办中移走，验收标准仍保留。 | Feature 开始、范围或验收标准变化、待办或阻塞变化时。 |
 | [Done：已完成事项](plans/done.md) | 已落实并核对的配置、代码和验证结果。记录完成事实，不把待审批或未验证的工作写成完成。 | 一项工作完成且得到验证后，从 Plan 移入 Done。 |
 | [Spec：Slack 私信入口](spec/slack-dm-entry.md) | 一个 Feature 的行为约定，包括输入输出、接口、权限、错误路径和验收场景；区分待实现与已实现行为。其他 Feature 按需在 `spec/` 下建文档。 | 新增 Feature 或改变其行为约定时创建或更新。 |
+| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 本机模拟私信的接口、事件去重、thread 查询和与真实 Slack 的边界。 | 模拟入口行为改变时。 |
 | [Spec：GitLab 只读服务](spec/gitlab-readonly-server.md) | 本地服务的接口、凭据、错误路径和已验证范围。 | 服务行为改变时。 |
 | [Spec：GitLab 连接函数](spec/gitlab-connection.md) | 可复用连接函数、凭据来源、返回值和验证边界。 | GitLab 连接行为改变时。 |
 | [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |

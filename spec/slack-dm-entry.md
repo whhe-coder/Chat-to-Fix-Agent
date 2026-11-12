@@ -1,6 +1,6 @@
 # Slack 私信入口规格（M0）
 
-状态：本地测试 Bot 已实现并通过消息处理测试；工作区安装尚待批准，真实私信收发尚未验收。后续 Jira、GitLab 和 CI 流程见 [实施计划](../plans/chat-to-fix-agent.md)，不属于当前 M0 行为。
+状态：本地测试 Bot 已实现并通过消息处理测试；工作区安装尚待批准，真实私信收发尚未验收。后续任务先使用[模拟 Bot](mock-slack-bot.md) 开发。Jira、GitLab 和 CI 流程见 [实施计划](../plans/chat-to-fix-agent.md)，不属于当前真实私信入口行为。
 
 ## 输入与回复
 

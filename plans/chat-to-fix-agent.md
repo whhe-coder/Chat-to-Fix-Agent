@@ -1,6 +1,6 @@
 # Chat-to-Fix Agent 实施计划
 
-更新日期：2026-11-12。当前里程碑：**M0 Slack 私信入口**。整体功能尚未完成。
+更新日期：2026-11-12。**M0a 模拟私信入口已完成；下一里程碑是 M1。**真实 Slack 安装仍待审批。整体功能尚未完成。
 
 ## 整体目标
 
@@ -27,19 +27,22 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 | 里程碑 | 当前状态 | 验收标准 |
 | --- | --- | --- |
-| M0 Slack 私信入口 | 进行中 | Slack 应用只订阅 `message.im`，Bot 权限只有 `im:history` 和 `chat:write`；完成工作区安装与 token 配置；测试私信只被处理一次，并在原 thread 收到确认。 |
-| M1 Bot 与本地 agent 对接 | 未开始 | Bot 将问题正文、发送者、频道和 thread 标识交给 agent；异步任务状态可追踪；Slack 重试不会重复启动任务。 |
+| M0a 模拟私信入口 | 已完成 | 无 Slack token 时，可通过本机接口提交模拟私信、读取原 thread 回复；相同事件只处理一次。行为见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。 |
+| M0 真实 Slack 私信入口 | 待审批 | Slack 应用只订阅 `message.im`，Bot 权限只有 `im:history` 和 `chat:write`；完成工作区安装与 token 配置；测试私信只被处理一次，并在原 thread 收到确认。 |
+| M1 Bot 与本地 agent 对接 | 下一步 | 模拟 Bot 将问题正文、发送者、频道和 thread 标识交给 agent；异步任务状态可追踪；相同事件不会重复启动任务。 |
 | M2 Jira 工单 | 写入能力已验证，任务联动未开始 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
 | M3 代码修改与 Draft MR | 未开始 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
 | M4 CI 观察与修复 | 未开始 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
-| M5 端到端验收 | 未开始 | 从测试私信到 Jira、Draft MR、CI 结果、Slack/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
+| M5 模拟入口端到端验收 | 未开始 | 从模拟私信到 Jira、Draft MR、CI 结果、thread/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
+| M6 真实 Slack 切换与验收 | 待审批 | M0 的真实安装和私信验收通过后，用相同任务处理器接入 Slack Bot，并验证真实私信到最终回报的链路。 |
 
-## 当前里程碑 M0
+## 下一里程碑 M1
 
-- [ ] 等待工作区管理员批准安装，取得 Bot OAuth token，并通过本机环境变量启动 Bot。
-- [ ] 运行最小 Slack 测试 Bot，接收测试私信并在原 thread 回复一次。
+- [ ] 将模拟私信中的正文、发送者、频道和 thread 标识交给本地 agent 或服务。
+- [ ] 让任务在后台执行，并提供可查询的任务状态。
+- [ ] 对相同事件去重，避免重试重复启动任务。
 
-当前阻塞：等待工作区管理员批准安装。M0 尚未通过验收。已完成事项见 [done.md](done.md)。
+真实 Slack 的 M0 仍受工作区管理员审批阻塞；后续里程碑先使用模拟入口。已完成事项见 [done.md](done.md)。
 
 ## 执行规则
 
@@ -53,11 +56,11 @@ Slack Bot 只负责接收私信、提交任务和发送进度。本地 agent 或
 
 ## 待确定的实施接口
 
-- 本地 agent 的调用方式：进程、HTTP 服务或任务队列。
+- M1 需确定本地 agent 的调用方式：进程、HTTP 服务或任务队列。
 - 长任务状态与去重记录的存储位置。
 - M2 的 Jira 接口已用个人账号的新 token 验证：真实创建 `Task` 工单、新增并修改自身评论、回读评论，以及在目标 board 查到工单。`Work type` 必填，启动服务时需配置其字段 ID，任务输入需提供合适的值。M2 还需接入 Slack 任务去重、创建失败处理和工单链接回报。正式服务身份仍待确定。见 [Jira 接入记录](../config/jira/README.md)。
 - GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
 - M3 的本地 agent 直接复用独立的 `createGitlabConnection()`；还需验证 agent 到 GitLab 的调用链。当前 HTTP 服务不是写入入口。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
 
-这些事项在对应里程碑开始前确定并验证。它们不改变 M0 的 Slack 私信配置。
+这些事项在对应里程碑开始前确定并验证。它们不改变真实 Slack 的私信配置。

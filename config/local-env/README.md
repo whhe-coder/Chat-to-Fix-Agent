@@ -9,13 +9,14 @@ chmod 600 .env.local
 
 `.env.local` 是本机明文文件，已被 Git 忽略。不要发送该文件，也不要把 token 写进 Git、命令参数、日志或聊天。启动入口使用 Node.js 的 `process.loadEnvFile` 自动加载；当前本机 Node.js 已验证支持。若旧版 Node.js 不支持此方法，文件存在时启动会报出明确错误。
 
-已有的进程环境变量优先于 `.env.local`。某个 token 未设置时，Mac 上仍可从登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm start`、`npm run start:server` 和 `npm run check:jira` 使用此顺序。钥匙串中的现有 token 副本仍保留。
+已有的进程环境变量优先于 `.env.local`。某个 token 未设置时，Mac 上仍可从登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm start`、`npm run start:server` 和 `npm run check:jira` 使用此顺序。`npm run start:mock-slack` 也加载 `.env.local`，但不使用任何 token。钥匙串中的现有 token 副本仍保留。
 
 ## 变量来源
 
 | 组 | 变量 | 来源或设置位置 |
 | --- | --- | --- |
 | 本地服务 | `PORT` | 自行选择未占用的本机端口；默认 `4000`。 |
+| 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
 | GitLab | `GITLAB_TOKEN` | 目标项目的 **Settings → Access tokens**；当前项目 token 已创建，权限见 [GitLab 接入记录](../gitlab/README.md)。 |

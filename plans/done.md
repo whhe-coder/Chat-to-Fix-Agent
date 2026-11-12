@@ -14,6 +14,11 @@
 - [x] 提交目标工作区安装申请；Slack 页面显示 `Request Submitted`。该申请尚不代表安装已获批准。
 - [x] 在 [`src/slackBot/`](../src/slackBot/) 编写最小私信测试 Bot；本地 4 项消息处理测试通过。尚未进行真实私信收发验证。
 
+## M0a 模拟私信入口
+
+- [x] 增加无需 Slack token 的本机模拟 Bot。它复用现有私信处理器，提供模拟私信提交和 thread 查询接口；相同事件并发重试只回复一次。接口和边界见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。
+- [x] 模拟 Bot 的 4 项自动测试通过，包括原 thread 回复、事件去重、可替换处理器和本机 HTTP 接口。未执行 Jira 或 GitLab 写入。
+
 ## GitLab 接入准备（不代表 M1 或 M3 验收通过）
 
 - [x] 在 [`src/server/`](../src/server/) 增加只监听本机的 Node.js 服务。`/health` 可用；`/gitlab/status` 以只读调用读取目标仓库的 `master` 分支。
