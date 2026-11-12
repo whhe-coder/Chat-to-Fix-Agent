@@ -9,10 +9,12 @@
   "scripts": {
     "start": "sh -c '. src/chat-to-fix/scripts/dev-env.sh; exec node src/chat-to-fix/scripts/connected.ts --start'",
     "start:slack": "node src/slackBot/slack-bot.js",
-    "start:mock-slack": "node src/slackBot/start-mock.js",
+    "start:mock-slack": "node src/slackBot/start-mock-channel.js",
+    "start:mock-dm": "node src/slackBot/start-mock.js",
     "check:jira": "node src/jira/check-board.js",
     "start:agent": "sh src/chat-to-fix/scripts/start-chat-to-fix.sh",
     "stop:agent": "sh src/chat-to-fix/scripts/stop-chat-to-fix.sh",
+    "logs:agent": "sh src/chat-to-fix/scripts/logs-chat-to-fix.sh",
     "check:agent-connections": "sh -c '. src/chat-to-fix/scripts/dev-env.sh; exec node src/chat-to-fix/scripts/connected.ts --check'",
     "prepare:agent-connections": "sh -c '. src/chat-to-fix/scripts/dev-env.sh; exec node src/chat-to-fix/scripts/connected.ts'",
     "smoke:agent": "cd src/chat-to-fix && node scripts/smoke.ts",

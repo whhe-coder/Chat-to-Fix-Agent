@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模拟 Slack 频道 · Chat-to-Fix</title>
+  <link rel="stylesheet" href="/mock-channel.css">
+  <script src="/mock-channel-client.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="工作区">
+      <div class="workspace"><span class="workspace-mark">✦</span><span>Chat-to-Fix<br><small>本机测试工作区</small></span></div>
+      <div class="sidebar-label">频道</div>
+      <div class="channel-link" aria-current="page"><span>#</span> <span id="sidebar-channel">chat-to-fix</span></div>
+      <div class="sidebar-note">此页面模拟 Slack。消息只在本机显示，不会发送到真实 Slack。</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div><div class="eyebrow">模拟频道</div><h1># <span id="channel-title">chat-to-fix</span></h1></div>
+        <div id="agent-status" class="status" role="status">正在连接 Agent…</div>
+      </header>
+      <section class="conversation" aria-label="频道消息">
+        <div class="welcome"><div class="welcome-icon">#</div><h2>欢迎来到模拟频道</h2><p>输入 <code>/fix 问题描述</code>。模拟 Bot 会把命令交给本机 Agent，并在下方显示进度。</p></div>
+        <div id="threads" class="threads" aria-live="polite"></div>
+      </section>
+      <form id="composer" class="composer">
+        <label for="message">发送到 # <span id="composer-channel">chat-to-fix</span></label>
+        <textarea id="message" name="message" rows="3" maxlength="4000" placeholder="/fix 登录页按钮点击后没有反应" required></textarea>
+        <div class="composer-bottom"><span id="composer-note">仅接受 /fix 命令 · Enter 发送，Shift+Enter 换行</span><button id="send-button" type="submit">发送命令 <span aria-hidden="true">↗</span></button></div>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

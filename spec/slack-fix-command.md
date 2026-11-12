@@ -1,6 +1,6 @@
 # 固定频道 `/fix` 入口规格
 
-状态：Slack 应用权限已调整；`/fix` 命令、固定频道、Bot 处理代码和真实调用尚未实现。旧私信入口的已实现代码见 [历史规格](slack-dm-entry.md)。
+状态：Slack 应用权限已调整；真实 Slack 的 `/fix` 命令、固定频道、Bot 处理代码和真实调用尚未实现。本机模拟频道已可接收 `/fix` 并转发给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
 
 ## 目标行为
 

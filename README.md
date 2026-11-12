@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以指定频道的 `/fix` 命令为入口。Slack Bot 接收�
 
 ## 当前状态
 
-截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。根目录的旧私信测试 Bot 和模拟 Bot 仍是历史测试工具。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但只在本机模拟服务上验证。根目录的 `package.json` 统一管理 Agent 的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量；真实三方链路尚未验收。早期本地 Node.js 服务曾验证 Jira 工单和评论写入，现已删除；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
+截至 2026-11-12，Slack 应用的 Bot scopes 已调整为 `commands`、`chat:write`；消息事件已关闭。`/fix` 命令和指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。本机模拟 Slack 频道已可把 `/fix` 转发给 Agent，并显示其发件箱回复；旧私信测试 Bot 仍是历史测试工具。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但真实三方链路尚未验收。根目录的 `package.json` 统一管理 Agent 的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量。早期本地 Node.js 服务曾验证 Jira 工单和评论写入，现已删除；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
 
 ## 代码目录
 
@@ -50,7 +50,7 @@ flowchart LR
 | 交付物 | 作用 |
 | --- | --- |
 | Slack Bot | 接收指定频道的 `/fix` 命令，在任务消息的 thread 中回复工单、MR、CI、修复进度和最终结果。 |
-| 模拟 Slack Bot | 当前提供旧私信和 thread 测试接口；需改为模拟 `/fix` 后再用于新入口的端到端验收。 |
+| 模拟 Slack Bot | 本机频道页面接收 `/fix`、转发给 Agent，并显示讨论串进度；旧私信接口仍可单独运行。 |
 | Chat-to-Fix Agent | 创建 `F2PGBA` 工单，修改 F2P 代码，创建 Draft MR，读取 CI 失败日志，并在原 MR 持续修复。 |
 | 配置文档 | 记录 Slack、GitLab 和 Jira 的接入状态、权限与验证边界。文档不保存密钥值。 |
 
@@ -87,7 +87,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 ## 模拟 Slack Bot
 
-运行 `npm run start:mock-slack` 后，可向 `http://127.0.0.1:4001/messages` 提交旧版测试私信。它无需 Slack token，不会访问 Jira 或 GitLab。请求格式和当前行为见 [模拟 Bot 规格](spec/mock-slack-bot.md)。该接口尚未模拟新 `/fix` 入口。
+先运行 `npm start`，再运行 `npm run start:mock-slack`，打开 `http://127.0.0.1:4001/`。页面模拟一个频道：输入 `/fix 问题描述` 后，模拟 Bot 将任务交给本机 Agent，并显示 Agent 回传的进度。运行 `npm run logs:agent` 可查看 Agent 收到命令时的日志。模拟 Bot 无需 Slack token。**如果 Agent 已连接真实 Jira 和 GitLab，发送命令会触发真实任务。**启动方式和边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。旧私信测试接口改用 `npm run start:mock-dm`。
 
 ## 文档分工
 
@@ -97,7 +97,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Done：已完成事项](plans/done.md) | 已落实并核对的配置、代码和验证结果。记录完成事实，不把待审批或未验证的工作写成完成。 | 一项工作完成且得到验证后，从 Plan 移入 Done。 |
 | [Spec：固定频道 `/fix` 入口](spec/slack-fix-command.md) | 当前目标入口的行为、权限、状态和验收标准。其他 Feature 按需在 `spec/` 下建文档。 | 入口行为或验收标准变化时。 |
 | [Spec：旧私信入口](spec/slack-dm-entry.md) | 旧版 Bot 的行为和本地测试记录；不作为新入口的验收标准。 | 旧版代码或历史记录需要更正时。 |
-| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 当前旧版模拟私信的接口、事件去重和 thread 查询。 | 模拟入口行为改变时。 |
+| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 本机频道的 `/fix` 转发、讨论串回传和旧私信接口。 | 模拟入口行为改变时。 |
 | [Spec：GitLab 连接函数](spec/gitlab-connection.md) | 可复用连接函数、凭据来源、返回值和验证边界。 | GitLab 连接行为改变时。 |
 | [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |
 | [Spec：Jira board 连接](spec/jira-board-connection.md) | 独立只读连接函数、凭据方式和验证边界。 | Jira 连接行为改变时。 |

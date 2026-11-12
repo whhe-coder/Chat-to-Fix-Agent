@@ -24,6 +24,12 @@
 - [x] 增加无需 Slack token 的本机模拟 Bot。它复用现有私信处理器，提供模拟私信提交和 thread 查询接口；相同事件并发重试只回复一次。接口和边界见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。
 - [x] 模拟 Bot 的 4 项自动测试通过，包括原 thread 回复、事件去重、可替换处理器和本机 HTTP 接口。未执行 Jira 或 GitLab 写入。
 
+## M1 本机模拟频道
+
+- [x] 新增本机频道页面。它接收 `/fix`，使用 `source: "fix"` 转发问题正文、模拟发送者、频道和讨论串 ID；页面显示 Agent 发件箱回复及任务状态。同一事件并发或重复提交只转发一次，失败可用原事件 ID 重试。
+- [x] 4 项新测试通过，其中一项连接 Agent 的实际 HTTP 接口；另用已启动的本机 Agent 验证页面可打开、频道为 `CLOCAL`、连接状态为在线。没有向真实 Agent 发送 `/fix`，因此没有验证本次改动触发的真实 Jira 或 GitLab 写入。
+- [x] Agent 在收到 `/fix` 并解析请求后、任务入队前记录事件 ID、频道、发送者和问题正文。`npm run logs:agent` 可实时查看；接口 token 不进入这条日志。接口测试核对了记录顺序。
+
 ## GitLab 接入准备（不代表 M1 或 M3 验收通过）
 
 - [x] 曾在 `src/server/` 增加只监听本机的 Node.js 过渡服务；该服务现已删除，接口记录见 [历史规格](../docs/archive/legacy-local-server/gitlab-readonly-server.md)。当时 `/health` 可用；`/gitlab/status` 以只读调用读取目标仓库的 `master` 分支。

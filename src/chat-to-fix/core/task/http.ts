@@ -68,7 +68,7 @@ export function discussionOf(origin) {
   return [...(Array.isArray(origin.earlier) ? origin.earlier : []), ...trigger, ...(Array.isArray(origin.followUps) ? origin.followUps : [])]
 }
 
-export function createHttp({ config, token, store, outbox, queue, runner, notify, startThread }: any) {
+export function createHttp({ config, token, store, outbox, queue, runner, notify, startThread, log = console.info }: any) {
   if (!isText(token)) throw new Error('createHttp: the token is required')
 
   // /fix events being handled right now, by eventId: a retry that arrives meanwhile waits for the first
@@ -129,6 +129,15 @@ export function createHttp({ config, token, store, outbox, queue, runner, notify
     try { body = JSON.parse(await readBody(request)) } catch (error) {
       if (error instanceof HttpError) throw error
       throw new HttpError(400, 'invalid_json')
+    }
+    if ((body?.source === 'fix' || body?.source === 'slash') && isText(body.eventId)
+      && isText(body.channel) && isText(body.user?.id) && isText(body.text)) {
+      // One line per delivery, before queueing. JSON escapes newlines from user text.
+      const received = {
+        eventId: body.eventId.slice(0, 128), channel: body.channel.slice(0, 64),
+        userId: body.user.id.slice(0, 64), text: body.text.slice(0, 4000),
+      }
+      try { log(`chat-to-fix: 收到 Slack /fix ${JSON.stringify(received)}`) } catch { /* Logging must not reject a task. */ }
     }
     if (body?.source === 'slash') return slashEvent(body)
     if (body?.source !== undefined && body.source !== 'fix' && body.source !== 'mention') return [400, { error: 'invalid_source' }]
