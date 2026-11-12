@@ -3,6 +3,9 @@
 // No process is started and no model is called; the key is a fake value.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readdirSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { launchFor, withTestCommands } from '../bot/src/host/local-agents/launch.ts'
 
 const FAKE_KEY = 'sk-ant-api03-FAKE-KEY-FOR-TESTS-0123456789'
@@ -94,5 +97,91 @@ test('engineAuth login: no key reaches the CLI, even when the process has one in
   } finally {
     if (saved === undefined) delete process.env.ANTHROPIC_API_KEY
     else process.env.ANTHROPIC_API_KEY = saved
+  }
+})
+
+// ---- isolation of the owner's personal instruction files (second real run, T-1) ----
+// The worktree sits under the owner's home, so ~/.claude/CLAUDE.md is an ancestor's project file to the CLI.
+const WORKTREE = '/Users/owner/chat-to-fix-runs/r1/chat-to-fix/worktrees/T-1'
+const inWorktree = { ...open, cwd: WORKTREE }
+const excludesOf = (launch) => JSON.parse(valueOf(launch.args, '--settings')).claudeMdExcludes
+const scratch = () => mkdtempSync(join(tmpdir(), 'chat-to-fix-launch-'))
+
+test('isolation: the Coding bot excludes every instruction file above its worktree, but not the worktree\'s own', () => {
+  for (const engineAuth of ['login', 'apiKey']) {
+    const host = rt({ engineAuth, engineApiKey: FAKE_KEY, engineConfigRoot: scratch() }, { roles: CODING })
+    const launch: any = launchFor(host, 'coding', inWorktree)
+    assert.equal(valueOf(launch.args, '--setting-sources'), 'project', engineAuth)
+    const excludes = excludesOf(launch)
+    assert.ok(excludes.includes('/Users/owner/.claude/CLAUDE.md'), `${engineAuth}: the file that leaked`)
+    assert.ok(excludes.includes('/Users/owner/.claude/rules/**'), engineAuth)
+    assert.ok(excludes.includes('/Users/owner/chat-to-fix-runs/CLAUDE.md'), engineAuth)
+    assert.equal(excludes.some(pattern => pattern.startsWith(`${WORKTREE}/`)), false, `${engineAuth}: the repository's own CLAUDE.md stays`)
+    assert.equal(launch.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', engineAuth)
+    // the reviewer subagent is defined by arguments, so it is unaffected
+    assert.deepEqual(Object.keys(JSON.parse(valueOf(launch.args, '--agents'))), ['reviewer'], engineAuth)
+    assert.equal(launch.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, '1', engineAuth)
+  }
+})
+
+test('isolation, engineAuth apiKey: a private config dir inside the data folder, per session, owner-only, never the user\'s ~/.claude', () => {
+  const root = join(scratch(), 'engine-config')
+  const host = rt({ engineAuth: 'apiKey', engineApiKey: FAKE_KEY, engineConfigRoot: root }, { roles: { ...CODING, second: { role: 'coding', taskId: 'T-2' } } })
+  const first: any = launchFor(host, 'coding', inWorktree)
+  const second: any = launchFor(host, 'second', inWorktree)
+  assert.equal(first.env.CLAUDE_CONFIG_DIR, join(root, 'coding'))
+  assert.equal(second.env.CLAUDE_CONFIG_DIR, join(root, 'second'))
+  assert.ok(existsSync(first.env.CLAUDE_CONFIG_DIR))
+  assert.equal(statSync(first.env.CLAUDE_CONFIG_DIR).mode & 0o077, 0, 'owner only')
+  assert.deepEqual(readdirSync(first.env.CLAUDE_CONFIG_DIR), [], 'starts empty: no credential and nothing copied from the user')
+  assert.equal(first.env.CLAUDE_CONFIG_DIR.includes('/.claude'), false)
+  // the same session launched again (a restart) gets the same directory
+  assert.equal((launchFor(host, 'coding', inWorktree) as any).env.CLAUDE_CONFIG_DIR, first.env.CLAUDE_CONFIG_DIR)
+  // the private dir is excluded as well, in case the CLI ever reads instruction files from it
+  assert.ok(excludesOf(first).includes(`${first.env.CLAUDE_CONFIG_DIR}/CLAUDE.md`))
+  // a session id with path characters cannot leave the root
+  const odd: any = launchFor(rt({ engineAuth: 'apiKey', engineApiKey: FAKE_KEY, engineConfigRoot: root }), '../../etc', inWorktree)
+  assert.equal(dirname(odd.env.CLAUDE_CONFIG_DIR), root)
+  // the key still travels in the environment only; no secret in the arguments
+  for (const launch of [first, second, odd]) {
+    assert.equal(launch.env.ANTHROPIC_API_KEY, FAKE_KEY)
+    assert.equal(JSON.stringify(launch.args).includes(FAKE_KEY), false)
+  }
+})
+
+test('isolation, engineAuth apiKey without a configured root: still a private directory, under the OS temp folder', () => {
+  const launch: any = launchFor(rt({ engineAuth: 'apiKey', engineApiKey: FAKE_KEY }, { roles: CODING }), 'coding', inWorktree)
+  assert.ok(launch.env.CLAUDE_CONFIG_DIR.startsWith(tmpdir()) || launch.env.CLAUDE_CONFIG_DIR.startsWith('/private'), launch.env.CLAUDE_CONFIG_DIR)
+  assert.deepEqual(readdirSync(launch.env.CLAUDE_CONFIG_DIR), [])
+})
+
+test('isolation, engineAuth login: the login lives in the user\'s config home, so no CLAUDE_CONFIG_DIR is set; the same flags apply', () => {
+  const saved = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }
+  process.env.HOME = '/Users/owner'
+  process.env.CLAUDE_CONFIG_DIR = '/somewhere/else'
+  try {
+    const host = rt({ engineAuth: 'login' }, { roles: CODING })
+    for (const session of ['coding', 'unbound']) {
+      const launch: any = launchFor(host, session, inWorktree)
+      assert.equal('CLAUDE_CONFIG_DIR' in launch.env, false, `${session}: childEnv never passes the variable on`)
+      assert.equal(launch.env.HOME, '/Users/owner')
+      assert.equal('ANTHROPIC_API_KEY' in launch.env, false)
+      assert.equal(valueOf(launch.args, '--setting-sources'), 'project')
+      assert.ok(excludesOf(launch).includes('/Users/owner/.claude/CLAUDE.md'))
+      assert.ok(excludesOf(launch).includes('/Users/owner/.claude/rules/**'))
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
+  }
+})
+
+test('isolation: a bot of another role or an unbound session is isolated the same way (setting sources, excludes, config dir)', () => {
+  const host = rt({ engineAuth: 'apiKey', engineApiKey: FAKE_KEY, engineConfigRoot: scratch() }, { roles: CODING })
+  for (const session of ['main', 'unbound']) {
+    const launch: any = launchFor(host, session, inWorktree)
+    assert.equal(valueOf(launch.args, '--setting-sources'), 'project', session)
+    assert.ok(excludesOf(launch).includes('/Users/owner/.claude/CLAUDE.md'), session)
+    assert.ok(launch.env.CLAUDE_CONFIG_DIR.endsWith(`/${session}`), session)
+    assert.equal(launch.args.includes('--agents'), false, session)
   }
 })

@@ -3,7 +3,10 @@
 // the reviewer subagent, our tools only, no permission prompts); any other session gets
 // claudeArgs with what DS Bot passed before (resume id, system text, permission mode, model,
 // the loopback MCP server).
-import { authEnv, childEnv } from '../../../../src/engine/env.ts'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { authEnv, childEnv, isolationSettings, userConfigHome } from '../../../../src/engine/env.ts'
 import { claudeArgs, codingArgs } from '../../../../src/engine/args.ts'
 import { botDef } from '../../../../src/registry/bots.ts'
 import { loadPrompt } from '../../../../src/prompts/index.ts'
@@ -25,6 +28,44 @@ export function withTestCommands(system, testCommands) {
   return system === undefined || system === '' ? note : `${system}\n\n${note}`
 }
 
+// Keeping the machine owner's personal instructions (~/.claude/CLAUDE.md, ~/.claude/rules/*.md)
+// out of a bot. The second real run showed the Coding bot reading them although the arguments
+// say `--setting-sources project`: the CLI also reads the instruction files of every ancestor
+// directory of the working directory, and the worktree lives under the owner's home (the full
+// finding is in src/engine/env.ts). Two layers, both per process:
+//  1. `--settings` with `claudeMdExcludes`: every instruction file above the working directory and
+//     the user's config home are excluded; the repository's own files in the working directory stay.
+//  2. engineAuth 'apiKey': a private CLAUDE_CONFIG_DIR inside the data folder, so the CLI's own
+//     state (global config, sessions, auto memory) never touches the user's ~/.claude, and nothing
+//     of the user's config home can load. The directory starts empty and never gets a credential:
+//     the key travels in ANTHROPIC_API_KEY only.
+//     engineAuth 'login': the login (OAuth token in the macOS keychain, entry named after the config
+//     dir) belongs to the user's config home, so a private CLAUDE_CONFIG_DIR would log the CLI out.
+//     The trade-off: login mode keeps the user's config home as the CLI's state directory and relies
+//     on layer 1 plus `--setting-sources project` (no user settings, hooks, plugins or MCP servers);
+//     auto memory is switched off for it (CLAUDE_CODE_DISABLE_AUTO_MEMORY) so a bot never writes into
+//     ~/.claude. Use 'apiKey' where full isolation matters.
+// rt.config.engineConfigRoot (set by src/plugin.ts: <dataDir>/engine-config) is the parent of the
+// private directories; without it (a bare test runtime) they go under the OS temp folder.
+export function isolatedConfigDir(config, sessionId) {
+  const root = typeof config.engineConfigRoot === 'string' && config.engineConfigRoot !== '' ? config.engineConfigRoot : undefined
+  const name = String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
+  if (root === undefined) return mkdtempSync(join(tmpdir(), `chat-to-fix-engine-${name}-`))
+  const dir = join(root, name)
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  return dir
+}
+
+// -> { env: extra variables for the child, settings: the --settings object }. childEnv does not pass
+// CLAUDE_CONFIG_DIR on, so in login mode the CLI's config home is always <HOME>/.claude.
+export function engineIsolation(config, sessionId, cwd, sourceEnv = process.env) {
+  if (config.engineAuth === 'apiKey') {
+    const dir = isolatedConfigDir(config, sessionId)
+    return { env: { CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, settings: isolationSettings(cwd, { configHomes: [dir] }) }
+  }
+  return { env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, settings: isolationSettings(cwd, { configHomes: [userConfigHome({ HOME: sourceEnv.HOME })] }) }
+}
+
 // The names of the tools this session's loopback MCP server may serve: DS Bot's team tools plus
 // the role tools of the session's bot (the task layer's bridgedToolNames).
 export function bridgeNames(rt, sessionId, requested = []) {
@@ -39,14 +80,15 @@ export function bridgeNames(rt, sessionId, requested = []) {
 // -> { args, env, permissionTimeoutMs, resumed }
 //
 // rt.config (from the plugin config, see src/plugin.ts): engineAuth ('login' | 'apiKey'),
-// engineApiKey (only with 'apiKey'), engineMaxTurns, testCommands (the plugin-level list of shell
+// engineApiKey (only with 'apiKey'), engineConfigRoot (parent of the private config dirs, see isolatedConfigDir), engineMaxTurns, testCommands (the plugin-level list of shell
 // commands the coding bot may run besides git status / git diff; the fallback), permissionTimeoutMs.
 // The task's own list comes first: rt.taskLayer.codingOptions(taskId).testCommands is the
 // `testCommands` of the task's binding (src/task/runner.ts), so each channel names its own.
 export function launchFor(rt, sessionId, open) {
   const config = rt.config ?? {}
   const auth = authEnv({ engineAuth: config.engineAuth ?? 'login', apiKey: config.engineApiKey } as any)
-  const env = childEnv({ extra: auth })
+  const isolation = engineIsolation(config, sessionId, open.cwd ?? process.cwd())
+  const env = childEnv({ extra: { ...auth, ...isolation.env } })
   const permissionTimeoutMs = config.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS
   const model = open.model === 'default' ? undefined : open.model
   const bound = rt.botlayer?.botOfSession(sessionId)
@@ -65,10 +107,11 @@ export function launchFor(rt, sessionId, open) {
       maxTurns: config.engineMaxTurns,
       model,
       system: withTestCommands(open.system, testCommands),
+      settings: isolation.settings,
     } as any)
     // The reviewer must run inside the turn: with background tasks on, the CLI (2.1.321) starts the
     // Agent tool's subagent in the background and ends the turn before the reviewer has answered.
-    const codingEnv = childEnv({ extra: { ...auth, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })
+    const codingEnv = childEnv({ extra: { ...auth, ...isolation.env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })
     return { args, env: codingEnv, permissionTimeoutMs, resumed: false }
   }
   const args = claudeArgs({
@@ -76,6 +119,8 @@ export function launchFor(rt, sessionId, open) {
     system: open.system,
     permission: open.preset,
     model,
+    settingSources: 'project',
+    settings: isolation.settings,
     mcp: { name: 'dsbot', url: open.mcp.url, token: open.mcp.token },
   })
   return { args, env, permissionTimeoutMs, resumed: open.resumeId !== undefined }

@@ -47,11 +47,14 @@ function toolList(name, list) {
 //                                  directory through; use acceptEdits for the cwd)
 //   disallowedTools: [...]      -> --disallowedTools
 //   persist: false              -> --no-session-persistence
+//   settings: { ... } | 'json'  -> --settings (extra settings for this process only; used for the
+//                                  claudeMdExcludes that keep personal instruction files out, see
+//                                  src/engine/env.ts)
 // }
 export function claudeArgs(options: any = {}) {
   const {
     print = true, settingSources, resumeId, system, permission, model, mcp, maxTurns, reviewer,
-    permissionPrompts, tools, allowedTools, disallowedTools, persist,
+    permissionPrompts, tools, allowedTools, disallowedTools, persist, settings,
   } = options
   const args = []
   if (print) args.push('-p')
@@ -61,6 +64,7 @@ export function claudeArgs(options: any = {}) {
     args.push('--permission-prompts', 'none')
   }
   if (settingSources !== undefined) args.push('--setting-sources', settingSources)
+  if (settings !== undefined) args.push('--settings', typeof settings === 'string' ? settings : JSON.stringify(settings))
   if (resumeId !== undefined) args.push('--resume', resumeId)
   if (system !== undefined) args.push('--append-system-prompt', system)
   if (permission !== undefined) {
@@ -110,7 +114,7 @@ function mcpServerEntry(mcp) {
 //   mcpServer: { name = 'chat-to-fix', config }            config is an http { url, token } or stdio { command, args, env? } entry
 //   testCommands: ['sh test.sh', ...]                 shell commands allowed besides git status / git diff (each as an exact and a prefix rule, see testRules)
 //   maxTurns, model, persist (default false: --no-session-persistence), settingSources (default 'project'),
-//   system, resumeId
+//   system, resumeId, settings
 // No permission request ever reaches the driver: edits inside the working directory
 // are accepted by the mode, the allow-list holds the rest, everything else is
 // refused by the CLI. AskUserQuestion, web and scheduling tools are not offered at all.
@@ -138,7 +142,7 @@ export function testRules(command) {
 
 export const CODING_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'Agent', 'ToolSearch'])
 
-export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print }: any = {}) {
+export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print, settings }: any = {}) {
   const serverName = mcpServer?.name ?? 'chat-to-fix'
   const prefix = `mcp__${serverName}__`
   const allowedTools = [
@@ -151,6 +155,6 @@ export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testComman
     settingSources, permission: 'workspace-write', permissionPrompts: 'none',
     tools: CODING_TOOLS, allowedTools,
     ...(mcpServer === undefined ? {} : { mcp: { name: serverName, ...mcpServer.config } }),
-    maxTurns, reviewer, model, persist, system, resumeId,
+    maxTurns, reviewer, model, persist, system, resumeId, settings,
   })
 }

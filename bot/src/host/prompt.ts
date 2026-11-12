@@ -30,7 +30,7 @@ const LOCAL_RULES = [
   '- The team tools (list_bots, message_bot, read_group_chat, read_own_chat) are MCP tools named mcp__chat-to-fix__<name>, loaded with Claude Code\'s tool search. You rarely need them; the group notice says who may call whom.',
   '- Never send thanks, acknowledgements, or status echoes. A "[Reply from …]" ends an exchange: do not message that Bot back.',
   PROGRESS_RULE,
-  '- Reply in the language the task is written in.',
+  '- Reply in the language of the task text and of the message that called you: when it is Chinese, write your replies in Chinese, even though these instructions are in English.',
 ].join('\n')
 
 export function install(rt) {

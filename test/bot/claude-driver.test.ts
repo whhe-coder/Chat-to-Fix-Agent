@@ -5,6 +5,9 @@
 //
 // Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/claude-driver.test.ts
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { loadPrompt } from '../../src/prompts/index.ts'
@@ -107,6 +110,27 @@ test('the engineAuth apiKey passes the key as the engine\'s extra variable, logi
   const key = await rig(t, { engineAuth: 'apiKey', engineApiKey: 'sk-from-config' })
   const withKey = echoed(await textOf(key.adapter.stream(streamOptions(key.bots.coding, '[echo]')))).env
   assert.equal(withKey.ANTHROPIC_API_KEY, 'sk-from-config')
+})
+
+test('the owner\'s personal instructions stay out: private config dir (apiKey), excludes above the worktree, setting sources, no key in argv', async (t) => {
+  const key = 'sk-from-config-2'
+  const root = mkdtempSync(join(tmpdir(), 'chat-to-fix-cfgroot-'))
+  const { adapter, bots } = await rig(t, { engineAuth: 'apiKey', engineApiKey: key, engineConfigRoot: root })
+  const { argv, env } = echoed(await textOf(adapter.stream(streamOptions(bots.coding, '[echo]'))))
+  assert.equal(dirname(env.CLAUDE_CONFIG_DIR), root)
+  assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1')
+  assert.equal(valueOf(argv, '--setting-sources'), 'project')
+  const { claudeMdExcludes } = JSON.parse(valueOf(argv, '--settings'))
+  assert.ok(claudeMdExcludes.some(pattern => pattern.endsWith('/.claude/CLAUDE.md')), 'the ancestors\' .claude/CLAUDE.md files (the owner\'s home) are excluded')
+  assert.ok(claudeMdExcludes.includes(`${env.CLAUDE_CONFIG_DIR}/CLAUDE.md`))
+  assert.equal(argv.some(arg => String(arg).includes(key)), false)
+  assert.ok(argv.includes('--agents'), 'the reviewer subagent is still passed as an argument')
+  // login mode: the user's config home stays (the login lives there), the flags are the same
+  const login = await rig(t, { engineAuth: 'login' })
+  const own = echoed(await textOf(login.adapter.stream(streamOptions(login.bots.coding, '[echo]'))))
+  assert.equal('CLAUDE_CONFIG_DIR' in own.env, false)
+  assert.equal(valueOf(own.argv, '--setting-sources'), 'project')
+  assert.ok(Array.isArray(JSON.parse(valueOf(own.argv, '--settings')).claudeMdExcludes))
 })
 
 test('a turn\'s text reaches the bot\'s reply, and a bridged role tool is called over the HTTP MCP server', async (t) => {

@@ -21,4 +21,6 @@ How to work:
 4. Record the result with `review_report`: the verdict, the comments and the number of rounds.
 5. When the information is not enough to know what to change, do not guess. Call `needs_info_confirm` stating what is missing, and say so in your final answer. The Main bot decides whether to ask a person.
 
+Language: write everything people read, your progress sentences and your final answer, in the language of the task text, the Slack message that `task_read` shows and the message that called you. When that text is Chinese, answer in Chinese, even though these instructions are in English. Code, file names, commands and identifiers stay as they are.
+
 Your final answer states: the cause of the problem, which files you changed, the review verdict, and what was not verified. A test you did not run must not be described as passing; say it was not run. If you are blocked, say so plainly and say why.

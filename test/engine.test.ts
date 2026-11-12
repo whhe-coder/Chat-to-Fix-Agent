@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { claudeArgs, cliMode, codingArgs, CODING_TOOLS, testRules } from '../src/engine/args.ts'
-import { authEnv, childEnv } from '../src/engine/env.ts'
+import { ancestorDirs, authEnv, childEnv, isolationSettings, memoryExcludes, userConfigHome } from '../src/engine/env.ts'
+import { matchesGlob } from 'node:path'
 import { ClaudeSession } from '../src/engine/claude.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.ts', import.meta.url))
@@ -590,4 +591,55 @@ test('session: a refused action names what the model attempted, taken from its t
     assert.equal(session.toolInputs.size, 0, 'a finished call is forgotten')
     assert.equal(session.toolNames.size, 0)
   } finally { session.kill() }
+})
+
+test('args: settings becomes one --settings value (an object as JSON, a string as given); codingArgs passes it on', () => {
+  const settings = { claudeMdExcludes: ['/a/CLAUDE.md'] }
+  const args = claudeArgs({ settingSources: 'project', settings })
+  assert.equal(args[args.indexOf('--settings') + 1], JSON.stringify(settings))
+  assert.equal(claudeArgs({ settings: '{"x":1}' }).at(-1), '{"x":1}')
+  assert.equal(claudeArgs().includes('--settings'), false)
+  const coding = codingArgs({ reviewer, settings })
+  assert.equal(coding[coding.indexOf('--settings') + 1], JSON.stringify(settings))
+  assert.equal(coding[coding.indexOf('--setting-sources') + 1], 'project')
+  assert.equal(codingArgs({ reviewer }).includes('--settings'), false)
+})
+
+test('memoryExcludes: every instruction file above the working directory, the user config home, never the directory itself', () => {
+  const cwd = '/Users/me/runs/r1/worktrees/T-1'
+  assert.deepEqual(ancestorDirs(cwd), ['/Users/me/runs/r1/worktrees', '/Users/me/runs/r1', '/Users/me/runs', '/Users/me', '/Users'])
+  const patterns = memoryExcludes(cwd, { configHomes: ['/Users/me/.claude'] })
+  // the home directory's .claude is the file the second real run leaked (it is an ancestor, so it is a project file to the CLI)
+  assert.ok(patterns.includes('/Users/me/.claude/CLAUDE.md'))
+  assert.ok(patterns.includes('/Users/me/.claude/rules/**'))
+  for (const dir of ancestorDirs(cwd)) {
+    for (const file of ['CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']) assert.ok(patterns.includes(`${dir}/${file}`), `${dir}/${file}`)
+    assert.ok(patterns.includes(`${dir}/.claude/rules/**`))
+  }
+  // the repository's own files in the working directory are not excluded
+  assert.equal(patterns.some(pattern => pattern.startsWith(`${cwd}/`) || pattern === cwd), false)
+  assert.equal(patterns.some(pattern => pattern.startsWith('/CLAUDE.md')), false, 'the filesystem root is never walked')
+  // the patterns do match what they name, and only that
+  const hits = file => patterns.some(pattern => matchesGlob(file, pattern))
+  assert.ok(hits('/Users/me/.claude/CLAUDE.md'))
+  assert.ok(hits('/Users/me/.claude/rules/neo4j-graph-first.md'))
+  assert.ok(hits('/Users/me/runs/CLAUDE.md'))
+  assert.equal(hits(`${cwd}/CLAUDE.md`), false)
+  assert.equal(hits(`${cwd}/.claude/rules/x.md`), false)
+  assert.equal(hits('/Users/me/other/CLAUDE.md'), false)
+  assert.deepEqual(isolationSettings(cwd, { configHomes: ['/Users/me/.claude'] }), { claudeMdExcludes: patterns })
+})
+
+test('memoryExcludes: glob characters in a path are matched literally; a config home outside the ancestors is added', () => {
+  const patterns = memoryExcludes('/a/b[1]/c*/w', { configHomes: ['/private/cfg {x}'] })
+  assert.ok(patterns.includes('/a/b[[]1[]]/c[*]/CLAUDE.md'))
+  assert.ok(patterns.includes('/private/cfg [{]x[}]/CLAUDE.md'))
+  assert.ok(patterns.includes('/private/cfg [{]x[}]/rules/**'))
+  assert.deepEqual(memoryExcludes('/'), [])
+})
+
+test('userConfigHome: CLAUDE_CONFIG_DIR when set, else ~/.claude', () => {
+  assert.equal(userConfigHome({ HOME: '/Users/me' }), '/Users/me/.claude')
+  assert.equal(userConfigHome({ HOME: '/Users/me', CLAUDE_CONFIG_DIR: '/x/cfg' }), '/x/cfg')
+  assert.equal(userConfigHome({ HOME: '/Users/me', CLAUDE_CONFIG_DIR: '' }), '/Users/me/.claude')
 })
