@@ -1,0 +1,178 @@
+# chat-to-fix profile patch (spec 6, section 4.3), loaded by scripts/start-chat-to-fix.sh as a --patch
+# overlay over the `chat-to-fix` profile, whose bundles are @deepseek-ai/dsh-base then
+# @deepseek-ai/dsh-web-app (the profile directory lives in $CHAT_TO_FIX_DATA/dsh/profiles/chat-to-fix).
+# The DSH packages are not changed.
+#
+# Patch rules, as the real loader applies them (DSH 0.2.2-rc.1, @deepseek-ai/cordis-plugin-loader):
+#   - `- id: <row>` with `config:` replaces that row's WHOLE config (no merge), so each override
+#     restates every key it owns;
+#   - `- id: <row>` with `disabled: true` switches a row off (the row stays in the tree, inactive;
+#     the startup audit skips disabled rows);
+#   - `- insert: [...]` adds rows.
+# Each row below says what it does and how its effect was checked (see config/README.md).
+
+# 1. Model route `anthropic` on the multi-provider adapter (base row `llm-pi-ai`,
+#    @deepseek-ai/dsh-llm-pi-ai, dormant until `providers` is set). The key is a reference to the
+#    environment variable, never the key itself. A `models` entry whose id is in pi-ai's installed
+#    catalog takes every other field (endpoint, context window, output cap) from the catalog.
+#    The model id must be the part after "anthropic/" of `apiModel` in the chat-to-fix configuration.
+- id: llm-pi-ai
+  config:
+    providers:
+      anthropic:
+        apiKeyEnv: ANTHROPIC_API_KEY
+        models:
+          - id: claude-sonnet-5-5   # CHANGE-ME together with apiModel
+
+# 2. Default model for new sessions (base row `agent-default-model`).
+- id: agent-default-model
+  config:
+    provider: anthropic
+    model: claude-sonnet-5-5   # CHANGE-ME together with apiModel
+
+# 3. Permission presets (base row `permission`): all three never ask, so nothing waits for a click.
+#    With every preset on `never`, the composed defaults (sandbox-policy workspace-write + approval
+#    ask) match no preset and the row refuses to start ("configure defaultPreset explicitly"), so
+#    the default preset is named, and the process-wide approval policy (base row `approval`) is
+#    set to never as well, so a session that has no preset pinned does not ask either.
+- id: approval
+  config:
+    policy: never
+- id: permission
+  config:
+    defaultPreset: workspace-write
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: never
+      workspace-write:
+        sandbox: workspace-write
+        approval: never
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+
+# 4. Telemetry off. `session-telemetry-otel` (base) exports to dsh-otel-collector.deepseeksvc.com;
+#    the start script also sets DSH_TELEMETRY_DISABLED=1, which makes the launcher append the same
+#    disable row. The two desktop analytics rows (web-app) are already off outside the `desktop`
+#    profile; they are disabled here too so a rename of the profile cannot turn them on.
+- id: session-telemetry-otel
+  disabled: true
+- id: desktop-product-telemetry
+  disabled: true
+- id: product-analytics
+  disabled: true
+
+# 5. Headless: no web server, no browser, no desktop integration. The web-app bundle is kept for
+#    the host rows the bot layer needs (session-controller, workspace, agent-preset-registry and
+#    the presets); everything that listens, opens a browser or serves the browser UI is off.
+#    `webserver`, `web-runtime`, `modules` and `connection` are on the launcher's required list:
+#    left merely pending (their webStartup provider gone) they would fail startup, so they are
+#    disabled explicitly. `file-upload` stays on: session-controller waits for its service
+#    (fileUploads); it opens no port. The browser-only `ui-*` rows mount nothing on the host and
+#    are left as shipped, except those that wait for a disabled service (they would stay pending).
+- id: web-startup
+  disabled: true
+- id: webserver
+  disabled: true
+- id: web-runtime
+  disabled: true
+- id: modules
+  disabled: true
+# `connection` provides the carrier-neutral RPC registry that `file-upload` (and through it
+# session-controller) waits for; it mounts the browser /api route only when a webServer service
+# exists, which is off here. The shipped row injects webStartup (gone with web-startup), so the
+# patch restates it without that injection, as the SDK bundle mounts it.
+- id: connection
+  inject: []
+  config:
+    trustedHosts: []
+- id: client-hmr
+  disabled: true
+- id: session-log-download
+  disabled: true
+- id: ui-deliverables
+  disabled: true
+- id: directory-picker
+  disabled: true
+- id: open-in-app
+  disabled: true
+- id: office-to-pdf
+  disabled: true
+- id: harness-dev-context
+  disabled: true
+- id: workspace-changes
+  disabled: true
+
+# 6. Read-only agent preset `readonly` (new), used by the four bots that run on the API
+#    (src/task/runner.js presetOf). A row of @deepseek-ai/dsh-agent-preset (config id, name,
+#    description, order, plugins), registered with the web-app's agent-preset-registry. The file
+#    tool keeps read and readImage and loses write, edit and apply_patch; the search tool is
+#    read-only; no bash, pwsh, jobs, web, subagent or plan tools are listed, so the preset has none.
+#    Compaction is composed as in the shipped presets, so a long session can still be compacted.
+- insert:
+    - id: preset-readonly
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: readonly
+        name: Read only
+        description: Read and search files; no write, edit, shell or web tools.
+        order: 4
+        plugins: &readonly-plugins
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are an agent powered by the {{model}} model.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+# 6b. STOP-GAP: the shipped `standard` preset (web-app row `preset-standard`) gets the same
+#     read-only plugin list. Reason, observed in the smoke run: the bot layer creates each bot's
+#     own session with the preset the task layer names (`readonly` for the four API bots), but the
+#     sessions it creates later name no preset and so get `standard` (bot/src/host/roster.js
+#     botPreset default): a bot's session inside the task group (groups.js:293), the group's own
+#     session (roster.js:510) and the next part after a handoff (parts.js:1056). The Main bot's turn
+#     in the group ran with bash, write and edit. The only bot meant to use `standard` is the
+#     Coding bot, whose route is Claude Code: the CLI brings its own tools and the bot layer
+#     bridges only team and role tools to it (local-agents/index.js toolsFor), so it loses nothing.
+#     Remove this row once those three call sites pass the bot's own preset.
+- id: preset-standard
+  config:
+    id: standard
+    name: Standard (read-only in chat-to-fix)
+    description: Same tools as readonly; see config/cordis.patch.yml row 6b.
+    order: 1
+    plugins: *readonly-plugins
+
+# 7. This project's plugin (src/plugin.js): the bot layer and the task layer. The profile links
+#    the project as the package `chat-to-fix` (node_modules/chat-to-fix -> project root, made by the start
+#    script); the package has no `main`/`exports`, so the row names the entry file by subpath.
+#    The row config reaches the bot layer as rt.config: `claudeCommand` is the Claude Code CLI
+#    the Coding bot's route `claude-code` runs (the desktop app keeps it inside its bundle, so it
+#    is not on PATH); unset, the bot layer looks for `claude` on PATH. Without a CLI there is no
+#    `claude-code` route and a task fails at start ("Model claude-code/default is not available").
+- insert:
+    - id: chat-to-fix
+      name: chat-to-fix/src/plugin.js
+      config:
+        claudeCommand: !!js process.env.CLAUDE_BIN || undefined

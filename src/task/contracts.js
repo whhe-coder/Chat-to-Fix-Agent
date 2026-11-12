@@ -1,7 +1,7 @@
-// Interface contracts between the parts of fixbot.
+// Interface contracts between the parts of chat-to-fix.
 //
 // This file holds names and shapes only. The behaviour of each interface is defined in the
-// detailed specifications under ../../../ba-fix-bot-design-2026-11-11/ (spec-1 … spec-6).
+// detailed specifications under ../../../chat-to-fix-design-2026-11-11/ (spec-1 … spec-6).
 // One file belongs to one work package; to change a contract, change it here first.
 
 /** The five roles. One bot per service. (spec 1, 2.1) */
@@ -49,6 +49,51 @@ export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_
  */
 
 /**
+ * I1 event payloads. The facade turns the bot layer's own events into these shapes, so the task
+ * layer (recorder, monitor) never reads a DS Bot or DSH object directly.
+ *
+ * @typedef {object} GroupLineEvent     onGroupLine
+ * @property {string} groupId
+ * @property {'line' | 'notice'} kind   'notice' is a system notice in the group (e.g. the idle-relay pause).
+ * @property {string | null} botId      null when the line is from the user/system.
+ * @property {string} name              Display name of the speaker.
+ * @property {string} text
+ * @property {string} at                ISO time.
+ *
+ * @typedef {object} SessionEvent       onSessionEvent
+ * @property {string} sessionId
+ * @property {string | null} botId
+ * @property {string} type              The DSH session event type.
+ * @property {object} event             The raw event (for the type-specific fields).
+ * @property {string} at
+ *
+ * @typedef {object} ToolResultEvent    onToolResult
+ * @property {string} sessionId
+ * @property {string | null} botId
+ * @property {string} tool              Tool name.
+ * @property {object} args
+ * @property {boolean} ok
+ * @property {string} text              The result text shown to the model.
+ * @property {number} ms                Time taken.
+ * @property {string} at
+ *
+ * @typedef {object} RoundEndEvent      onRoundEnd
+ * @property {string} sessionId
+ * @property {string | null} botId
+ * @property {string | null} groupId
+ * @property {string} text              The bot's final answer of the round.
+ * @property {boolean} failed           True when the turn ended with an error or was stopped.
+ * @property {string} at
+ *
+ * @typedef {object} ApprovalEvent      onApproval
+ * @property {string} id
+ * @property {string} sessionId
+ * @property {string | null} botId
+ * @property {string} tool
+ * @property {string} text              What is being asked.
+ */
+
+/**
  * I2 task store — src/task/store.js (spec 2, 3.1)
  * @typedef {object} TaskStore
  * @property {(eventId: string) => (string | undefined)} knownEvent
@@ -87,6 +132,7 @@ export const RECORD_TYPES = Object.freeze(['line', 'notice', 'tool_call', 'tool_
  * @property {object} task
  * @property {string} role
  * @property {string} botId
+ * @property {string} sessionId     The DSH session the call came from (a bot has several: own chat, group sessions).
  * @property {TaskStore} store
  * @property {Gate} gate
  * @property {Adapters} adapters

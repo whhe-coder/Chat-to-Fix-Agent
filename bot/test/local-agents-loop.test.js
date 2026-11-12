@@ -1,5 +1,5 @@
 // A real DSH agent turn through the local-agent adapter: the loop, its tool
-// dispatch and its steering deliver to the fake ACP CLI, not stubs.
+// dispatch and its steering deliver to the fake Claude Code CLI (test/fixtures/fake-claude.mjs), not stubs.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { mkdtempSync } from 'node:fs'
@@ -11,18 +11,19 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
+import { ClaudeEngine } from '../src/host/local-agents/claude-engine.js'
+import { launchFor } from '../src/host/local-agents/launch.js'
 import { output } from '../src/host/tools.js'
 
-const FIXTURE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']
 
 function makeAdapter(records = {}) {
+  const rt = { warn: () => {}, config: {}, teamTools: TEAM.map(name => ({ name })) }
   return new LocalAgentAdapter({
-    rt: { warn: () => {} },
-    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
+    rt,
     findExecutable: path => path,
-    spawnEngine: (kind, route, spec) => new AcpEngine(route, { ...spec, command: process.execPath, args: [FIXTURE] }, { findExecutable: path => path }),
+    spawnEngine: (kind, route, spec) => new ClaudeEngine(route, { ...spec, command: process.execPath, args: [FIXTURE] }, { findExecutable: path => path, launch: (sessionId, open) => launchFor(rt, sessionId, open) }),
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: () => 'workspace-write',
@@ -36,10 +37,10 @@ async function boot({ approval } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const adapter = makeAdapter()
-  ctx.llm.registerAdapter(['acp-fake'], adapter)
+  ctx.llm.registerAdapter(['claude-code'], adapter)
   if (approval !== undefined) ctx.provide('approval', approval)
   await mountAgentLoopTestHarness(ctx)
-  const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'acp-fake', model: 'default' })
+  const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'claude-code', model: 'default' })
   return { ctx, agent, adapter }
 }
 
@@ -82,7 +83,7 @@ test('a bridged team tool round-trips through real DSH dispatch', async (t) => {
     output,
     async execute(args) { calls.push(args); return `delivered to ${args.to ?? args.bot}` },
   })
-  send(agent, 'call-tool please')
+  send(agent, 'please [mcp:message_bot {"to":"Chief"}]')
   await waitForIdle(ctx, agent)
   assert.equal(calls.length, 1)
   assert.match(texts(agent), /tool said: delivered to Chief/)
@@ -120,9 +121,9 @@ test('a permission prompt reaches the approval service and fails closed', async 
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
     },
   })
-  send(agent, 'ask-permission')
+  send(agent, '[permission]')
   await waitForIdle(ctx, agent)
   assert.equal(requests.length, 1)
   assert.equal(requests[0].toolName, 'approve_agent_action')
-  assert.match(texts(agent), /allowed via allow-once/)
+  assert.match(texts(agent), /permission: allow/)
 })

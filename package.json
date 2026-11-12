@@ -1,5 +1,5 @@
 {
-  "name": "fixbot",
+  "name": "chat-to-fix",
   "version": "0.0.1",
   "private": true,
   "description": "Auto-fix bot: a group of five bots on DeepSeek Harness that turns a Slack @ into a Jira issue, a code change by Claude Code, and a Draft MR.",
@@ -9,6 +9,10 @@
   },
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
-    "test:bot": "cd bot && node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\""
+    "test:bot": "cd bot && node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
+    "test:layer": "node --import ./bot/test/harness-resolve.mjs --test --test-force-exit \"test/bot/*.test.js\"",
+    "start": "sh scripts/start-chat-to-fix.sh",
+    "stop": "sh scripts/stop-chat-to-fix.sh",
+    "smoke": "node scripts/smoke.mjs"
   }
 }

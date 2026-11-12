@@ -1,33 +1,16 @@
-// Finding agent CLIs and the environment they run in: PATH plus the user's
-// login-shell PATH plus the usual install folders, and an environment that
-// keeps their own sign-in but leaks nothing of ours.
+// Finding agent CLIs: PATH plus the user's login-shell PATH plus the usual install
+// folders. The probes run with childEnv (src/engine/env.js): only the named variables.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-
-// The CLI signs in by itself; an API key or another agent's backend variable in
-// our environment would shadow that or leak, so neither reaches the child.
-const DROP_EXACT = new Set([
-  'ACP_BACKEND', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL',
-  'CLAUDE_CODE_OAUTH_TOKEN', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'ELECTRON_RUN_AS_NODE',
-])
-const DROP_PREFIX = ['DS_BOT_', 'DSH_']
-
-export function cleanEnv(extra = {}) {
-  const env = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (DROP_EXACT.has(key) || DROP_PREFIX.some(prefix => key.startsWith(prefix))) continue
-    env[key] = value
-  }
-  return { ...env, ...extra }
-}
+import { childEnv } from '../../../../src/engine/env.js'
 
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.
 const outputOf = (file, args) => new Promise((resolve) => {
   try {
-    execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: cleanEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
+    execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: childEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
   } catch { resolve(undefined) }
 })
 

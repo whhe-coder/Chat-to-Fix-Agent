@@ -130,3 +130,17 @@ export function fakeContext({ services = {} } = {}) {
   }
   return ctx
 }
+
+// chat-to-fix removed the automatic creation of Chief (roster.js bootstrap). Many DS Bot tests use
+// a Main Bot as scaffolding, so they put the original bootstrap back on their runtime.
+export function restoreChief(rt) {
+  const bootstrap = rt.bootstrap
+  let making = null
+  rt.bootstrap = async () => {
+    await bootstrap()
+    if (rt.state.mainBotIds.some(id => rt.botOf(id))) return
+    making ??= rt.createBot({ name: rt.defaults.mainName, role: rt.defaults.mainRole, main: true, color: 'deepseek', avatar: { shape: 'whale' }, pickModel: true })
+      .finally(() => { making = null })
+    await making
+  }
+}

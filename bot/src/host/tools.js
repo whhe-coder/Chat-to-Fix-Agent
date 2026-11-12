@@ -1,15 +1,15 @@
-// Team tools: the roster, bot-to-bot messages, group chat settings and posts, and the
-// question and view cards. Group rounds and reading chats are in groups.js.
+// Team tools: the roster, bot-to-bot messages and stops, and group posts. Group rounds and reading chats are in groups.js.
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readAvatar } from './avatar.js'
-import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
-import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
+
+// DSH's own defineTool, handed on so the task layer defines its role tools the same way.
+export { defineTool }
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -34,16 +34,6 @@ const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Se
 const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
 const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
 const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
-const MODE_PARAM = {
-  type: 'string',
-  enum: ROOM_MODES,
-  description: '"everyone": every member answers a plain message in turn, admin first. "admin" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.',
-}
-const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
-const AVATAR_PARAM = {
-  type: 'string',
-  description: 'Profile picture: a local image path (a relative path starts in your working folder) or a data URL. PNG, JPEG, WebP, or GIF; square, 256x256 recommended, up to 120 KB. Images are not resized.',
-}
 const WORKING_DIRECTORY_TOOL = 'working_directory'
 
 export function install(rt) {
@@ -69,6 +59,8 @@ export function install(rt) {
     return `- "${room.name}" — ${parts.join('; ')}`
   }
   // Main Bots see every group; other Bots see the groups they are in.
+  // chat-to-fix: a Bot may stop another only as the admin of a group both are members of.
+  const mayStop = (senderId, targetId) => Object.values(state.rooms).some(room => rt.isAdminOf(room, senderId) && room.members.includes(senderId) && room.members.includes(targetId))
   const visibleRooms = self => Object.values(state.rooms).filter(room => rt.isMain(self) || room.members.includes(self))
 
   rt.teamTools.push(defineTool({
@@ -142,8 +134,7 @@ export function install(rt) {
   // exactly as an "@Name" line would, and never reaches a Bot outside the group.
   const groupRefusal = (room, sender, target) => {
     if (room.members.includes(target.id)) return undefined
-    const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
-    return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
+    return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group.`
   }
 
   const callInGroup = async (exec, room, sender, target, message) => {
@@ -281,7 +272,7 @@ export function install(rt) {
         // Messages reach a Bot's own chat only; work in a group goes on without them.
         const groups = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
         if (groups.length === 0) return out
-        const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
+        const stop = mayStop(sender.id, target.id) ? ' If it must not go on there, use stop_bot.' : ''
         return `${out} Your message does not reach its work in ${groups.map(whereOf).join(' and ')}.${stop}`
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
@@ -290,7 +281,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'stop_bot',
-    description: 'Main Bot only. Stop another Bot\'s running turn immediately — when it must not finish a dangerous action and a message_bot warning is not enough. Its queued messages are dropped with the turn. It is then told why in a new turn, whose reply comes back to you.',
+    description: 'Group admin only: for a Bot that shares a group chat with you, which you administer. Stop another Bot\'s running turn immediately — when it must not finish a dangerous action and a message_bot warning is not enough. Its queued messages are dropped with the turn. It is then told why in a new turn, whose reply comes back to you.',
     parameters: {
       bot: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       reason: { type: 'string', description: 'Why it was stopped; it reads this afterwards' },
@@ -299,10 +290,11 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const sender = callerBot(exec)
-      if (sender === undefined || !rt.isMain(sender.id)) refuse('Only a Main Bot can stop other Bots.')
+      if (sender === undefined) refuse('Only Bots on the team can use stop_bot.')
       const target = rt.findBot(args.bot)
       if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`)
       if (target.id === sender.id) refuse('You cannot stop yourself.')
+      if (!mayStop(sender.id, target.id)) refuse(`Only the admin of a group that ${target.name} is also in can stop it.`)
       const { running } = activeSessions(target.id)
       if (running.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
       for (const sessionId of running) {
@@ -315,93 +307,17 @@ export function install(rt) {
     },
   }))
 
-  rt.teamTools.push(defineTool({
-    name: 'create_bot',
-    description: 'Main Bot only. Create a new Bot on the user\'s team. It appears in the sidebar and greets the user.',
-    parameters: {
-      name: { type: 'string', required: true, description: 'Short display name, e.g. "Researcher" or "Editor"' },
-      role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
-      instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
-      brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
-      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the team default model from DS Bot settings, or the model you run on.' },
-      effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
-      work_dir: WORK_DIR_PARAM,
-      avatar: AVATAR_PARAM,
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      if (!rt.isMain(rt.selfOf(exec.agent?.id))) return 'Only the Main Bot can create Bots. Ask the Main Bot instead.'
-      try {
-        const avatar = args.avatar ? await readAvatar(String(args.avatar), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) : undefined
-        const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
-        const name = String(args.name ?? '').trim()
-        await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        // Without a named model the team's default applies; without one the new Bot
-        // takes its creator's: the DSH default may be a provider that has no key, and
-        // then the new Bot fails on its first reply.
-        const creator = callerBot(exec)
-        const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true).map(entry => entry.ref))
-        const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
-        const model = args.model || fallback
-        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
-        return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
-      } catch (error) {
-        return `Could not create the Bot: ${error.message}`
-      }
-    },
-  }))
-
-  rt.teamTools.push(defineTool({
-    name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
-    parameters: {
-      bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
-      name: { type: 'string', description: 'New name' },
-      role: { type: 'string', description: 'New role label' },
-      instructions: { type: 'string', description: 'Replacement instructions' },
-      color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
-      avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the Bot's character again.` },
-      model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
-      effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
-      work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      const caller = rt.botOf(self)
-      if (caller === undefined) return 'Only Bots on the team can use update_bot.'
-      const bot = args.bot ? rt.findBot(args.bot) : caller
-      if (bot === undefined) return `No Bot named ${args.bot}.`
-      if (bot.id !== caller.id && !rt.isMain(self)) return 'Only a Main Bot can change another Bot. Leave out bot to change yourself, or ask a Main Bot with message_bot.'
-      try {
-        const { name: newName, role, instructions, color, model, effort } = args
-        let image
-        if (args.avatar !== undefined) {
-          const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
-          image = input === null || input === '' ? null : await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData })
-        }
-        const moving = typeof args.work_dir === 'string'
-        const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
-        if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
-        // The photo rides on the Bot's other avatar fields, as the settings page's upload
-        // does: setting one keeps a custom character, and clearing removes only the image.
-        // They are read here, after the waits above, so a change made meanwhile stays.
-        const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
-        if (!moving) return `Updated ${next.name}.`
-        const folder = workDir ?? 'the team workspace'
-        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
-      } catch (error) {
-        return `Could not update the Bot: ${error.message}`
-      }
-    },
-  }))
+  const groupNames = self => visibleRooms(self).map(room => `"${room.name}"`).join(', ') || 'none'
+  const pickRoom = (ref, self) => {
+    const matches = rt.findRooms(ref).filter(room => visibleRooms(self).includes(room))
+    if (matches.length === 1) return { room: matches[0] }
+    if (matches.length > 1) return { error: `Several group chats are called "${unquote(ref)}". Rename one first.` }
+    return { error: `No group chat called "${unquote(ref)}" that you can see. Groups: ${groupNames(self)}.` }
+  }
 
   // DSH's working_directory changes a Session's folder in place, and the next part starts in
   // the Bot's working folder again. A Bot that changes to a folder outside its working folder
-  // sets its working folder instead, with update_bot's checks, and goes on in a fresh part
+  // sets its working folder instead, with the checks of a folder change, and goes on in a fresh part
   // there; a folder inside it only moves this Session there. In a group without a folder of
   // its own the change holds only for that conversation: the Bot's folder, its other groups
   // and its own chat keep theirs (folders.js memberDirs).
@@ -440,155 +356,6 @@ export function install(rt) {
     if (result?.isError !== true) await rt.updateBot(bot.id, { workDir: workDir ?? '' }, rt.selfOf(exec.agent?.id))
     return result
   })
-
-  rt.teamTools.push(defineTool({
-    name: 'list_bot_models',
-    description: 'List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.',
-    parameters: {},
-    output,
-    async execute() {
-      const models = await rt.catalog({ fresh: true })
-      if (models.length === 0) return 'No models are configured. Ask the user to add one in Settings → Models.'
-      const fallback = rt.defaultRef()
-      // Only catalog entries that already carry `reasoning` (models a Bot runs on)
-      // show levels; asking every model for its levels would take a call each.
-      return models.map((entry) => {
-        const levels = entry.reasoning?.efforts?.map(effort => effort.id) ?? []
-        const thinking = levels.length > 0 ? `, thinking: ${levels.join(', ')}${entry.reasoning.defaultEffort === undefined ? '' : ` (default: ${entry.reasoning.defaultEffort})`}` : ''
-        return `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}${thinking}`
-      }).join('\n')
-    },
-  }))
-
-  // Group tools take Bot names as an array, or as one comma-separated string from
-  // models that flatten it.
-  const nameList = value => (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,，、]/) : [])
-    .map(item => String(item ?? '').trim()).filter(Boolean)
-  const resolveBots = (refs) => {
-    const bots = []
-    const unknown = []
-    for (const ref of nameList(refs)) {
-      const bot = rt.findBot(ref)
-      if (bot === undefined) unknown.push(ref)
-      else if (!bots.includes(bot)) bots.push(bot)
-    }
-    return { bots, unknown }
-  }
-  const teamNames = () => Object.values(state.bots).map(bot => bot.name).join(', ')
-  const groupNames = self => visibleRooms(self).map(room => `"${room.name}"`).join(', ') || 'none'
-  const pickRoom = (ref, self) => {
-    const matches = rt.findRooms(ref).filter(room => visibleRooms(self).includes(room))
-    if (matches.length === 1) return { room: matches[0] }
-    if (matches.length > 1) return { error: `Several group chats are called "${unquote(ref)}". Rename one first.` }
-    return { error: `No group chat called "${unquote(ref)}" that you can see. Groups: ${groupNames(self)}.` }
-  }
-
-  rt.teamTools.push(defineTool({
-    name: 'create_group',
-    description: 'Main Bot only. Create a group chat with the user and some Bots. You join it as its admin unless you name another member.',
-    parameters: {
-      members: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact names of the other Bots to add; you are added automatically' },
-      name: { type: 'string', description: 'Group name; defaults to the member names' },
-      notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group; at most 2000 characters' },
-      admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
-      mode: MODE_PARAM,
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      if (!rt.isMain(self)) return 'Only a Main Bot can create group chats. Ask a Main Bot instead.'
-      const { bots, unknown } = resolveBots(args.members)
-      if (unknown.length > 0) return `No Bot named ${unknown.join(', ')}. Team: ${teamNames()}`
-      const admin = args.admin ? rt.findBot(args.admin) : rt.botOf(self)
-      if (admin === undefined) return `No Bot named ${args.admin}. Team: ${teamNames()}`
-      const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
-      try {
-        const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, createdBy: self })
-        return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
-      } catch (error) {
-        return `Could not create the group: ${error.message}`
-      }
-    },
-  }))
-
-  rt.teamTools.push(defineTool({
-    name: 'update_group',
-    description: 'Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
-    parameters: {
-      group: GROUP_REF,
-      name: { type: 'string', description: 'New group name; an empty string names it after its members again' },
-      notice: { type: 'string', description: 'Replacement notice, the shared instructions every member reads; an empty string clears it; at most 2000 characters' },
-      add_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to add' },
-      remove_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to remove' },
-      admin: { type: 'string', description: 'Member to make the admin; "none" leaves the group without one (Main Bots only)' },
-      mode: MODE_PARAM,
-      work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      if (rt.botOf(self) === undefined) return 'Only Bots on the team can use update_group.'
-      const { room, error } = pickRoom(args.group, self)
-      if (error) return error
-      const moving = typeof args.work_dir === 'string'
-      if (moving && !rt.isMain(self)) return `Only a Main Bot can set the folder of "${room.name}".`
-      const add = resolveBots(args.add_members)
-      const remove = resolveBots(args.remove_members)
-      const unknown = [...add.unknown, ...remove.unknown]
-      if (unknown.length > 0) return `No Bot named ${unknown.join(', ')}. Team: ${teamNames()}`
-      let admin
-      if (args.admin !== undefined && args.admin !== '') {
-        if (/^(none|nobody|null|无|没有)$/i.test(String(args.admin).trim())) admin = null
-        else {
-          admin = rt.findBot(args.admin)?.id
-          if (admin === undefined) return `No Bot named ${args.admin}. Team: ${teamNames()}`
-        }
-      }
-      try {
-        const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
-        // A Bot that joins a group with a folder works there from its first turn.
-        const joining = add.bots.filter(bot => !room.members.includes(bot.id))
-        if (moving && workDir !== room.workDir) {
-          const members = [...room.members, ...joining.map(bot => bot.id)]
-          await rt.approveFolder(exec, { path: workDir, sessions: members.map(id => room.sessions?.[id]).filter(Boolean), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
-        } else if (joining.length > 0) {
-          const names = joining.map(bot => bot.name)
-          await rt.approveFolder(exec, { path: room.workDir, sessions: joining.map(bot => room.sessions?.[bot.id]).filter(Boolean), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
-        }
-        const { room: next, changes } = await rt.updateRoom(room.id, {
-          name: args.name,
-          notice: args.notice,
-          mode: args.mode,
-          admin,
-          add: add.bots.map(bot => bot.id),
-          remove: remove.bots.map(bot => bot.id),
-          ...(moving ? { workDir: workDir ?? '' } : {}),
-        }, self)
-        return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
-      } catch (failure) {
-        return `Could not update "${room.name}": ${failure.message}`
-      }
-    },
-  }))
-
-  rt.teamTools.push(defineTool({
-    name: 'delete_group',
-    description: 'Main Bot only. Delete a group chat; its history is archived. Only when the user asks.',
-    parameters: { group: GROUP_REF },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      if (!rt.isMain(self)) return 'Only a Main Bot can delete group chats.'
-      const { room, error } = pickRoom(args.group, self)
-      if (error) return error
-      if (rt.roomBusy(room.id)) return `"${room.name}" is in the middle of a round. Delete it after the round ends.`
-      await rt.deleteRoom(room.id)
-      return `Deleted "${room.name}". Its history is archived.`
-    },
-  }))
 
   rt.teamTools.push(defineTool({
     name: 'post_to_group',
@@ -650,100 +417,6 @@ export function install(rt) {
       const asker = sub === undefined ? undefined : rt.botOf(state.works[work]?.from)?.name
       const waits = asker ? ` End your turn when you have handed on everything: the replies bring you back to this work, and your answer goes to ${asker} once all of it is back.` : ''
       return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.${waits}`
-    },
-  }))
-
-  rt.teamTools.push(defineTool({
-    name: 'ask_user',
-    description: 'Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user\'s next message.',
-    parameters: {
-      question: { type: 'string', required: true, description: 'One short question' },
-      options: {
-        type: 'array',
-        required: true,
-        description: 'Two to four answers',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            label: { type: 'string', required: true, description: 'Short answer shown on the option' },
-            description: { type: 'string', description: 'Optional one-line explanation under the label' },
-          },
-        },
-      },
-      detail: { type: 'string', description: 'Optional one-line context shown under the question' },
-      multiSelect: { type: 'boolean', description: 'Allow choosing several options' },
-      allowCustom: { type: 'boolean', description: 'Also offer a field for an answer in the user\'s own words' },
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const id = exec.agent?.id
-      if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
-      const options = (Array.isArray(args.options) ? args.options : [])
-        .map(option => (typeof option === 'string' ? { label: option } : option ?? {}))
-        .map(option => ({
-          label: String(option.label ?? '').trim(),
-          ...(option.description ? { description: String(option.description).trim() } : {}),
-        }))
-        .filter(option => option.label !== '')
-        .slice(0, 6)
-      if (options.length === 0) return 'Give at least one option.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes questions without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
-      state.questions[id] = {
-        id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
-        question: String(args.question ?? '').trim(),
-        ...(args.detail ? { detail: String(args.detail).trim() } : {}),
-        options,
-        multiSelect: args.multiSelect === true,
-        ...(args.allowCustom === true ? { allowCustom: true } : {}),
-        askedAt: Date.now(),
-      }
-      await rt.save()
-      exec.concludeTurn?.()
-      return 'The card is on screen; the user\'s answer arrives as their next message.'
-    },
-  }))
-
-  // Scoped per Bot session, not global: another plugin's global show_view serves
-  // the sessions ds-bot does not own, while this one shadows it inside them.
-  rt.teamTools.push(defineTool({
-    name: 'show_view',
-    description: showViewDescription({ where: 'your own chat' }),
-    parameters: showViewParameters,
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const id = exec.agent?.id
-      if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
-      const checked = checkShownView(args.title, args.view)
-      if (checked.error !== undefined) return checked.error
-      const title = checked.title
-      const view = checked.view
-      if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
-      if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
-      const awaitReply = args.await_reply ?? checked.interactive
-      if (!awaitReply) return 'The view is on screen.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes a card without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
-      state.views[id] = {
-        id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
-        title,
-        view,
-        askedAt: Date.now(),
-      }
-      await rt.save()
-      exec.concludeTurn?.()
-      return 'The view is on screen; the user\'s answer arrives as their next message.'
     },
   }))
 
@@ -847,6 +520,9 @@ export function install(rt) {
     // assemble adds the pending names to the step's list once, then clears them.
     for (const name of registered) held.unlisted.add(name)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
+    // chat-to-fix: the task layer registers the role tools of the bot this session belongs to, in the
+    // session's own scope (spec 4, 4.1). The group's own relay Session is not a bot's.
+    if (owns) rt.taskLayer?.attachRoleTools?.(agent)
   }
 
   // The standard preset registers `subagent` (model selection) in each Agent's own
@@ -1084,104 +760,6 @@ export function install(rt) {
     // block() appends to the same log, so it waits until every listener has seen this change.
     setTimeout(() => void blockGoal(id), 0)
   })
-
-  rt.teamTools.push(defineTool({
-    name: 'list_capabilities',
-    description: 'List shared MCP servers, skills, and packs, plus the capabilities attached to you.',
-    parameters: {},
-    output,
-    async execute(_args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      const bot = rt.botOf(self)
-      if (!bot) return 'Only Bots on the team can use list_capabilities.'
-      const items = Object.values(state.capabilities?.items ?? {})
-      if (items.length === 0) return 'No shared capabilities are saved yet.'
-      const statuses = rt.capabilityStatusesView()[bot.id] ?? {}
-      const lines = items.map(item => {
-        const extra = item.kind === 'pack' ? `; includes ${(item.items ?? []).join(', ') || 'nothing'}`
-          : item.kind === 'mcp' && item.transport === 'stdio' ? `; ${item.approved ? 'allowed' : 'needs user approval'}` : ''
-        const itemStatus = statuses[item.name]
-        const state = itemStatus ? ` (${itemStatus.state}${itemStatus.error ? `: ${itemStatus.error}` : ''})` : ''
-        const status = bot.capabilities?.includes(item.name) ? `; attached to you${state}` : ''
-        return `- ${item.name} (${item.kind})${item.description ? ` — ${item.description}` : ''}${extra}${status}`
-      })
-      return ['Shared capabilities:', ...lines].join('\n')
-    },
-  }))
-  rt.teamTools.push(defineTool({
-    name: 'save_capability',
-    description: 'Create or update a shared MCP server, skill, or pack. Changes apply from your next message.',
-    parameters: {
-      name: { type: 'string', required: true, description: 'Lowercase letters, digits, and single hyphens, up to 32 characters; "github" is reserved' },
-      kind: { type: 'string', required: true, enum: ['mcp', 'skill', 'pack'] },
-      description: { type: 'string', description: 'What this capability provides' },
-      transport: { type: 'string', enum: ['stdio', 'streamable-http'], description: 'How to reach an MCP server: a local command or an HTTP URL' },
-      command: { type: 'string', description: 'Program that starts a local MCP server' },
-      args: { type: 'array', items: { type: 'string' }, description: 'Arguments for command' },
-      env: { type: 'object', additionalProperties: true, description: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
-      url: { type: 'string', description: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys' },
-      headers: { type: 'object', additionalProperties: true, description: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
-      content: { type: 'string', description: 'Skill instructions' },
-      items: { type: 'array', items: { type: 'string' }, description: 'MCP server and skill names in the pack' },
-    },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      if (!rt.botOf(self)) return 'Only Bots on the team can use save_capability.'
-      try {
-        const item = await rt.capabilitySave(args, { botId: self })
-        const approval = item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
-          ? ' The user must allow this MCP server in DS Bot settings before it can work.'
-          : ''
-        return `Saved ${item.name}. Bots with it attached use the change from their next message.${approval}`
-      } catch (error) { return error.message }
-    },
-  }))
-  rt.teamTools.push(defineTool({
-    name: 'delete_capability',
-    description: 'Remove a shared capability and detach it from every Bot and pack.',
-    parameters: { name: { type: 'string', required: true } },
-    output,
-    async execute(args, exec) {
-      await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
-      if (!rt.botOf(self)) return 'Only Bots on the team can use delete_capability.'
-      try {
-        await rt.capabilityDelete(args.name, { botId: self })
-        return `Deleted ${args.name}; it was removed from every Bot and pack. The change applies from their next message.`
-      } catch (error) { return error.message }
-    },
-  }))
-  for (const [name, endpoint, verb] of [['attach_capability', 'attach', 'Attached'], ['detach_capability', 'detach', 'Detached']]) {
-    rt.teamTools.push(defineTool({
-      name,
-      description: `${verb} a shared capability to yourself, or to another Bot if you are a Main Bot.`,
-      parameters: {
-        name: { type: 'string', required: true, description: 'Capability name from list_capabilities' },
-        bot: { type: 'string', description: 'Optional Bot name; only a Main Bot may change another Bot' },
-      },
-      output,
-      async execute(args, exec) {
-        await rt.load()
-        const self = rt.selfOf(exec.agent?.id)
-        if (!rt.botOf(self)) return `Only Bots on the team can use ${name}.`
-        try {
-          const result = await rt.changeCapabilityAttachment(endpoint, args, self)
-          const attached = rt.own(state.capabilities.items, args.name)
-          const members = attached?.kind === 'pack'
-            ? (attached.items ?? []).map(child => rt.own(state.capabilities.items, child)).filter(Boolean)
-            : attached ? [attached] : []
-          const approvals = members
-            .filter(item => item.kind === 'mcp' && item.transport === 'stdio' && item.approved !== true)
-            .map(item => ` The user must allow ${item.name} in DS Bot settings before it can work.`)
-            .join('')
-          return `${verb} ${args.name} ${args.bot ? `to ${result.bot}` : 'to yourself'}. Changes apply from ${result.bot}'s next message.${endpoint === 'attach' ? approvals : ''}`
-        } catch (error) { return error.message }
-      },
-    }))
-  }
 
   Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks })
 }

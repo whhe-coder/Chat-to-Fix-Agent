@@ -190,7 +190,7 @@ const services = {
 // the switch and carries that step's input along.
 const moveWriter = async (host, input, step = 2) => {
   host.agentOf('b').status = 'running'
-  assert.equal((await host.tool('update_bot', { work_dir: host.project }, 'b')).includes('From your next step on'), true)
+  await rt.updateBot('b', { workDir: host.project }, 'b', 'b')
   assert.deepEqual(await host.preStep('b', input, step), { kind: 'reject' })
 }
 

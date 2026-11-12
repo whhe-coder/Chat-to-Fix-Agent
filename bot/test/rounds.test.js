@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { lineText } from '../src/host/groups.js'
-import { fakeAttachments, fakeContext } from './fake-ctx.js'
+import { fakeAttachments, fakeContext, restoreChief } from './fake-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
 // session/event listener, so a round runs with no model. Prompts land in the
@@ -74,6 +74,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     return register(options)
   }
   rt = createRuntime(ctx, { home })
+  restoreChief(rt)
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()

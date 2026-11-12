@@ -277,11 +277,5 @@ test('a Bot cannot reach the library: no tool offers it', async (t) => {
 
   const names = rt.teamTools.map(d => d.name)
   assert.equal(names.some(name => /avatar|library|photo/i.test(name)), false)
-  // The tools that set a photo still take a path or a data URL.
-  for (const name of ['create_bot', 'update_bot']) {
-    const schema = rt.teamTools.find(d => d.name === name).parameters
-    assert.equal(schema.properties.avatar?.type, 'string')
-    assert.match(schema.properties.avatar.description, /local image path.*data URL/)
-  }
   assert.equal(existsSync(join(home, 'avatars')), false)
 })

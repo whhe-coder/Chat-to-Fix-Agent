@@ -146,38 +146,6 @@ test('Bot saves enforce approval and ownership, and deletion cascades', async t 
   assert.deepEqual(state.bots.worker.capabilities, ['team'])
 })
 
-test('capability Bot tools refuse DSH Agent sessions', async t => {
-  const env = await setup()
-  t.after(() => env.dispose())
-  const list = env.rt.teamTools.find(d => d.name === 'list_capabilities')
-  assert.ok(list)
-  assert.match(await list.execute({}, { agent: { id: 'outside' } }), /Only Bots on the team/)
-})
-
-test('capability tool descriptions and attach results explain approval', async t => {
-  const env = await setup()
-  t.after(() => env.dispose())
-  const parameters = env.rt.teamTools.find(d => d.name === 'save_capability').parameters.properties
-  assert.deepEqual(
-    Object.fromEntries(['transport', 'command', 'args', 'env', 'url', 'headers', 'content'].map(name => [name, parameters[name].description])),
-    {
-      transport: 'How to reach an MCP server: a local command or an HTTP URL',
-      command: 'Program that starts a local MCP server',
-      args: 'Arguments for command',
-      env: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
-      url: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys',
-      headers: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
-      content: 'Skill instructions',
-    },
-  )
-  await env.rt.capabilitySave(mcp('blocked'), { botId: 'worker' })
-  const attached = await env.rt.teamTools.find(d => d.name === 'attach_capability').execute(
-    { name: 'blocked' },
-    { agent: { id: 'worker' } },
-  )
-  assert.ok(attached.endsWith(' The user must allow blocked in DS Bot settings before it can work.'))
-})
-
 test('a deleted Bot drops only a pending local MCP it alone asked for', async t => {
   const env = await setup({
     beforeLoad: ({ ctx }) => { ctx.workspaceRegistry = { archiveSession: async () => {} } },
@@ -407,21 +375,6 @@ test('unloading the plugin disposes every capability mount', async t => {
   assert.equal(env.skills.get('chief').has('guide'), false)
   await env.rt.scheduleCapabilitiesReconcile()
   assert.equal(env.mounts.length, 2)
-})
-
-test('unset capability statuses are omitted from the view and tool listing', async t => {
-  const env = await setup()
-  t.after(() => env.dispose())
-  const { rt } = env
-  await rt.capabilitySave({ ...mcp('echo'), approved: true }, { botId: 'chief' })
-  await rt.capabilitySave({ name: 'guide', kind: 'skill', description: 'Guide', content: 'Instructions' }, { botId: 'chief' })
-  await rt.capabilitySave({ name: 'team', kind: 'pack', items: ['echo', 'guide'] }, { botId: 'chief' })
-  rt.state.bots.chief.capabilities = ['echo', 'team']
-  await rt.save()
-  assert.deepEqual(rt.capabilityStatusesView().chief, {})
-  const listed = await rt.teamTools.find(d => d.name === 'list_capabilities').execute({}, { agent: { id: 'chief' } })
-  assert.match(listed, /echo \(mcp\).*; attached to you(?:\n|$)/)
-  assert.doesNotMatch(listed, /attached to you \(connecting\)/)
 })
 
 test('mounts agent-only MCP and skills, remounts changed config, resolves scoped secrets and reports missing secrets', async t => {

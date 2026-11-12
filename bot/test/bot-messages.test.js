@@ -336,13 +336,20 @@ test('stop_bot cancels the running turns and tells the Bot why in a new turn', a
   assert.equal(notice.source.role, 'stopped')
 })
 
-test('stop_bot belongs to a Main Bot', async (t) => {
+test('stop_bot belongs to the admin of a group both Bots are in', async (t) => {
+  const { tool, stop } = await start(team({ group: true }))
+  t.after(stop)
+
+  await assert.rejects(tool('stop_bot', { bot: 'Chief' }, 'b'), { message: 'Only the admin of a group that Chief is also in can stop it.' })
+  await assert.rejects(tool('stop_bot', { bot: 'Chief' }, 'a'), { message: 'You cannot stop yourself.' })
+  await assert.rejects(tool('stop_bot', { bot: 'Writer' }, 'a'), { message: 'Writer is not running right now, so there is nothing to stop. Use message_bot to reach it.' })
+})
+
+test('stop_bot is refused to a Main Bot that shares no group with the target', async (t) => {
   const { tool, stop } = await start(team())
   t.after(stop)
 
-  await assert.rejects(tool('stop_bot', { bot: 'Writer' }, 'b'), { message: 'Only a Main Bot can stop other Bots.' })
-  await assert.rejects(tool('stop_bot', { bot: 'Chief' }, 'a'), { message: 'You cannot stop yourself.' })
-  await assert.rejects(tool('stop_bot', { bot: 'Writer' }, 'a'), { message: 'Writer is not running right now, so there is nothing to stop. Use message_bot to reach it.' })
+  await assert.rejects(tool('stop_bot', { bot: 'Writer' }, 'a'), { message: 'Only the admin of a group that Writer is also in can stop it.' })
 })
 
 function turnsHost() {

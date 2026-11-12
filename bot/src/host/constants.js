@@ -63,12 +63,10 @@ export const AGENT_SESSION_TITLE_MAX = 80
 // each Bot session's own scope. `read_browser` only exists in the Desktop
 // profile, so the list served to one session can be shorter.
 export const TEAM_TOOLS = [
-  'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
-  'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'show_view',
+  'list_bots', 'message_bot', 'stop_bot', 'post_to_group',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
-  'list_capabilities', 'save_capability', 'delete_capability',
-  'attach_capability', 'detach_capability', 'group_goal', 'list_connectors', 'request_connector',
+  'group_goal', 'list_connectors', 'request_connector',
 ]
 // Consecutive automatic admin wakes with no goal progress before the goal waits
 // for the user instead of waking the admin again.

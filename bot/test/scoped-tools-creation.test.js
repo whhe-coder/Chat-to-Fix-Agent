@@ -12,9 +12,9 @@ import { fakeContext } from './fake-ctx.js'
 const HIDDEN = ['ask_user_question', 'subagent', 'list_subagent_models', 'send_message']
 
 // A Bot-owned Session gets its Agent before ds-bot records the owner, so the
-// scoped show_view and the hidden-tool restrict used to wait for a later
+// scoped list_bots and the hidden-tool restrict used to wait for a later
 // resolveAgent that a held kickoff never ran. These tests drive each creation
-// path with another plugin's global show_view already in place and check the
+// path with another plugin's global list_bots already in place and check the
 // Agent's own tool list before its first step.
 const TEAM = {
   version: 1,
@@ -47,8 +47,8 @@ const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
   const liveAgents = shared.liveAgents ?? new Map()
   services.agents ??= { list: () => [...liveAgents.values()], get: id => liveAgents.get(id) }
   const ctx = fakeContext({ services })
-  // Another plugin's global show_view, in place before ds-bot loads.
-  ctx.tools.register({ name: 'show_view', description: 'global', execute: async () => 'global' })
+  // Another plugin's global list_bots, in place before ds-bot loads.
+  ctx.tools.register({ name: 'list_bots', description: 'global', execute: async () => 'global' })
   for (const tool of globals) ctx.tools.register(tool)
   // DSH refuses a second global registration of one name — the throw that killed
   // ds-bot's boot in #703 — so the fake refuses the same way.
@@ -115,7 +115,7 @@ const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
   // as DSH's scope view does.
   ctx.tools.schemas = (agent) => {
     const view = new Map()
-    for (const name of ['ask_user_question', 'show_view']) view.set(name, { name })
+    for (const name of ['ask_user_question', 'list_bots']) view.set(name, { name })
     for (const entry of scoped.filter(entry => entry.sessionId === agent?.id)) {
       view.set(entry.name, { name: entry.name, description: entry.tool.description, parameters: entry.tool.parameters })
     }
@@ -175,7 +175,7 @@ const until = async (check, ms = 3000) => {
   }
 }
 
-const hasShowView = (host, id) => host.scoped.some(entry => entry.sessionId === id && entry.name === 'show_view')
+const hasListBots = (host, id) => host.scoped.some(entry => entry.sessionId === id && entry.name === 'list_bots')
 const denied = (host, id) => host.restricted.some(entry => entry.sessionId === id && entry.deny.includes('ask_user_question'))
 const scopedNames = (host, id) => host.scoped.filter(entry => entry.sessionId === id).map(entry => entry.name)
 
@@ -212,10 +212,10 @@ test('a Session ds-bot does not own sees none of the team tools', async (t) => {
   await host.agentCreated('plain1')
   assert.deepEqual(scopedNames(host, 'plain1'), [])
   // Nothing of the team's reaches the global layer a plain session reads; the
-  // only team-named global is another plugin's show_view.
+  // only team-named global is another plugin's list_bots.
   const leaked = [...host.ctx.registeredTools.keys()].filter(name => TEAM_TOOLS.includes(name))
-  assert.deepEqual(leaked, ['show_view'])
-  assert.equal(host.ctx.registeredTools.get('show_view').description, 'global')
+  assert.deepEqual(leaked, ['list_bots'])
+  assert.equal(host.ctx.registeredTools.get('list_bots').description, 'global')
 })
 
 test("a group's own Session is scoped to group_relay alone", async (t) => {
@@ -244,7 +244,7 @@ test('a Bot made without a model has the scoped tools before its first step', as
   const created = await host.call('create-bot', { name: 'Solo' })
   assert.equal(created.ok, true)
   const id = created.value.id
-  assert.ok(hasShowView(host, id), 'the Bot scope has ds-bot\'s show_view over the global one')
+  assert.ok(hasListBots(host, id), 'the Bot scope has ds-bot\'s list_bots over the global one')
   assert.ok(denied(host, id), 'the blocking question tool is denied')
 })
 
@@ -258,7 +258,7 @@ test('a group Session made for a member has the scoped tools before its first st
   // makes one — which used to keep whatever tools a global registration left.
   host.emit('r1', 'user/message', { content: [{ type: 'text', text: 'launch moved' }], source: { kind: 'user' } })
   void host.tool('group_relay', {}, 'r1', { callId: 'r1', signal: stop.signal }).catch(() => {})
-  await until(() => hasShowView(host, 's1'), 5000)
+  await until(() => hasListBots(host, 's1'), 5000)
   assert.ok(denied(host, 's1'), 'the blocking question tool is denied in the group scope')
 })
 
@@ -274,8 +274,7 @@ test('a fresh part Session has the scoped tools before its first step', async (t
   })
   await host.call('state', {})
   host.agentOf('b').status = 'running'
-  const moved = await host.tool('update_bot', { work_dir: project }, 'b')
-  assert.equal(String(moved).includes('From your next step on'), true)
+  await rt.updateBot('b', { workDir: project }, 'b', 'b')
   // The next step sees the folder change and switches to a fresh part.
   const preStep = host.ctx.listeners.get('agent/pre-step').at(-1)
   const answer = await preStep(
@@ -283,16 +282,16 @@ test('a fresh part Session has the scoped tools before its first step', async (t
     async () => 'next',
   )
   assert.deepEqual(answer, { kind: 'reject' })
-  await until(() => hasShowView(host, 's1'), 5000)
+  await until(() => hasListBots(host, 's1'), 5000)
   assert.ok(denied(host, 's1'), 'the blocking question tool is denied in the fresh part')
 })
 
-test('a Session ds-bot does not own keeps only the global show_view', async (t) => {
+test('a Session ds-bot does not own keeps only the global list_bots', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('plain1')
-  assert.ok(!hasShowView(host, 'plain1'), 'no scoped show_view shadows the global one')
+  assert.ok(!hasListBots(host, 'plain1'), 'no scoped list_bots shadows the global one')
   assert.ok(!host.restricted.some(entry => entry.sessionId === 'plain1'), 'no restrict applies outside the team')
 })
 
@@ -301,7 +300,7 @@ test("a deleted Bot's Session keeps none of the scope when it is adopted as a pl
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('b')
-  assert.ok(hasShowView(host, 'b'))
+  assert.ok(hasListBots(host, 'b'))
   assert.ok(denied(host, 'b'))
   assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
@@ -324,7 +323,7 @@ test('a member who leaves the group loses the scoped tools', async (t) => {
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('sb')
-  assert.ok(hasShowView(host, 'sb'))
+  assert.ok(hasListBots(host, 'sb'))
   assert.ok(denied(host, 'sb'))
   assert.equal((await host.call('update-room', { id: 'r1', remove: ['b'] })).ok, true)
   assert.deepEqual(scopedNames(host, 'sb'), [])
@@ -349,7 +348,7 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('b')
-  assert.ok(hasShowView(host, 'b'))
+  assert.ok(hasListBots(host, 'b'))
   assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
   // A Bot record naming the Session again — here written directly, the way an
@@ -357,7 +356,7 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   rt.state.bots.b = { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 }
   await rt.save()
   await host.agentCreated('b')
-  assert.ok(hasShowView(host, 'b'))
+  assert.ok(hasListBots(host, 'b'))
 })
 
 // #826: after a DSH restart the creation path can miss a live Agent and nothing
@@ -440,13 +439,13 @@ test('a PTC group Session gets its relay scoped but keeps run_code alone in the 
 })
 
 test('a same-named global in the list is replaced by the scoped schema', async (t) => {
-  // Another plugin's global show_view was collected for the request; the scoped
+  // Another plugin's global list_bots was collected for the request; the scoped
   // one that shadows it at execution replaces its schema in the list.
   const host = start()
   t.after(host.stop)
   const agent = host.agentOf('a')
-  const assembled = await assemble(host, agent, { tools: [{ name: 'show_view', description: 'global' }], sections: [] })
-  const named = assembled.tools.filter(tool => tool.name === 'show_view')
+  const assembled = await assemble(host, agent, { tools: [{ name: 'list_bots', description: 'global' }], sections: [] })
+  const named = assembled.tools.filter(tool => tool.name === 'list_bots')
   assert.equal(named.length, 1)
   assert.notEqual(named[0].description, 'global')
 })
@@ -471,7 +470,7 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   t.after(first.unload)
   await first.call('state', {})
   await first.agentCreated('a')
-  assert.ok(hasShowView(first, 'a'))
+  assert.ok(hasListBots(first, 'a'))
   assert.ok(denied(first, 'a'))
   await first.unload()
   assert.deepEqual(scopedNames(first, 'a'), [])
@@ -479,6 +478,6 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   const second = start(TEAM, {}, [], shared)
   t.after(second.stop)
   await second.call('state', {})
-  assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
+  assert.ok(hasListBots(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })

@@ -260,11 +260,15 @@ test('config.browser turns Bot browsers off even in the Desktop profile', (t) =>
   assert.ok(!rt.teamTools.some(d => d.name === 'read_browser'))
 })
 
-test('a custom agent keeps the local agents adapter live after install', async (t) => {
-  const { ctx, stop, rt } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }], sessions: {} } })
+test('the Claude Code route keeps the local agents adapter live after install', async (t) => {
+  // The CLI is named by config (it is not on PATH here); the scan registers the route once it is found.
+  const { ctx, stop, rt } = start(undefined, { config: { claudeCommand: process.execPath } })
   t.after(stop)
   await rt.load()
-  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a1'))
-  assert.ok(entry, 'the custom route is registered')
+  const until = Date.now() + 20_000
+  while (!(ctx.adapters ?? []).some(candidate => candidate.routes.includes('claude-code')) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20))
+  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('claude-code'))
+  assert.ok(entry, 'the Claude Code route is registered')
+  assert.deepEqual(entry.routes, ['claude-code'])
   assert.equal(entry.adapter.disposed, false, 'the adapter survives install')
 })

@@ -5,35 +5,30 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
-import { CodexEngine } from '../src/host/local-agents/codex.js'
-import { JsonRpcPeer } from '../src/host/local-agents/jsonrpc.js'
-import { ClaudeEngine } from '../src/host/local-agents/claude.js'
+import { ClaudeEngine } from '../src/host/local-agents/claude-engine.js'
+import { launchFor } from '../src/host/local-agents/launch.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
-import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { validateCustom, isLocalAgentRoute, cliMode } from '../src/host/local-agents/engines.js'
+import { ENGINES, isLocalAgentRoute } from '../src/host/local-agents/engines.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
 
-const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
-const FIXTURES = { acp: FIXTURE('fake-acp.mjs'), codex: FIXTURE('fake-codex.mjs'), claude: FIXTURE('fake-claude.mjs') }
+// The fake Claude Code CLI of the task layer (behaves like the real CLI 2.1.321).
+const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url))
 
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } })
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
-// An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
-  const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude: FIXTURES.claude }
+// An adapter wired to the fake CLI: the route spawns `node fake-claude.mjs` with the arguments
+// launch.js builds for a session that is not a bound coding bot (claudeArgs).
+function makeAdapter({ records = {}, preset = 'workspace-write', config = {} } = {}) {
+  const rt = { warn: () => {}, config, teamTools: [{ name: 'message_bot' }] }
   const spawned = []
   const adapter = new LocalAgentAdapter({
-    rt: { warn: () => {} },
-    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
+    rt,
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp] }, { findExecutable: path => path })
-        : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex] }, { findExecutable: path => path })
-          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude] }, { findExecutable: path => path })
+      const engine = new ClaudeEngine(route, { ...spec, command: process.execPath, args: [FAKE] }, { findExecutable: path => path, launch: (sessionId, open) => launchFor(rt, sessionId, open) })
       spawned.push(engine)
       return engine
     },
@@ -61,7 +56,7 @@ async function collect(stream) {
   return out
 }
 
-const options = (sessionId, messages, extra = {}) => ({ provider: 'acp-fake', model: 'default', sessionId, messages, tools: [{ name: 'message_bot' }], signal: AbortSignal.timeout(60_000), ...extra })
+const options = (sessionId, messages, extra = {}) => ({ provider: 'claude-code', model: 'default', sessionId, messages, tools: [{ name: 'message_bot' }], signal: AbortSignal.timeout(60_000), ...extra })
 
 test('session-title and compaction stay deterministic, no CLI is started', async () => {
   const adapter = makeAdapter()
@@ -81,9 +76,11 @@ test('a first turn replays the conversation, a later one sends only the delta', 
   const first = await collect(adapter.stream(options('s1', [system('sys', 'You are Kai, a coder.'), user('m1', 'hello')])))
   assert.match(first.text, /^ok: /)
   assert.match(first.thinking, /thought about/)
+  assert.match(first.thinking, /▸ Read/)
   assert.equal(first.finish.kind, 'stop')
+  assert.equal(first.usage.inputTokens, 10)
   // The record remembers the CLI session and how far it was handed.
-  assert.ok(records.s1.cliSessionId?.startsWith('acp-'))
+  assert.ok(records.s1.cliSessionId?.startsWith('claude-'))
   assert.equal(records.s1.handedId, 'm1')
   const second = await collect(adapter.stream(options('s1', [system('sys', 'You are Kai, a coder.'), user('m1', 'hello'), user('m2', 'again')])))
   assert.match(second.text, /ok: again/)
@@ -102,122 +99,125 @@ test('each DS Bot Session maps to its own CLI session', async (t) => {
 test('the MCP bridge suspends the turn and the next stream answers it', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const first = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now')])))
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'please [mcp:message_bot] now')])))
   assert.equal(first.finish.kind, 'tool-calls')
   assert.equal(first.calls.length, 1)
   assert.equal(first.calls[0].name, 'message_bot')
-  const second = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now'), toolResult('m2', first.calls[0].id, 'Kai says hi back')])))
+  const second = await collect(adapter.stream(options('s1', [user('m1', 'please [mcp:message_bot] now'), toolResult('m2', first.calls[0].id, 'Kai says hi back')])))
   assert.equal(second.finish.kind, 'stop')
   assert.match(second.text, /tool said: Kai says hi back/)
 })
 
-test('queued calls finish later streams', async (t) => {
+test('the loopback MCP server lists the tools of the latest request over HTTP', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const first = await collect(adapter.stream(options('s1', [user('m1', 'two-calls')])))
-  assert.equal(first.finish.kind, 'tool-calls')
-  assert.equal(first.calls.length, 1)
-  const seen = [user('m1', 'two-calls'), toolResult('m2', first.calls[0].id, 'one back')]
-  const second = await collect(adapter.stream(options('s1', seen)))
-  // The second queued call is emitted (or the agent already got both answered).
-  assert.ok(second.finish.kind === 'tool-calls' || /tool said/.test(second.text), JSON.stringify(second))
+  await collect(adapter.stream(options('s1', [user('m1', 'hello')])))
+  const mcp = adapter.live.get('s1').mcp
+  const list = await fetch(mcp.url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${mcp.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })
+  assert.equal(list.status, 200)
+  const tools = (await list.json()).result.tools
+  assert.deepEqual(tools.map(tool => tool.name), ['message_bot'])
+  assert.equal(tools[0].inputSchema.type, 'object')
 })
 
 test('a permission prompt bridges to approve_agent_action and fails closed', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const ask = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
+  const ask = await collect(adapter.stream(options('s1', [user('m1', '[permission]')])))
   assert.equal(ask.finish.kind, 'tool-calls')
   assert.equal(ask.calls[0].name, 'approve_agent_action')
   // The request named the call only by id; the card still says what it runs.
   const asked = JSON.parse(ask.calls[0].arguments ?? JSON.stringify(ask.calls[0].args))
-  assert.equal(asked.action, 'Run `rm -rf /tmp/x`')
-  assert.equal(asked.detail ?? '', '')
-  // An allowed answer picks the agent's allow option: the tool returns its
-  // structured decision, and only {"decision":"allow"} counts.
-  const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
-  assert.match(allowed.text, /allowed via allow-once/)
+  assert.equal(asked.action, 'Run Bash')
+  assert.equal(asked.detail, '{"command":"ls"}')
+  // An allowed answer allows the action: only the structured {"decision":"allow"} counts.
+  const allowed = await collect(adapter.stream(options('s1', [user('m1', '[permission]'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
+  assert.match(allowed.text, /permission: allow/)
 })
-test('a permission answer that is not the structured allow fails closed', async (t) => {
+test('a permission answer that is not the structured allow is denied, with a reason', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const ask = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
-  // Free text that reads like an approval is not an approval.
-  const loose = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, 'yes, allow it')])))
-  assert.match(loose.text, /denied/)
+  const ask = await collect(adapter.stream(options('s1', [user('m1', '[permission]')])))
+  // Free text that reads like an approval is not an approval. The fake CLI accepts a deny only
+  // with a message ("permission: invalid" otherwise), and shows the message as the tool's error.
+  const loose = await collect(adapter.stream(options('s1', [user('m1', '[permission]'), toolResult('m2', ask.calls[0].id, 'yes, allow it')])))
+  assert.match(loose.text, /permission: deny/)
+  assert.match(loose.thinking, /tool error: Bash: Denied/)
 })
 test('a denied answer rejects the agent\'s action', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const ask = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
-  const denied = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, 'denied', true)])))
-  assert.match(denied.text, /denied/)
+  const ask = await collect(adapter.stream(options('s1', [user('m1', '[permission]')])))
+  const denied = await collect(adapter.stream(options('s1', [user('m1', '[permission]'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'deny' }))])))
+  assert.match(denied.text, /permission: deny/)
+  assert.match(denied.thinking, /tool error: Bash: Denied: the user did not approve/)
 })
 
-test('abort cancels the turn and the pending calls', async (t) => {
+test('a permission request nobody answers is denied after the timeout and the turn ends', async (t) => {
+  const adapter = makeAdapter({ config: { permissionTimeoutMs: 150 } })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', '[permission]')]
+  const ask = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(ask.calls[0].name, 'approve_agent_action')
+  await new Promise(resolve => setTimeout(resolve, 500))
+  // Nobody answered: the driver denied it, the CLI went on and ended the turn.
+  const ended = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(ended.finish.kind, 'stop')
+  assert.match(ended.thinking, /timed out: denied/)
+  assert.match(ended.thinking, /tool error: Bash: Denied: nobody answered/)
+  assert.match(ended.text, /permission: deny/)
+})
+
+test('a subagent result, a denial and a tool error are shown with the turn', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', '[subagent]')])))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.thinking, /▸ subagent reviewer started: Review the change/)
+  assert.match(out.thinking, /▸ subagent result: \[Subagent hand-back\] approve: the change is fine/)
+  assert.match(out.thinking, /▸ subagent completed/)
+  // The reviewer's own failed call is a tool error; its musings are not the answer.
+  assert.match(out.thinking, /▸ tool error: Write: No such tool available: Write/)
+  assert.match(out.thinking, /child musing/)
+  assert.equal(out.text, 'the reviewer approved')
+})
+
+test('abort cancels the turn, and the stopped turn does not answer the next one', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
   const control = new AbortController()
-  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  const stream = collect(adapter.stream(options('s1', [user('m1', '[slow]')], { signal: control.signal })))
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+  const next = await collect(adapter.stream(options('s1', [user('m1', '[slow]'), user('m2', 'after the stop')])))
+  assert.match(next.text, /ok: after the stop/)
+  assert.equal(next.finish.kind, 'stop')
 })
 
-test('env sanitization drops agent and key variables', () => {
-  process.env.ACP_BACKEND = 'windsurf'
-  process.env.OPENAI_API_KEY = 'sk-test'
-  process.env.DS_BOT_HOME = '/x'
-  const env = cleanEnv({ EXTRA: '1' })
-  assert.equal(env.ACP_BACKEND, undefined)
-  assert.equal(env.OPENAI_API_KEY, undefined)
-  assert.equal(env.DS_BOT_HOME, undefined)
-  assert.equal(env.EXTRA, '1')
-  assert.equal(env.PATH, process.env.PATH)
+test('a CLI that exits ends the turn with a typed error and the next prompt starts a new one', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(collect(adapter.stream(options('s1', [user('m1', '[exit]')]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  const next = await collect(adapter.stream(options('s1', [user('m1', '[exit]'), user('m2', 'again')])))
+  assert.match(next.text, /ok: /)
 })
 
-test('custom agent validation', () => {
-  assert.deepEqual(validateCustom({ name: 'Mine', command: 'my-agent', args: ['acp', '--fast'] }), { name: 'Mine', command: 'my-agent', args: ['acp', '--fast'] })
-  assert.throws(() => validateCustom({ name: 'X', command: 'a b' }))
-  assert.throws(() => validateCustom({ name: 'X', command: 'agent; rm -rf /' }))
-  assert.throws(() => validateCustom({ name: '', command: 'a' }))
-})
-
-test('routes and modes', () => {
-  assert.equal(isLocalAgentRoute('devin-cli'), true)
-  assert.equal(isLocalAgentRoute('acp-custom'), true)
+test('routes: only Claude Code is a local agent route', () => {
+  assert.deepEqual(Object.keys(ENGINES), ['claude-code'])
+  assert.equal(isLocalAgentRoute('claude-code'), true)
+  assert.equal(isLocalAgentRoute('devin-cli'), false)
+  assert.equal(isLocalAgentRoute('codex-cli'), false)
+  assert.equal(isLocalAgentRoute('acp-custom'), false)
   assert.equal(isLocalAgentRoute('deepseek'), false)
-  assert.equal(cliMode('acp', 'read-only', [{ id: 'ask' }, { id: 'bypass' }]), 'ask')
-  assert.equal(cliMode('acp', 'danger-full-access', [{ id: 'ask' }, { id: 'bypass' }]), 'bypass')
-  assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
 })
 
-test('listModels reports the probe session\'s model options plus CLI default', async (t) => {
+test('listModels reports the CLI default plus the model aliases', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.listModels('acp-fake')
-  assert.deepEqual(models.map(model => model.id), ['default', 'fake-large', 'fake-small'])
+  const models = await adapter.listModels('claude-code')
+  assert.deepEqual(models.map(model => model.id), ['default', 'opus', 'sonnet', 'haiku'])
   assert.equal(models[0].name, 'CLI default')
-})
-
-test('codex app-server: thread per session, models from model/list', async (t) => {
-  const adapter = makeAdapter()
-  t.after(() => adapter.dispose())
-  const models = await adapter.listModels('codex-cli')
-  assert.deepEqual(models.map(model => model.id), ['default', 'gpt-5.1-codex'])
-  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
-  assert.match(out.text, /fix it/)
-  assert.match(out.thinking, /▸/)
-})
-
-test('claude stream-json: thinking, activity line, usage', async (t) => {
-  const adapter = makeAdapter()
-  t.after(() => adapter.dispose())
-  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'claude-code' })))
-  assert.match(out.text, /fix it/)
-  assert.match(out.thinking, /thought about/)
-  assert.match(out.thinking, /▸ Read/)
-  assert.ok(out.usage.inputTokens === 10)
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
@@ -360,15 +360,4 @@ test('a fresh part carries the deterministic handoff', async () => {
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
   assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
-})
-
-test('an open-ended request outlives the default deadline', async () => {
-  const peer = new JsonRpcPeer(() => {})
-  const open = peer.request('session/prompt', {}, { timeout: 0 })
-  const deadline = peer.request('session/load', {}, { timeout: 40 })
-  const settled = deadline.then(() => 'ok', () => 'timeout')
-  await new Promise(resolve => setTimeout(resolve, 90))
-  assert.equal(await settled, 'timeout', 'a positive timeout still fires')
-  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
-  assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
 })

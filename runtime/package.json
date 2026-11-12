@@ -1,0 +1,11 @@
+{
+  "name": "chat-to-fix-runtime",
+  "private": true,
+  "description": "The DeepSeek Harness (DSH) runtime bundled with chat-to-fix: the installation that scripts/start-chat-to-fix.sh boots and that the unit tests resolve @deepseek-ai/* from (DSH_HARNESS). Installed as-is from npm and never modified; see config/README.md.",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent-loop-testkit": "0.2.2-rc.1",
+    "jsdom": "29.1.1",
+    "oxlint": "1.76.0"
+  }
+}

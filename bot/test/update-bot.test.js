@@ -62,36 +62,6 @@ function start(team = TEAM) {
   return { ctx, tool, call, state, sent, stop }
 }
 
-test('a Bot changes itself by leaving out bot, or by naming itself', async (t) => {
-  const { tool, state, stop } = start()
-  t.after(stop)
-  assert.equal(await tool('update_bot', { name: 'King', instructions: 'Lead the team' }, 'b2'), 'Updated King.')
-  const king = state().bots.b2
-  assert.equal(king.name, 'King')
-  assert.equal(king.instructions, 'Lead the team')
-  // Its current name resolves to it again.
-  assert.equal(await tool('update_bot', { bot: 'King', role: '掌门' }, 'b2'), 'Updated King.')
-  assert.equal(state().bots.b2.role, '掌门')
-})
-
-test('a Bot cannot change another Bot; a Main Bot can', async (t) => {
-  const { tool, state, stop } = start()
-  t.after(stop)
-  assert.match(await tool('update_bot', { bot: 'Chief', role: 'boss' }, 'b2'), /^Only a Main Bot can change another Bot/)
-  assert.equal(state().bots.m1.role, 'Chief of Staff')
-  assert.equal(await tool('update_bot', { bot: 'Writer', role: '主笔' }, 'm1'), 'Updated Writer.')
-  assert.equal(state().bots.b2.role, '主笔')
-  assert.match(await tool('update_bot', { bot: 'Nobody' }, 'm1'), /^No Bot named Nobody/)
-})
-
-test('a group Session changes its own Bot; a Session outside the team changes nothing', async (t) => {
-  const { tool, state, stop } = start()
-  t.after(stop)
-  assert.equal(await tool('update_bot', { instructions: 'Ship the fix' }, 'g3'), 'Updated Coder.')
-  assert.equal(state().bots.b3.instructions, 'Ship the fix')
-  assert.equal(await tool('update_bot', { name: 'King' }, 'stranger'), 'Only Bots on the team can use update_bot.')
-})
-
 test('every Bot sees the update_bot rule in its identity section', async (t) => {
   const { ctx, tool, stop } = start()
   t.after(stop)
@@ -103,7 +73,7 @@ test('every Bot sees the update_bot rule in its identity section', async (t) => 
 })
 
 test('an instructions change lands as a message in the Bot chat', async (t) => {
-  const { call, tool, sent, stop } = start()
+  const { call, sent, stop } = start()
   t.after(stop)
   assert.equal((await call('update-bot', { id: 'b2', instructions: 'Ship the fix' })).ok, true)
   // The notice goes out as a follow-up; let the queued delivery run.
@@ -118,16 +88,6 @@ test('an instructions change lands as a message in the Bot chat', async (t) => {
   await call('update-bot', { id: 'b2', color: 'red' })
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.equal(sent.length, 1)
-
-  // A Bot editing itself in its own chat just got the tool result; no second
-  // turn queues for it. The same edit from a group Session still reaches it.
-  assert.equal(await tool('update_bot', { instructions: 'Own fix' }, 'b2'), 'Updated Writer.')
-  await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(sent.length, 1)
-  assert.equal(await tool('update_bot', { instructions: 'From the group' }, 'g3'), 'Updated Coder.')
-  await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(sent.length, 2)
-  assert.equal(sent[1].sessionId, 'b3')
 })
 
 test('a Bot whose greeting is still held gets no notice before its model pick', async (t) => {

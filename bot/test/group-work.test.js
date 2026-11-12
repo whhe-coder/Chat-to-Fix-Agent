@@ -232,7 +232,7 @@ test('message_bot from a member the round moved on from calls the other member i
 test('message_bot from a group does not reach a Bot outside it', async (t) => {
   const host = await start(t, { members: ['a', 'b'], sessions: { a: 'ga', b: 'gb' } })
   await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '帮忙测一下' }, 'ga'),
-    { message: 'Not sent: Tester is not in "Ops", and work for this group stays in it. Ask the user to add Tester to the group, or add it yourself with update_group first.' })
+    { message: 'Not sent: Tester is not in "Ops", and work for this group stays in it. Ask the user to add Tester to the group.' })
   await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '帮忙测一下' }, 'gb'),
     { message: 'Not sent: Tester is not in "Ops", and work for this group stays in it. Ask the user to add Tester to the group.' })
   assert.deepEqual([host.agentOf('c').calls, host.agentOf('r1').calls], [[], []])

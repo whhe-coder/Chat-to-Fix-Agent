@@ -139,10 +139,8 @@ test('tools answer an inherited Bot name like any unknown name', async (t) => {
   const before = state()
   for (const id of BAD) {
     assert.equal(await tool('message_bot', { to: id, message: 'hi' }, 'm1'), `No Bot named ${id}. Team: Chief, Writer`)
-    assert.equal(await tool('update_bot', { bot: id, role: 'x' }, 'm1'), `No Bot named ${id}.`)
-    assert.match(await tool('create_group', { members: [id, 'Writer'] }, 'm1'), new RegExp(`^No Bot named ${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
     // Asking as a Bot named like this finds no caller either.
-    assert.equal(await tool('update_bot', { name: 'King' }, id), 'Only Bots on the team can use update_bot.')
+    await assert.rejects(tool('stop_bot', { bot: 'Writer' }, id), { message: 'Only Bots on the team can use stop_bot.' })
   }
   assert.deepEqual(Object.getOwnPropertyNames(Object.prototype), prototypeNames)
   assert.equal(state(), before)

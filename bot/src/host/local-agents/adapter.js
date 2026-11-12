@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import { textOf } from '../text.js'
-import { engineOf, cliMode } from './engines.js'
+import { engineOf } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
 
 export const DEFAULT_CONTEXT_WINDOW = 200_000
@@ -50,7 +50,7 @@ function digestChunks(messages) {
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route)}
+  //        saveRecord, presetFor(sessionId), cwdFor, probeCwd, toolsFor(options)}
   constructor(deps) {
     super()
     this.deps = deps
@@ -60,8 +60,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.disposed = false
   }
 
+  // The engine entry of a route; the host may override how the CLI starts (deps.engineOf).
+  specOf(route) { return this.deps.engineOf?.(route) ?? engineOf(route) }
+
   providerInfo(route) {
-    const engine = engineOf(route, this.deps.customAgents())
+    const engine = this.specOf(route)
     return { id: route, name: engine?.name ?? route }
   }
   providerRetryPolicy() { return undefined }
@@ -70,7 +73,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engine(route) {
     let driver = this.engines.get(route)
     if (driver === undefined) {
-      const spec = engineOf(route, this.deps.customAgents())
+      const spec = this.specOf(route)
       if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
       driver = this.deps.spawnEngine(spec.kind, route, spec)
       this.engines.set(route, driver)
@@ -81,7 +84,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   async listModels(route) {
     const cached = this.modelCache.get(route)
     if (cached !== undefined) return cached
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) return []
     const fallback = [{ provider: route, id: 'default', name: 'CLI default' }]
     let models
@@ -102,7 +105,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   async resolveModel(route, model) {
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
     return {
       provider: route,
@@ -122,7 +125,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const route = options.provider
     if (live !== undefined && !live.dead && live.route === route) return live
     if (live !== undefined) await this.closeLive(live)
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
     const engine = this.engine(route)
     live = {
@@ -140,14 +143,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
       // turn waits on a bridged tool call or a permission answer.
       state: 'idle',
-      // Prompts queued while a turn runs (ACP speaks one prompt at a time);
-      // the drain sends the next one when the turn ends.
-      queue: [],
       idle: undefined,
       cwd: record?.cwd,
       model: options.model,
     }
     live.push = (event) => {
+      // After an abort the CLI still ends the stopped turn with its own done/error; what
+      // the stopped turn left behind is dropped up to and including that event.
+      if (live.skipStale) {
+        if (event.type === 'done' || event.type === 'error') live.skipStale = false
+        return
+      }
       clearTimeout(live.idle)
       live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
       live.idle.unref?.()
@@ -166,6 +172,8 @@ export class LocalAgentAdapter extends LlmAdapter {
     clearTimeout(live.idle)
     this.live.delete(live.sessionId)
     live.mcp?.close()
+    // The process of this Session goes with it (the next prompt starts a new one).
+    live.engine.release?.(live.sessionId)
     if (idle) {
       // The CLI session survives on the agent side; the process leaves and the
       // next prompt resumes it.
@@ -178,9 +186,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
-  async ensureMcp(live, tools) {
+  // `live.tools` is the tool list of the latest request (set by stream()); tools/list reads it
+  // when the CLI asks. (DS Bot 0.3.1 handed the server a function that returned the function
+  // itself, so every tools/list answered 500 and the CLI saw a connected server with no tools.)
+  async ensureMcp(live) {
     if (live.mcp !== undefined) return live.mcp
-    const mcp = new LoopbackMcp(() => tools, ({ name, arguments: args, callId }) => {
+    const mcp = new LoopbackMcp(() => live.tools ?? [], ({ name, arguments: args, callId }) => {
       const dshCallId = `dsbot-${callId}`
       return new Promise((resolve) => {
         live.pending.set(dshCallId, { name, mcpCallId: callId, resolve })
@@ -251,70 +262,68 @@ export class LocalAgentAdapter extends LlmAdapter {
 
     const system = messages.filter(message => message.role === 'system').map(message => textOf(message.content)).join('\n').trim()
     const promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
-    const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options))
+    live.tools = this.deps.toolsFor(options)
+    const toolNames = live.tools.map(tool => tool.name)
+    const mcp = await this.ensureMcp(live)
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
 
     const preset = this.deps.presetFor(sessionId)
-    const mode = cliMode(live.spec.kind, preset, live.engineSession?.modes)
-    const instructions = system === '' ? undefined : system
+    let instructions = system === '' ? undefined : system
 
-    const freshCli = live.cliSessionId === undefined
+    // A process that died (or was killed) is started again; the pump of the old one ends with it.
+    if (live.engineSession?.dead) { live.engineSession = undefined; live.started = false }
+    let freshCli = live.cliSessionId === undefined
+    let replay = fresh
     if (live.engineSession === undefined) {
       const openArgs = {
         cwd,
         mcp,
         resumeId: live.cliSessionId,
-        mode,
+        preset,
         model: options.model,
-        // Codex carries the team instructions as developer config on a new
-        // thread; Claude gets them appended at spawn; ACP reads them in the
-        // first prompt below.
-        instructions: live.spec.kind === 'codex' && freshCli ? instructions : undefined,
-        system: live.spec.kind === 'claude' ? instructions : undefined,
+        toolNames,
+        system: instructions,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
-      live.cliSessionId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      // The CLI session was not saved (the unattended coding setup): the new process has no
+      // memory of the old one, so it gets a replay instead of a delta.
+      if (openArgs.resumeId !== undefined && live.engineSession.resumed !== true) {
+        freshCli = true
+        replay = true
+        live.handed = undefined
+      }
+      live.cliSessionId = live.engineSession.cliSessionId ?? live.cliSessionId
       live.started = true
-      // The session's events feed this Session's queue: a call from any engine
-      // kind reaches drain() through live.next().
+      // The session's events feed this Session's queue: they reach drain() through live.next().
       const session = live.engineSession
       const token = live.pumpToken = {}
       void (async () => {
         while (live.pumpToken === token && !live.dead) {
           const event = await session.next()
+          if (event === undefined) return
           if (live.pumpToken === token && !live.dead) live.push(event)
         }
       })()
-      if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
+      if (instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
     }
 
-    let promptText = fresh ? renderReplay(messages, system)
+    // The system text rides in the spawn arguments (--append-system-prompt); a fresh process
+    // also gets the replay, which opens with it.
+    let promptText = replay ? renderReplay(messages, system)
       : [contextText, ...remaining.map(message => textOf(message.content))].filter(text => text !== '').join('\n\n')
-    let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
-    // A new CLI session gets its instructions in the open args or the replay;
+    let sentInstructions = freshCli && instructions !== undefined
+    // A new CLI session gets its instructions in the spawn arguments or the replay;
     // the "updated" line is only for a session that saw older ones.
     if (instructions !== undefined && !freshCli && live.promptHash !== promptHash) {
-      const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
-      if (live.spec.kind === 'codex') {
-        await live.engine.instruct?.(live.engineSession, updated)
-        sentInstructions = true
-      } else if (promptText !== '' || live.spec.kind === 'acp' || live.spec.kind === 'claude') {
-        promptText = `${updated}\n\n${promptText}`
-        sentInstructions = true
-      }
+      promptText = `Updated team instructions (replace earlier ones):\n\n${instructions}\n\n${promptText}`
+      sentInstructions = true
     }
     if (promptText !== '') {
       this.sendInput(live, promptText, options.signal)
       if (sentInstructions) live.promptHash = promptHash
-      // ACP only counts instructions once they reach the agent with a prompt.
-      if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
-    }
-    if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal)
-      live.promptHash = promptHash
     }
 
     // The last DSH message is handed now; a later call sends only what follows.
@@ -327,27 +336,16 @@ export class LocalAgentAdapter extends LlmAdapter {
     yield* this.drain(live, options)
   }
 
-  // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
-  // waits on a bridged call, steering for Codex and Claude, or a queued prompt
-  // for ACP (it speaks one prompt at a time; the drain sends it when the turn
-  // ends, inside the same stream). The prompt request itself stays open for
-  // the whole turn (ACP session/prompt ends when the agent's turn does), so it
-  // is sent but not awaited; a send failure lands in the queue as an error.
+  // Input for the CLI: a fresh prompt while it is idle; while a turn runs or waits on a
+  // bridged call, a further user message (the CLI queues it). The prompt is sent but not
+  // awaited; a send failure lands in the queue as an error.
   sendInput(live, text, signal) {
-    if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return }
-      try {
-        Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(error => live.push({ type: 'error', error }))
-      } catch (error) {
-        live.push({ type: 'error', error })
-      }
-      return
-    }
-    live.state = 'running'
+    const run = live.state === 'idle'
+      ? () => live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal })
+      : () => live.engine.steer?.(live.engineSession, text)
+    if (live.state === 'idle') live.state = 'running'
     try {
-      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal }))
-        .catch(error => live.push({ type: 'error', error }))
+      Promise.resolve(run()).catch(error => live.push({ type: 'error', error }))
     } catch (error) {
       live.push({ type: 'error', error })
     }
@@ -364,6 +362,19 @@ export class LocalAgentAdapter extends LlmAdapter {
     const closeBlocks = function* () {
       if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
       if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
+    }
+    // Reasoning text, and a line of its own in it.
+    const think = function* (text) {
+      if (thinkIndex === -1) {
+        if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
+        yield { type: 'block-start', index: index++, blockType: 'reasoning' }
+        thinkIndex = index - 1
+      }
+      thinkBuf += text
+      yield { type: 'reasoning-delta', index: thinkIndex, text }
+    }
+    const note = function* (text) {
+      yield* think(`${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${text}\n`)
     }
     const emitCalls = (calls) => {
       const chunks = []
@@ -390,7 +401,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
         live.state = 'idle'
-        live.queue.length = 0
+        // The stopped turn still ends with a done/error of its own; drop it with whatever
+        // the turn left queued, so it cannot answer the next turn.
+        const ended = live.events.findIndex(queued => queued.type === 'done' || queued.type === 'error')
+        if (ended !== -1) live.events.splice(0, ended + 1)
+        else live.skipStale = true
         live.engine.cancel?.(live.engineSession)
         live.mcp?.failAll(new Error('the turn was stopped'))
         for (const pending of live.pending.values()) pending.resolve({ text: 'the turn was stopped', isError: true })
@@ -400,6 +415,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       switch (event.type) {
         case 'text': {
+          // A subagent's own text is a line of the reasoning; only the main agent's text is the answer.
+          if (event.parentToolUseId) { if (event.text.trim() !== '') yield* note(`  ${oneLine(event.text, 300)}`); break }
           if (textIndex === -1) {
             if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
             yield { type: 'block-start', index: index++, blockType: 'text' }
@@ -410,19 +427,42 @@ export class LocalAgentAdapter extends LlmAdapter {
           break
         }
         case 'thought':
-        case 'activity': {
-          // An activity line stands on its own line of the reasoning, which is
-          // how the chat tells it from the thought around it.
-          const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
-          if (thinkIndex === -1) {
-            if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
-            yield { type: 'block-start', index: index++, blockType: 'reasoning' }
-            thinkIndex = index - 1
-          }
-          thinkBuf += text
-          yield { type: 'reasoning-delta', index: thinkIndex, text }
+          yield* think(event.text)
           break
-        }
+        case 'activity':
+          // An activity line stands on its own line of the reasoning, which is how the chat
+          // tells it from the thought around it.
+          yield* note(event.parentToolUseId ? `  ${event.text}` : event.text)
+          break
+        // What the CLI refused or failed, and the subagent's work, are shown the way activity is.
+        // The task layer's recorder and monitor read them from the session events.
+        case 'permission_denied':
+          yield* note(`▸ denied: ${event.toolName ?? 'tool'}${event.message ? ` (${oneLine(event.message, 200)})` : ''}`)
+          break
+        case 'tool_error':
+          yield* note(`▸ tool error: ${event.toolName ?? 'tool'}: ${oneLine(event.text, 300)}`)
+          break
+        case 'subagent':
+          if (event.phase === 'started') yield* note(`▸ subagent${event.subagentType ? ` ${event.subagentType}` : ''} started: ${oneLine(event.description ?? '', 200)}`)
+          else if (event.phase === 'notification') yield* note(`▸ subagent ${event.status ?? 'finished'}`)
+          break
+        case 'subagent_result':
+          yield* note(`▸ subagent result${event.isError ? ' (error)' : ''}: ${oneLine(event.text, 4_000)}`)
+          break
+        case 'permission_cancelled':
+          live.pending.delete(event.id)
+          yield* note('▸ permission request withdrawn')
+          break
+        case 'permission_timeout':
+          // The driver already denied it; the approval card (if any) answers nothing now.
+          live.pending.delete(event.id)
+          yield* note(`▸ permission request for ${event.toolName ?? 'tool'} timed out: denied`)
+          break
+        case 'init':
+          // The CLI names its session only once the first prompt is in; the record needs it to resume.
+          live.cliSessionId = event.sessionId
+          this.deps.saveRecord(live.sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
+          break
         case 'usage': yield { type: 'usage', usage: event.usage }; break
         case 'call': {
           yield* closeBlocks()
@@ -435,9 +475,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission': {
           yield* closeBlocks()
           live.state = 'suspended'
-          // The CLI's own permission prompt, bridged as an approval tool call.
+          // The CLI's own permission prompt, bridged as an approval tool call. The answer is the
+          // structured decision of approve_agent_action; a deny carries a reason for the CLI.
           const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}) }, dshCallId: event.id }
-          live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
+          live.pending.set(event.id, { name: APPROVE_TOOL, resolve: result => replyPermission(event, result) })
           for (const chunk of emitCalls([call])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return
@@ -446,13 +487,6 @@ export class LocalAgentAdapter extends LlmAdapter {
           yield* closeBlocks()
           if (event.usage !== undefined) yield { type: 'usage', usage: event.usage }
           live.state = 'idle'
-          // Input queued while this turn ran goes out as the next prompt
-          // inside the same drain (ACP takes one prompt at a time).
-          const next = live.queue.shift()
-          if (next !== undefined) {
-            this.sendInput(live, next, options.signal)
-            break
-          }
           yield { type: 'finish', reason: { kind: 'stop' } }
           return
         }
@@ -476,16 +510,22 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 }
 
-// The result DSH gives approve_agent_action decides the agent's option: only
-// the structured {"decision":"allow"} the tool returns on approval counts;
-// free text, a parse failure, an error or a denial rejects the action.
-function pickAllowOption(options, result) {
-  if (result.isError === true) return null
+// The result DSH gives approve_agent_action decides the CLI's answer: only the structured
+// {"decision":"allow"} the tool returns on approval allows; free text, a parse failure, an error
+// or a denial denies, and a deny always carries a reason text (the CLI rejects one without).
+function replyPermission(event, result) {
   let decision
-  try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
-  if (decision !== 'allow') return null
-  const option = (options ?? []).find(entry => /allow/.test(entry.kind ?? ''))
-  return option?.optionId ?? null
+  if (result.isError !== true) {
+    try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
+  }
+  if (decision === 'allow') event.reply(true)
+  else event.reply(false, decision === 'deny' ? 'Denied: the user did not approve this action.' : 'Denied: the approval did not allow this action.')
+}
+
+// One line of text, cut to `max` characters.
+const oneLine = (text, max) => {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the
