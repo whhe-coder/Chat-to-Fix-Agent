@@ -14,6 +14,8 @@ elif [ -f "$_c2f_root/../../chat-to-fix/scripts/dev-env.local.sh" ]; then
 fi
 # Node 24: from CHAT_TO_FIX_NODE_BIN when set, else whatever node is on PATH.
 if [ -n "${CHAT_TO_FIX_NODE_BIN:-}" ]; then export PATH="$CHAT_TO_FIX_NODE_BIN:$PATH"; fi
+# Use the operating system's trusted certificates for internal GitLab HTTPS.
+export NODE_USE_SYSTEM_CA="${NODE_USE_SYSTEM_CA:-1}"
 # The DSH runtime is installed by the repository root package.
 export DSH_HARNESS="${DSH_HARNESS:-$_c2f_root/../..}"
 # The Claude Code CLI: CLAUDE_BIN when set, else claude on PATH.

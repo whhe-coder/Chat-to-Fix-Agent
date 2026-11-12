@@ -135,9 +135,14 @@ async function main() {
     console.log(`GitLab ${result.gitlab}; Jira ${result.jira}; Slack: through the Slack Bot (outbox), no Slack token here`)
     return
   }
-  const dataRoot = args.dataRoot ?? join(ROOT, '.data', 'connected')
+  const dataRoot = args.dataRoot ?? (text(env.CHAT_TO_FIX_DATA) ? env.CHAT_TO_FIX_DATA : join(ROOT, '.data', 'connected'))
+  const configuredChannel = args.channel ?? env.CHAT_TO_FIX_SLACK_CHANNEL
+  const channel = text(configuredChannel) ? configuredChannel : args.action === 'start' ? 'CLOCAL' : configuredChannel
+  if (channel === 'CLOCAL' && !text(configuredChannel)) {
+    console.log('Slack Bot 尚未接入；Agent 暂用本机频道 CLOCAL。')
+  }
   const jiraSite = args.jiraSite ?? await discoverJiraSite(env)
-  const config = connectedConfig({ env, channel: args.channel ?? env.CHAT_TO_FIX_SLACK_CHANNEL, localRepo: args.localRepo ?? env.CHAT_TO_FIX_LOCAL_REPO, jiraSite, dataRoot })
+  const config = connectedConfig({ env, channel, localRepo: args.localRepo ?? env.CHAT_TO_FIX_LOCAL_REPO, jiraSite, dataRoot })
   config.bindings[0].localRepo = prepareAgentRepo(config.bindings[0].localRepo, dataRoot, config.bindings[0].remote)
   const configPath = saveConfig(config, env, dataRoot)
   console.log(`Agent configuration prepared: ${configPath}`)
@@ -147,7 +152,7 @@ async function main() {
   const start = spawn('sh', [join(ROOT, 'scripts', 'start-chat-to-fix.sh')], { cwd: ROOT, env: childEnv, stdio: 'inherit' })
   const exitCode = await new Promise<number>((done) => start.once('exit', (code) => done(code ?? 1)))
   if (exitCode !== 0) throw new Error('Agent startup failed')
-  // The Slack Bot (repo root, npm start) is started separately; it polls GET /outbox with <data>/http-token.
+  // The Slack Bot (repo root, npm run start:slack) is started separately after its integration is ready.
   console.log(`Chat-to-Fix is up on http://127.0.0.1:${config.httpPort}; the API token is in ${join(resolve(dataRoot), 'http-token')}`)
 }
 

@@ -69,7 +69,7 @@ sh docs/slack/reference/slackbot-mock-chain.sh
 ### 3.3 真 Slack
 
 1. 用 `chat-to-fix/scripts/connected.ts --start` 起 Chat-to-Fix，它会打印接口令牌所在的文件。
-2. 起你的 Slack Bot（`npm start`）。
+2. Slack Bot 接入完成并取得 token 后，单独启动它（`npm run start:slack`）。
 3. `app_mentions:read` 批下来以后，把 Chat-to-Fix 配置里的 `slack.mentions` 改成 `true`。
 
 ## 4. 你要做的

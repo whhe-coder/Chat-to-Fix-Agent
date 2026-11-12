@@ -3,13 +3,13 @@
 # (DSH disposes the plugin tree, chat-to-fix closes its listener), SIGKILL to the group after a grace
 # period, then removes the pid file. Never kills by name.
 #
-#   scripts/stop-chat-to-fix.sh            CHAT_TO_FIX_DATA selects the data directory (default <project>/.data)
+#   scripts/stop-chat-to-fix.sh            CHAT_TO_FIX_DATA selects the data directory (default <project>/.data/connected)
 #   CHAT_TO_FIX_STOP_GRACE=<seconds>       grace before SIGKILL (default 15)
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_ROOT="$(cd "$ROOT/../.." && pwd)"
-DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data}"
+DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data/connected}"
 PIDFILE="$DATA/run/chat-to-fix.pid"
 
 if [ ! -f "$PIDFILE" ]; then echo "chat-to-fix: not running (no pid file)"; exit 0; fi

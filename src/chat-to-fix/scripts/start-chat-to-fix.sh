@@ -5,7 +5,7 @@
 #   scripts/stop-chat-to-fix.sh                          stops it (process group from the pid file)
 #
 # Environment (all optional):
-#   CHAT_TO_FIX_DATA        data directory; everything the process writes goes under it (default <project>/.data)
+#   CHAT_TO_FIX_DATA        data directory; everything the process writes goes under it (default <project>/.data/connected)
 #   CHAT_TO_FIX_CONFIG      chat-to-fix configuration file (default $CHAT_TO_FIX_DATA/chat-to-fix.json; must exist)
 #   CHAT_TO_FIX_HTTP_TOKEN  control-interface token (default: read from $CHAT_TO_FIX_DATA/http-token, generated once)
 #   CHAT_TO_FIX_PASS_ENV    extra environment variable NAMES to pass to the process, space separated
@@ -24,7 +24,7 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_ROOT="$(cd "$ROOT/../.." && pwd)"
-DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data}"
+DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data/connected}"
 mkdir -p "$DATA"
 DATA="$(cd "$DATA" && pwd)"
 DSH_BIN="$PROJECT_ROOT/node_modules/@deepseek-ai/dsh/lib/bin.js"
@@ -96,6 +96,7 @@ fi
 # settings leak in. Credentials named here are passed through by name, never written anywhere.
 KEEP="PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM
 HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY http_proxy https_proxy no_proxy all_proxy
+NODE_USE_SYSTEM_CA NODE_EXTRA_CA_CERTS
 ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN
 CHAT_TO_FIX_HTTP_TOKEN ${CHAT_TO_FIX_PASS_ENV:-}"
 (
