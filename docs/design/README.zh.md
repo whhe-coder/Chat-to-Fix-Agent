@@ -15,7 +15,7 @@
 | [kickoff-plan.zh.md](kickoff-plan.zh.md) | （历史）开工方案：从 DS Bot 搬哪些文件、要改哪里、五天的顺序 | 想了解最初计划的人；第 6 节镜像仍是待办 |
 | [questions-for-colleagues.zh.md](questions-for-colleagues.zh.md) | 要问同事的问题，两段可以直接发的消息 | 用户 |
 
-状态：设计文档最初写于 2026-11-11 开工前。2026-11-12 按代码（提交 d1eb5c8）更新了 software-spec、tools-and-limits 和 spec-1 至 spec-6，代码还没做到的标“未实现”。spec-7 按提交 192a721 写；它带来的八步、新工具和监控改动，spec-1、3、4 开头各有一行说明，正文还没同步。implementation-guide 和 kickoff-plan 是历史文档；decision-record 和 questions-for-colleagues 开头加了说明。
+状态：设计文档最初写于 2026-11-11 开工前。software-spec、tools-and-limits、spec-1 至 spec-7 都已按代码（提交 192a721，八步、CI 修复循环、计费）更新，代码还没做到的标“未实现”。入口改为 `/fix` 是 2026-11-12 定的，代码还在实现，相关文字标了“实现中”。implementation-guide 和 kickoff-plan 是历史文档；decision-record 和 questions-for-colleagues 开头加了说明。
 
 ## 已知缺口（2026-11-12）
 
