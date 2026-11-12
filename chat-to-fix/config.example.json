@@ -1,0 +1,50 @@
+{
+  "dataDir": "/data/chat-to-fix",
+  "worktreesDir": "/data/chat-to-fix/worktrees",
+  "httpPort": 3090,
+  "language": "zh",
+  "apiModel": "anthropic/CHANGE-ME",
+  "codingModel": "claude-code/claude-sonnet-5-5",
+  "codingEffort": "high",
+  "codingPermission": "workspace-write",
+  "engineAuth": "login",
+  "adapters": { "slack": "fake", "jira": "fake", "gitlab": "fake" },
+  "jira": { "baseUrl": "https://your-company.atlassian.net", "email": "bot@example.com", "fields": {} },
+  "gitlab": { "baseUrl": "https://gitlab.example.com" },
+  "slack": {},
+  "bindings": [
+    {
+      "channel": "C0456",
+      "repo": "group/project",
+      "localRepo": "/data/repos/project",
+      "remote": "/data/repos/project.git",
+      "defaultBranch": "master",
+      "jiraProject": "DEMO",
+      "issueType": "Bug",
+      "labels": ["chat-to-fix"],
+      "testCommands": ["sh test.sh"],
+      "setupCommands": [],
+      "jiraFields": {}
+    }
+  ],
+  "jiraTransitions": ["In Review"],
+  "commitAuthor": { "name": "chat-to-fix", "email": "chat-to-fix@example.com" },
+  "limits": {
+    "taskMinutes": 80,
+    "stepMinutes": { "fetch": 5, "issue": 5, "prepare": 10, "code": 40, "mr": 5, "writeback": 5 },
+    "quietMinutes": 3,
+    "quietNudges": 2,
+    "engineSilentMinutes": 10,
+    "engineMaxTurns": 200,
+    "reviewMaxRounds": 3,
+    "maxConcurrent": 1,
+    "queueMax": 20,
+    "queueWaitHours": 4,
+    "worktreeKeepDays": 7,
+    "toolTimeoutSeconds": 30,
+    "toolRetries": 2,
+    "diffMaxFiles": 20,
+    "diffMaxLines": 500,
+    "replyMaxChars": 600
+  }
+}

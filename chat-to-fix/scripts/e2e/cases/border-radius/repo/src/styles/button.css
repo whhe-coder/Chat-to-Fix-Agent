@@ -1,0 +1,19 @@
+/* Buttons of the store client. */
+.btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btn-primary {
+  background: #2a9d4a;
+  color: #ffffff;
+}
+
+.btn-secondary {
+  background: #3a4656;
+  color: #ffffff;
+}

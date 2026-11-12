@@ -1,0 +1,34 @@
+{
+  "id": "T-1",
+  "no": 1,
+  "state": "done",
+  "endReason": "completed",
+  "createdAt": "2026-11-12T05:32:08Z",
+  "updatedAt": "2026-11-12T05:33:49Z",
+  "queuedAt": "2026-11-12T05:32:08.466Z",
+  "step": "close",
+  "stepAt": "2026-11-12T05:33:48.734Z",
+  "origin": {
+    "permalink": "fake://slack/C0456/1794461528.440001",
+    "text": "商店折扣价算错了：applyDiscount(100, 10) 返回 110，应该是 90（src/price.js）。运行 sh test.sh 可以复现。"
+  },
+  "binding": {
+    "channel": "C0456",
+    "repo": "local/sample-shop"
+  },
+  "jira": {
+    "key": "DEMO-1",
+    "url": "fake://jira/DEMO-1"
+  },
+  "mr": {
+    "url": "fake://gitlab/local/sample-shop/mr/1"
+  },
+  "runs": [
+    {
+      "no": 1,
+      "startedAt": "2026-11-12T05:32:08Z",
+      "endedAt": "2026-11-12T05:33:49Z",
+      "endReason": "completed"
+    }
+  ]
+}

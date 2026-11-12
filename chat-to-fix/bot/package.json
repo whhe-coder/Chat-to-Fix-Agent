@@ -1,0 +1,38 @@
+{
+  "name": "ds-bot",
+  "version": "0.3.1",
+  "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "deepseek",
+    "bot",
+    "multi-agent",
+    "agents"
+  ],
+  "homepage": "https://github.com/Fei2411/DS-Bot#readme",
+  "bugs": {
+    "url": "https://github.com/Fei2411/DS-Bot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fei2411/DS-Bot.git",
+    "directory": "ds-bot"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --import ./test/harness-resolve.ts --test --test-timeout=120000 --test-force-exit \"test/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-scope": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-web": "*"
+  },
+  "dependencies": {
+    "deep-view": "0.1.2"
+  }
+}

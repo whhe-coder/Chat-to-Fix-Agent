@@ -1,0 +1,4 @@
+node_modules/
+.data/
+*.log
+scripts/dev-env.local.sh
