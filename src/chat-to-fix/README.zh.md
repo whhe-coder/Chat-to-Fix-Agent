@@ -72,7 +72,7 @@ Agent 使用现有 `GITLAB_TOKEN` 和 `JIRA_TOKEN`，不再需要 Slack 令牌�
 
 ## 和 Slack Bot 对接
 
-`adapters.slack: "outbox"` 是和公司 Slack Bot 一起用的模式（`connected.ts` 生成的配置就是它）：Slack Bot 是唯一连 Slack 的程序，Chat-to-Fix 不持有 Slack 令牌；`slack.mentions` 当前为 `false`。Slack Bot 把 `/fix` 用 `POST /events`（`source: "fix"`）送进来，再每隔几秒用 `GET /outbox?after=<seq>&limit=<n>` 拉取要发给用户的消息；消息存在 `<数据目录>/outbox.jsonl`。接口、字段和状态码见 [docs/slack/slackbot.md](docs/slack/slackbot.md) 第 4.2、4.3 节，Slack 一侧的行为见 [docs/slack/slackenter.md](docs/slack/slackenter.md)。`adapters.slack: "real"`（服务端自己连 Slack，用 `scripts/slack-forwarder.ts`）仍可用，但不能和 Slack Bot 同时连同一个 Slack 应用。
+`adapters.slack: "outbox"` 是和公司 Slack Bot 一起用的模式（`connected.ts` 生成的配置就是它）：Slack Bot 是唯一连 Slack 的程序，Chat-to-Fix 不持有 Slack 令牌；`slack.mentions` 当前为 `false`。Slack Bot 把 `/fix` 用 `POST /events`（`source: "fix"`）送进来，再每隔几秒用 `GET /outbox?after=<seq>&limit=<n>` 拉取要发给用户的消息；消息存在 `<数据目录>/outbox.jsonl`。接口、字段和状态码见 [Slack 接口说明](../../docs/chat-to-fix/slack/slackbot.md) 第 4.2、4.3 节。Slack 一侧的早期设计记录见 [入口文档](../../docs/chat-to-fix/slack/slackenter.md)；本期不接收讨论串里的二次修改。`adapters.slack: "real"`（服务端自己连 Slack，用 `scripts/slack-forwarder.ts`）仍可用，但不能和 Slack Bot 同时连同一个 Slack 应用。
 
 真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
 

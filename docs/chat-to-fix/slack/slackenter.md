@@ -4,7 +4,7 @@
 
 - 日期：2026-11-12
 - 状态：2026-11-12。Chat-to-Fix 一侧已实现（PR #5）；Slack Bot 一侧只有参考实现（[reference/](reference/README.md)），归 Yuzhao。
-- 关系：以 [固定频道 `/fix` 规格](../../../../spec/slack-fix-command.md) 为准，本文只补它没写的三件事：
+- 关系：以 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 为准，本文只补它没写的三件事：
   - 任务消息发出后，怎么交给 Chat-to-Fix；
   - 用户在讨论串里怎么回答追问；
   - 为此要加的一项权限。
@@ -12,7 +12,7 @@
 
 ## 1. 问题
 
-[固定频道 `/fix` 规格](../../../../spec/slack-fix-command.md) 定了 `/fix`、指定频道、`commands` 加 `chat:write`，但还缺：
+[固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 定了 `/fix`、指定频道、`commands` 加 `chat:write`，但还缺：
 
 1. 没写命令交给谁、怎么交。
 2. Bot 在讨论串里追问后，用户的回答收不到：应用不订阅任何消息事件。
@@ -54,7 +54,7 @@
 - Slack Bot 不自己写进度文案。
 - 唯一的例外是 2.1 和 2.2 里那两句“服务暂时连不上”。
 
-## 3. Slack 应用配置（相对 [固定频道 `/fix` 规格](../../../../spec/slack-fix-command.md) 的变化）
+## 3. Slack 应用配置（相对 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 的变化）
 
 | 项 | 固定频道 `/fix` 规格 | 本文 |
 |---|---|---|

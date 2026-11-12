@@ -72,7 +72,7 @@ export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = 
     codingModel: env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5',
     engineAuth: env.ANTHROPIC_API_KEY ? 'apiKey' : 'login',
     // Slack: the company Slack Bot (src/slackBot) is the only program connected to Slack; this service has no Slack token
-    // and talks to it through the outbox (docs/slack/slackbot.md).
+    // and talks to it through the outbox (docs/chat-to-fix/slack/slackbot.md).
     adapters: { slack: 'outbox', jira: 'real', gitlab: 'real' },
     jira: {
       baseUrl: `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}`, browseUrl: siteUrl(jiraSite), apiVersion: '3',

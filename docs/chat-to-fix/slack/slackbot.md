@@ -3,13 +3,13 @@
 > 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。
 
 - 日期：2026-11-12
-- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `chat-to-fix/src/task/outbox.ts`、`http.ts`、`src/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `chat-to-fix/docs/slack/reference/`，没有放进 Logan 的 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
-- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 Logan 的 [固定频道 `/fix` 规格](../../../../spec/slack-fix-command.md)，本文在它和他的 [实施计划](../../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 `chat-to-fix/docs/design/`。
+- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/src/task/outbox.ts`、`http.ts`、`src/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
+- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 [设计文档](../design/README.zh.md)。
 
 ## 1. 问题
 
 - 两个东西都叫“Slack bot”：根目录 `src/slackBot/`（连 Slack 应用的程序，下文叫 **Slack Bot**），和 `chat-to-fix/` 里五个 bot 之一（角色 `slack`，下文叫 **内部沟通角色**）。改代码时容易混。
-- [实施计划](../../../../plans/chat-to-fix-agent.md) M1 的“本地 agent 的调用方式”没定：Slack Bot 怎么把 `/fix` 交给 Chat-to-Fix，怎么拿到要回给用户的进度，都没有接口。
+- [实施计划](../../../plans/chat-to-fix-agent.md) M1 的“本地 agent 的调用方式”没定：Slack Bot 怎么把 `/fix` 交给 Chat-to-Fix，怎么拿到要回给用户的进度，都没有接口。
 - `chat-to-fix/` 现在自己连 Slack（转发程序 `chat-to-fix/scripts/slack-forwarder.ts`，适配器直接调 `chat.postMessage`）。同一个 Slack 应用同一时间只能有一个程序用 Socket Mode 连，和 Slack Bot 冲突。
 - 用户在讨论串里补充的信息到不了 bot：只有 `commands`、`chat:write` 时收不到讨论串的消息；任务重跑时也只读 `/fix` 原文。
 - 修不了或需要人处理时，回给用户的只有一句英文模板；“需要人处理”的原因没有存下来。
@@ -97,7 +97,7 @@
 | `fix`，队列满 | 发件箱放“队列已满” | 429 `queue_full` |
 | `fix` | 建任务，入队 | 202 `{ taskId, state: "queued", position }` |
 
-讨论串里的 @ 不会启动新任务，和 [固定频道规格](../../../../spec/slack-fix-command.md) 的“thread 回复不启动任务”一致。
+讨论串里的 @ 不会启动新任务，和 [固定频道规格](../../../spec/slack-fix-command.md) 的“thread 回复不启动任务”一致。
 
 **(2) `GET /outbox?after=<seq>&limit=<n>`：要发给用户的消息**
 
@@ -161,7 +161,7 @@
   - `chat-to-fix-api.js`：接口客户端。
   - `fix-command.js`：`/fix` 和 @ 的处理。
   - `outbox-relay.js`：发件箱转发。
-- **`slack-bot.js`**：改为挂上面三样。私信处理不再挂：应用已经去掉了私信事件，见 [私信历史规格](../../../../spec/slack-dm-entry.md)。
+- **`slack-bot.js`**：改为挂上面三样。私信处理不再挂：应用已经去掉了私信事件，见 [私信历史规格](../../../spec/slack-dm-entry.md)。
 - **环境变量**：
   - `CHAT_TO_FIX_API_URL`：默认 `http://127.0.0.1:3090`。
   - `CHAT_TO_FIX_API_TOKEN`：Chat-to-Fix 的令牌。

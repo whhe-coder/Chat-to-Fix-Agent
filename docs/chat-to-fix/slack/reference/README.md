@@ -25,9 +25,9 @@
 在你自己的分支上，从仓库根目录执行：
 
 ```sh
-cp src/chat-to-fix/docs/slack/reference/src/slackBot/*.js src/slackBot/
-cp src/chat-to-fix/docs/slack/reference/test/*.test.js test/
-git apply src/chat-to-fix/docs/slack/reference/changes-to-root-files.patch
+cp docs/chat-to-fix/slack/reference/src/slackBot/*.js src/slackBot/
+cp docs/chat-to-fix/slack/reference/test/*.test.js test/
+git apply docs/chat-to-fix/slack/reference/changes-to-root-files.patch
 npm ci && npm test
 ```
 

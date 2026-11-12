@@ -45,7 +45,7 @@ Slack Bot 不写进度文案，讨论串里的话都来自发件箱。它只自�
 
 ### 3.1 环境变量
 
-放在仓库根目录的 `.env.local`，原有变量见 [config/local-env/README.md](../../../../config/local-env/README.md)。
+放在仓库根目录的 `.env.local`，原有变量见 [config/local-env/README.md](../../../config/local-env/README.md)。
 
 | 变量 | 值 |
 |---|---|
@@ -60,8 +60,9 @@ Slack Bot 不写进度文案，讨论串里的话都来自发件箱。它只自�
 2. 一条命令跑完整个模拟链路。不用 Slack，不用真模型，不花钱，跑完自动停：
 
 ```sh
-cd chat-to-fix && . scripts/dev-env.sh    # Chat-to-Fix 的依赖装法见 chat-to-fix/README.zh.md
-sh docs/slack/reference/slackbot-mock-chain.sh
+# 在仓库根目录执行
+. src/chat-to-fix/scripts/dev-env.sh
+sh docs/chat-to-fix/slack/reference/slackbot-mock-chain.sh
 ```
 
 假模型不会真的修，只能看到任务消息和系统通知；要看“已收到”和结果，得用真实模型跑一次。
@@ -100,7 +101,7 @@ sh docs/slack/reference/slackbot-mock-chain.sh
 
 - **原则**：
   - Slack 一侧的行为以 Logan 的 `spec/` 为准，我们的 [slackenter.md](slackenter.md) 并进去。
-  - 接口的约定由提供方 Chat-to-Fix 维护，[slackbot.md](slackbot.md) 留在 `chat-to-fix/docs/slack/`，Logan 的文档链接过来，不复制。
+  - 接口的约定由提供方 Chat-to-Fix 维护，[slackbot.md](slackbot.md) 位于 `docs/chat-to-fix/slack/`，Logan 的文档链接过来，不复制。
 - **怎么提交**：在你们自己的分支和 PR 里做，不和 Chat-to-Fix 的 PR 混。
 - **合并之后**：我们这边把 slackenter.md 改成一行“已并入 `spec/slack-fix-command.md`”，并改掉指向它的链接。
 

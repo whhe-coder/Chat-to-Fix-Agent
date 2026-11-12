@@ -1,4 +1,4 @@
-// The outbox (docs/spec slackbot.md, 4.2 (2)): the messages Chat-to-Fix wants posted into a Slack discussion.
+// The outbox (docs/chat-to-fix/slack/slackbot.md, 4.2 (2)): the messages Chat-to-Fix wants posted into a Slack discussion.
 // Append-only file <dataDir>/outbox.jsonl, one JSON line per message, `seq` global from 1 and never reused.
 // The company Slack Bot polls GET /outbox?after=<seq> and posts each message; Chat-to-Fix itself holds no Slack token.
 import { appendFile, mkdir, readFile } from 'node:fs/promises'

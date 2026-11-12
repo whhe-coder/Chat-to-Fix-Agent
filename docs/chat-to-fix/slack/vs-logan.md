@@ -4,7 +4,7 @@
 
 - 日期：2026-11-12。
 - 对照的 Logan 文档和代码（`main`，`7b600dc`）：
-  - 文档：[spec/slack-fix-command.md](../../../../spec/slack-fix-command.md)、[spec/slack-dm-entry.md](../../../../spec/slack-dm-entry.md)、[spec/mock-slack-bot.md](../../../../spec/mock-slack-bot.md)、[config/slack/README.md](../../../../config/slack/README.md)、[plans/chat-to-fix-agent.md](../../../../plans/chat-to-fix-agent.md)、根目录 [README.md](../../../../README.md)；
+  - 文档：[spec/slack-fix-command.md](../../../spec/slack-fix-command.md)、[spec/slack-dm-entry.md](../../../spec/slack-dm-entry.md)、[spec/mock-slack-bot.md](../../../spec/mock-slack-bot.md)、[config/slack/README.md](../../../config/slack/README.md)、[plans/chat-to-fix-agent.md](../../../plans/chat-to-fix-agent.md)、根目录 [README.md](../../../README.md)；
   - 代码：`src/slackBot/`、`src/server/`。
 - 我们这边：[slackbot.md](slackbot.md)、[slackenter.md](slackenter.md)、`chat-to-fix/` 的实现（PR #5）。
 - 一句话：以 Logan 的为底，他定了的照搬，他没写的我们补上，只有 2 处要他点头改（另加 1 项权限）。他的文件我们一个没动；要改的都列在第 3 节，由他改。

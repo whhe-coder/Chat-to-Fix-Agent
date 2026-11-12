@@ -554,7 +554,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     if (task?.id && task.jira === undefined && task.repo === undefined) {
       try { full = { ...(await store.getTask(task.id)), ...task } } catch { /* the notice goes without them */ }
     }
-    // A task ended as "needs a person" is state failed; the Slack side gets it as its own kind (docs/slack/slackbot.md 4.2(2)).
+    // A task ended as "needs a person" is state failed; the Slack side gets it as its own kind (docs/chat-to-fix/slack/slackbot.md 4.2(2)).
     const sentKind = kind === 'failed' && full?.endReason === 'needs_person' ? 'needs_person' : kind
     await deliver(full, sentKind, noticeText(language, kind, full))
   }

@@ -85,5 +85,6 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Slack 配置记录](config/slack/README.md) | Slack 应用权限、安装状态和验证步骤；不保存凭据值。 | Slack 配置、权限或安装状态变化后立即更新。 |
 | [GitLab 接入记录](config/gitlab/README.md) | GitLab 当前连接方式、已配置的凭据能力和待验证的写入操作；不保存凭据值。 | GitLab 授权或接入方式变化后立即更新。 |
 | [Jira 接入记录](config/jira/README.md) | Jira 读取与写入接口的凭据方式、所需权限和待完成的授权；不保存凭据值。 | Jira 授权或接入方式变化后立即更新。 |
+| [Chat-to-Fix 文档](docs/chat-to-fix/README.md) | Agent 的设计规格、Slack 接口及历史研究资料；各文件的适用状态见目录索引。 | Agent 设计或接口变化时。 |
 
 每次 Feature 的代码或配置发生变化，都检查并更新受影响的 Plan、Done、Spec 和配置记录。代码与文档尽量在同一次提交中更新；外部系统的独立操作完成后，立即更新并提交文档。功能目标、流程或文档入口变化时，也更新本 README。未验证的结果保留在 Plan，不移入 Done。
