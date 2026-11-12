@@ -15,7 +15,7 @@ chmod 600 .env.local
 
 | 组 | 变量 | 来源或设置位置 |
 | --- | --- | --- |
-| 本地服务 | `PORT` | 自行选择未占用的本机端口；默认 `4000`。 |
+| 本地服务 | `PORT` | 自行选择未占用的本机端口；默认 `4000`。填 `0` 时由系统分配临时端口，启动日志会显示实际端口。 |
 | 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
