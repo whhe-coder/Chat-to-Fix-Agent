@@ -29,6 +29,8 @@ chmod 600 .env.local
 | Jira | `JIRA_EMAIL` | 创建个人 Jira token 的 Atlassian 账号邮箱；服务账号 Bearer token 留空。 |
 | Jira | `JIRA_WORK_TYPE_FIELD_ID` | 在已登录 Jira 的浏览器中查询 `/rest/api/3/field/search?query=Work%20type`，选名称精确为 `Work type` 的字段 ID。 |
 
+本地服务的启动测试见 [`test/server-start.test.js`](../../test/server-start.test.js)：它检查 `PORT=0` 的实际监听端口，以及无效端口启动失败。
+
 ## 当前验证
 
 用户确认后，现有 Slack App、GitLab 和 Jira token 已从钥匙串复制到本机 `.env.local`。文件权限为 `600`；`SLACK_BOT_TOKEN` 保持空白。使用该文件启动本地服务后，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`。真实值未进入 Git 跟踪文件。

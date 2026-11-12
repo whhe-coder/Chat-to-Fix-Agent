@@ -2,7 +2,6 @@ import '../config/load-local-env.js';
 import { createGitlabConnection } from '../gitlab/connection.js';
 import { createLocalServer } from './local-server.js';
 
-// 固定端口填 1 到 65535；填 0 时由系统分配临时端口。
 const port = Number(process.env.PORT || 4000);
 
 const connection = createGitlabConnection();
