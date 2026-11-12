@@ -17,7 +17,11 @@ scoped token 必须通过 `https://api.atlassian.com/ex/jira/{cloudId}` 调用 A
 
 ## 当前最小只读权限
 
-`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。2026-11-12 已在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token，应用仅选 Jira，权限仅选上述两项，到期日为 2027-02-09。token 值未写入仓库。仍需保存到本机钥匙串并执行真实 API 验证。创建工单、读取工单与添加评论所需 scopes 应按对应接口另行确定；不能把 `write:jira-work` 称为最小权限。
+`GET /rest/agile/1.0/board/{boardId}` 需要 `read:board-scope:jira-software`、`read:issue-details:jira`，以及该身份查看目标 board 的权限。2026-11-12 已在个人 Atlassian 账号下创建 `Chat-to-Fix-Board-Read` scoped token，应用仅选 Jira，权限仅选上述两项，到期日为 2027-02-09。token 已保存到本机钥匙串，值未写入仓库。创建工单、读取工单与添加评论所需 scopes 应按对应接口另行确定；不能把 `write:jira-work` 称为最小权限。
+
+## 真实连接验证
+
+2026-11-12 用本机钥匙串 token 执行 `npm run check:jira`。请求成功返回目标 board 的 ID 和名称 `F2PGBA board`。响应没有项目 key，因此连接函数返回 `projectKey: null`。这次检查只验证了 board 读取；没有创建工单或验证写入权限。Cloud ID、board ID 和个人邮箱只在本地执行时提供，仓库不记录其值。
 
 ## 后续授权
 
