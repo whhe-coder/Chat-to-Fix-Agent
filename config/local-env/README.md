@@ -9,7 +9,7 @@ chmod 600 .env.local
 
 `.env.local` 是本机明文文件，已被 Git 忽略。不要发送该文件，也不要把 token 写进 Git、命令参数、日志或聊天。旧 Slack Bot、模拟 Bot 和 Jira 检查脚本通过 `src/load-local-env.js` 加载该文件；Agent 通过自己的启动脚本加载。当前本机 Node.js 已验证支持所用的 `process.loadEnvFile`。若旧版 Node.js 不支持此方法，文件存在时启动会报出明确错误。
 
-已有的进程环境变量优先于 `.env.local`。`npm start` 启动 Agent 和本机模拟 Slack 页面，直接从这两处读取 GitLab、Jira token；它不需要 Slack token。设置 `MOCK_SLACK_AUTO_START=0` 可只启动 Agent。`npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。`npm run start:slack` 启动旧 Slack 私信测试 Bot；该 Bot 和 `npm run check:jira` 在 token 未设置时，仍可从 Mac 登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm run start:mock-slack` 可单独在前台启动模拟页面；它加载 `.env.local`，只读取本机 Agent 的接口 token，不使用 Slack token。提交 `/fix` 后，Agent 仍可能访问真实 Jira 和 GitLab。钥匙串中的现有 token 副本仍保留。
+已有的进程环境变量优先于 `.env.local`。`npm start` 启动 Agent 和本机模拟 Slack 页面，直接从这两处读取 GitLab、Jira token；它不需要 Slack token。`npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。`npm run start:slack` 启动旧 Slack 私信测试 Bot；该 Bot 和 `npm run check:jira` 在 token 未设置时，仍可从 Mac 登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm run start:mock-slack` 可单独在前台启动模拟页面；它加载 `.env.local`，只读取本机 Agent 的接口 token，不使用 Slack token。提交 `/fix` 后，Agent 仍可能访问真实 Jira 和 GitLab。钥匙串中的现有 token 副本仍保留。
 
 ## 变量来源
 
@@ -17,7 +17,6 @@ chmod 600 .env.local
 | --- | --- | --- |
 | 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
 | 模拟 Slack Bot | `MOCK_SLACK_AGENT_URL` | 本机 Agent 控制接口地址；默认 `http://127.0.0.1:3090`。 |
-| 模拟 Slack Bot | `MOCK_SLACK_AUTO_START` | `npm start` 默认自动启动模拟页面；设为 `0` 时跳过。 |
 | 模拟 Slack Bot | `MOCK_SLACK_STATE_DIR` | 后台页面进程的状态目录；留空时使用 `src/slackBot/.data/`，PID 和日志在其 `run/` 下。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |

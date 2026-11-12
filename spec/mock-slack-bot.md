@@ -4,7 +4,7 @@
 
 ## 本机模拟频道
 
-在仓库根目录运行 `npm start`。它先启动 Agent，再在后台启动模拟页面，打印 `http://127.0.0.1:4001/` 后返回；不会自动打开浏览器。重复启动不会创建第二个页面进程。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent，`npm run stop:mock-slack` 只停止模拟页面。设置 `MOCK_SLACK_AUTO_START=0` 可关闭页面的自动启动；`npm run start:mock-slack` 仍可单独在前台启动页面。打开页面并输入 `/fix 问题描述`。模拟 Bot 在内存中创建任务消息和讨论串，用 `POST /events`（`source: "fix"`）将问题正文、模拟发送者、频道和讨论串 ID 交给 Agent。页面每两秒读取 Agent 的 `/outbox` 和 `/tasks`，把回传消息和状态显示在对应讨论串。
+在仓库根目录运行 `npm start`。它先启动 Agent，再在后台启动模拟页面，打印 `http://127.0.0.1:4001/` 后返回；不会自动打开浏览器。重复启动不会创建第二个页面进程。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent，`npm run stop:mock-slack` 只停止模拟页面。`npm run start:mock-slack` 仍可单独在前台启动页面。打开页面并输入 `/fix 问题描述`。模拟 Bot 在内存中创建任务消息和讨论串，用 `POST /events`（`source: "fix"`）将问题正文、模拟发送者、频道和讨论串 ID 交给 Agent。页面每两秒读取 Agent 的 `/outbox` 和 `/tasks`，把回传消息和状态显示在对应讨论串。
 
 默认频道是 `CLOCAL`，与未配置真实 Slack 频道时 Agent 的绑定一致；若设置 `CHAT_TO_FIX_SLACK_CHANNEL`，模拟频道使用同一 ID。`MOCK_SLACK_PORT` 默认是 `4001`，`MOCK_SLACK_AGENT_URL` 默认是 `http://127.0.0.1:3090`，只能指向本机。Agent 使用其他数据目录时，给模拟 Bot 设置相同的 `CHAT_TO_FIX_DATA`。模拟页面的后台进程使用独立的 PID 和日志，默认位于 `src/slackBot/.data/run/`；可用 `MOCK_SLACK_STATE_DIR` 指定状态目录。
 

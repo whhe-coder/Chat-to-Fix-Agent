@@ -26,7 +26,7 @@ src/
 
 Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/`。根目录的 `config/` 保存各服务的接入记录；`src/chat-to-fix/config/` 保存 Agent 的 DSH 运行配置。设计规格和历史资料位于 [文档目录](docs/chat-to-fix/README.md)。
 
-测试放在对应模块的 `test/` 中。运行全部测试用 `npm test`；连接函数、Slack Bot、本机启动、Agent 和 Bot 层可分别用 `npm run test:connections`、`npm run test:slack-bot`、`npm run test:startup`、`npm run test:agent`、`npm run test:agent-bot` 验证。Agent 与 Bot 层之间的测试用 `npm run test:agent-layer` 验证。
+测试放在对应模块的 `test/` 中。运行全部测试用 `npm test`；连接函数、Slack Bot（含本机模拟页面启动）、Agent 和 Bot 层可分别用 `npm run test:connections`、`npm run test:slack-bot`、`npm run test:agent`、`npm run test:agent-bot` 验证。Agent 与 Bot 层之间的测试用 `npm run test:agent-layer` 验证。
 
 ## 目标流程
 
@@ -87,7 +87,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 
 ## 模拟 Slack Bot
 
-运行 `npm start` 会先启动 Agent，再在后台启动模拟 Slack 页面；命令打印页面地址 `http://127.0.0.1:4001/` 后返回，不会自动打开浏览器。重复运行不会再创建一个模拟页面进程。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。设置 `MOCK_SLACK_AUTO_START=0` 可只启动 Agent；`npm run start:mock-slack` 可单独在前台启动页面。页面模拟一个频道：输入 `/fix 问题描述` 后，模拟 Bot 将任务交给本机 Agent，并显示 Agent 回传的进度。运行 `npm run logs:agent` 可查看 Agent 收到命令时的日志。模拟 Bot 无需 Slack token。**如果 Agent 已连接真实 Jira 和 GitLab，发送命令会触发真实任务。**启动方式和边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。旧私信测试接口改用 `npm run start:mock-dm`。
+运行 `npm start` 会先启动 Agent，再在后台启动模拟 Slack 页面；命令打印页面地址 `http://127.0.0.1:4001/` 后返回，不会自动打开浏览器。重复运行不会再创建一个模拟页面进程。运行 `npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。`npm run start:mock-slack` 可单独在前台启动页面。页面模拟一个频道：输入 `/fix 问题描述` 后，模拟 Bot 将任务交给本机 Agent，并显示 Agent 回传的进度。运行 `npm run logs:agent` 可查看 Agent 收到命令时的日志。模拟 Bot 无需 Slack token。**如果 Agent 已连接真实 Jira 和 GitLab，发送命令会触发真实任务。**启动方式和边界见 [模拟 Bot 规格](spec/mock-slack-bot.md)。旧私信测试接口改用 `npm run start:mock-dm`。
 
 ## 文档分工
 
