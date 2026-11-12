@@ -54,8 +54,6 @@
 3. 更新 Bot 和模拟入口的处理代码；当前 `npm start` 仍运行旧私信测试代码，不能用于新入口验收。
 4. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
 
-5. 讨论串里的补充信息需要再加 Bot scope `app_mentions:read` 和订阅 `app_mention` 事件（见 [spec/slackenter.md](../../spec/slackenter.md) 第 3 节）。待 Logan 和管理员确认是否并入这次安装申请；未加之前，`/fix` 照常，讨论串里的 @ 收不到。
-
 旧私信测试 Bot 的行为保留在 [历史规格](../../spec/slack-dm-entry.md)。
 
 ## 参考

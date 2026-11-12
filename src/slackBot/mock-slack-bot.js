@@ -1,8 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createDmHandler } from './slack-message.js';
-import { createFixCommandHandler, createMentionHandler } from './fix-command.js';
-import { createMemoryCursorStore, createOutboxRelay } from './outbox-relay.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
 
@@ -53,19 +51,13 @@ async function readJson(request) {
   }
 }
 
-export function createMockSlackBot({
-  createHandler = createDmHandler,
-  now = Date.now,
-  api,
-  fixChannelId = 'C-MOCK-FIX',
-  relayIntervalMs = 3000,
-} = {}) {
+export function createMockSlackBot({ createHandler = createDmHandler, now = Date.now } = {}) {
   const threads = new Map();
   const events = new Map();
   let sequence = 0;
 
   function threadKey(channel, threadTs) {
-    return `${channel}|${threadTs}`;
+    return `${channel}:${threadTs}`;
   }
 
   function nextTs() {
@@ -81,99 +73,6 @@ export function createMockSlackBot({
       messages.push({ from: 'bot', text, ts: nextTs() });
     },
   });
-
-  // 假 Slack：频道里的消息和讨论串都在内存里，同时记录临时消息。
-  const ephemerals = [];
-  const triggers = new Map();
-
-  async function fakePost({ channel, thread_ts: threadTs, text }) {
-    const ts = nextTs();
-    const key = threadKey(channel, threadTs || ts);
-    if (!threads.has(key)) threads.set(key, []);
-    threads.get(key).push({ from: 'bot', text, ts });
-    return { ok: true, channel, ts };
-  }
-
-  const unavailable = { postEvent: async () => ({ status: 503, body: null }),
-    getOutbox: async () => ({ status: 503, body: null }) };
-  const fixApi = api || unavailable;
-  const handleFix = createFixCommandHandler({ api: fixApi, postMessage: fakePost, fixChannelId, now });
-  const handleMention = createMentionHandler({
-    api: fixApi,
-    fixChannelId,
-    botUserId: 'U-MOCK-BOT',
-    postMessage: fakePost,
-    postEphemeral: async ({ channel, user, text }) => { ephemerals.push({ channel, user, text }); },
-    now,
-  });
-  const relay = createOutboxRelay({
-    api: fixApi, postMessage: fakePost, cursorStore: createMemoryCursorStore(),
-    intervalMs: relayIntervalMs, log: () => {},
-  });
-
-  function newestThreadAfter(before) {
-    return [...threads.keys()].slice(before).map((key) => key.split('|'))[0];
-  }
-
-  function checkText(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      throw new MockInputError('消息内容无效');
-    }
-    if (typeof input.text !== 'string' || input.text.length > 10000) {
-      throw new MockInputError('text 必须是 0 到 10000 个字符的字符串');
-    }
-  }
-
-  async function receiveFix(input) {
-    checkText(input);
-    const userId = optionalId(input.userId, 'userId', 'U-MOCK');
-    const channel = optionalId(input.channelId, 'channelId', fixChannelId);
-    const triggerId = optionalId(input.triggerId, 'triggerId', `T-MOCK-${randomUUID()}`);
-    const before = threads.size;
-    const ephemeralBefore = ephemerals.length;
-    let acked = false;
-    await handleFix({
-      command: { text: input.text, user_id: userId, user_name: input.userName || 'mock-user',
-        channel_id: channel, trigger_id: triggerId },
-      ack: async () => { acked = true; },
-      respond: async ({ text }) => { ephemerals.push({ channel, user: userId, text }); },
-    });
-    const created = newestThreadAfter(before);
-    if (created) triggers.set(triggerId, created);
-    const [threadChannel, threadTs] = created || triggers.get(triggerId) || [];
-    return {
-      triggerId, acked, channel,
-      threadTs: threadTs ?? null,
-      ephemeral: ephemerals.slice(ephemeralBefore),
-      messages: threadTs ? getThread(threadTs, threadChannel) : [],
-    };
-  }
-
-  async function receiveMention(input) {
-    checkText(input);
-    const userId = optionalId(input.userId, 'userId', 'U-MOCK');
-    const channel = optionalId(input.channelId, 'channelId', fixChannelId);
-    const threadTs = optionalId(input.threadTs, 'threadTs', undefined);
-    const eventId = optionalId(input.eventId, 'eventId', `E-MOCK-${randomUUID()}`);
-    if (threadTs && !threads.has(threadKey(channel, threadTs))) {
-      throw new MockInputError('threadTs 不存在', 404);
-    }
-    const ts = nextTs();
-    if (threadTs) threads.get(threadKey(channel, threadTs)).push({ from: 'user', user: userId, text: input.text, ts });
-    const ephemeralBefore = ephemerals.length;
-    await handleMention({
-      event: { type: 'app_mention', channel, user: userId, ts, text: `<@U-MOCK-BOT> ${input.text}`,
-        ...(threadTs ? { thread_ts: threadTs } : {}) },
-      body: { event_id: eventId },
-    });
-    return { eventId, channel, threadTs: threadTs ?? null,
-      ephemeral: ephemerals.slice(ephemeralBefore),
-      messages: threadTs ? getThread(threadTs, channel) : [] };
-  }
-
-  async function relayTick() {
-    return { delivered: await relay.tick() };
-  }
 
   async function receiveDm(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -211,22 +110,12 @@ export function createMockSlackBot({
       messages: getThread(record.threadTs, channel) };
   }
 
-  function getThread(threadTs, channel) {
-    if (channel === undefined) {
-      channel = [...threads.keys()].map((key) => key.split('|')[0])
-        .find((c) => threads.has(threadKey(c, threadTs))) ?? 'D-MOCK';
-    }
+  function getThread(threadTs, channel = 'D-MOCK') {
     const messages = threads.get(threadKey(channel, threadTs));
     return messages ? messages.map((message) => ({ ...message })) : null;
   }
 
-  return {
-    receiveDm, receiveFix, receiveMention, relayTick, getThread,
-    getEphemerals: () => ephemerals.map((item) => ({ ...item })),
-    startRelay: () => relay.start(),
-    stopRelay: () => relay.stop(),
-    fixChannelId,
-  };
+  return { receiveDm, getThread };
 }
 
 export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
@@ -243,29 +132,17 @@ export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
         sendJson(response, 200, { ok: true, ...await bot.receiveDm(await readJson(request)) });
         return;
       }
-      if ((path === '/fix' || path === '/mentions' || path === '/relay/tick') && request.method === 'POST') {
-        const input = path === '/relay/tick' ? {} : await readJson(request);
-        const result = path === '/fix' ? await bot.receiveFix(input)
-          : path === '/mentions' ? await bot.receiveMention(input) : await bot.relayTick();
-        sendJson(response, 200, { ok: true, ...result });
-        return;
-      }
-      if (path === '/ephemerals' && request.method === 'GET') {
-        sendJson(response, 200, { ok: true, ephemerals: bot.getEphemerals() });
-        return;
-      }
       const match = /^\/threads\/([^/]+)$/.exec(path);
       if (match && request.method === 'GET') {
         const threadTs = decodeURIComponent(match[1]);
-        const channel = optionalId(url.searchParams.get('channelId') ?? undefined, 'channelId', undefined);
+        const channel = optionalId(url.searchParams.get('channelId') ?? undefined, 'channelId', 'D-MOCK');
         const messages = bot.getThread(threadTs, channel);
         if (!messages) throw new MockInputError('thread 不存在', 404);
         sendJson(response, 200, { ok: true, threadTs, messages });
         return;
       }
-      const known = match || ['/messages', '/fix', '/mentions', '/relay/tick', '/ephemerals'].includes(path);
-      sendJson(response, known ? 405 : 404, {
-        ok: false, error: known ? '方法不支持' : '路径不存在',
+      sendJson(response, path === '/messages' || match ? 405 : 404, {
+        ok: false, error: path === '/messages' || match ? '方法不支持' : '路径不存在',
       });
     } catch (error) {
       sendJson(response, error instanceof MockInputError ? error.status : 500, {

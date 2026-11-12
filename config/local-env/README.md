@@ -19,10 +19,7 @@ chmod 600 .env.local
 | 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
-| Slack Bot | `CHAT_TO_FIX_API_URL` | Chat-to-Fix 服务的本机地址；默认 `http://127.0.0.1:3090`。 |
-| Slack Bot | `CHAT_TO_FIX_API_TOKEN` | Chat-to-Fix 启动时写在 `<数据目录>/http-token` 里的令牌；也可放钥匙串 `Chat-to-Fix-Agent/CHAT_TO_FIX_API_TOKEN`。 |
-| Slack Bot | `SLACK_BOT_STATE_DIR` | 可选；发件箱游标目录，默认仓库根目录的 `.local/`（已被 Git 忽略）。 |
-| Agent、Slack Bot | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；安装获批并确定频道后填写。Slack Bot 只接受这个频道的 `/fix` 和 @（没有就拒绝启动），Chat-to-Fix 用它绑定仓库，两边是同一个值。 |
+| Agent | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；安装获批并确定频道后填写。 |
 | Agent | `CHAT_TO_FIX_LOCAL_REPO` | 本机 F2P 仓库路径；Agent 会复制到独立目录。 |
 | Agent | `CHAT_TO_FIX_JIRA_SITE_URL` | Jira 浏览器地址；可留空，由只读站点查询发现。 |
 | Agent | `CHAT_TO_FIX_WORK_TYPE` | Agent 创建 `Task` 工单时的 `Work type` 值；默认 `Tech Research`。 |

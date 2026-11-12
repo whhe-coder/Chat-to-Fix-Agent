@@ -11,7 +11,7 @@
     "start:mock-slack": "node src/slackBot/start-mock.js",
     "start:server": "node src/server/start.js",
     "check:jira": "node src/jira/check-board.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test"
   },
   "dependencies": {
     "@slack/bolt": "4.7.3"

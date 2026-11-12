@@ -1,0 +1,424 @@
+diff --git a/.env.example b/.env.example
+index b98fc20..45ff3bb 100644
+--- a/.env.example
++++ b/.env.example
+@@ -10,7 +10,14 @@ MOCK_SLACK_PORT=4001
+ SLACK_APP_TOKEN=
+ SLACK_BOT_TOKEN=
+ 
+-# Agent 接入（频道 ID 在 Slack 安装获批后填写）
++# Slack Bot 调 Chat-to-Fix 的业务接口（见 spec/slackbot.md）
++CHAT_TO_FIX_API_URL=http://127.0.0.1:3090
++# Chat-to-Fix 启动后 <数据目录>/http-token 里的值；也可存进钥匙串
++CHAT_TO_FIX_API_TOKEN=
++# 发件箱游标保存目录，默认 .local/
++SLACK_BOT_STATE_DIR=
++
++# Agent 接入（频道 ID 在 Slack 安装获批后填写；Slack Bot 也只接受这个频道）
+ CHAT_TO_FIX_SLACK_CHANNEL=
+ CHAT_TO_FIX_LOCAL_REPO=
+ CHAT_TO_FIX_JIRA_SITE_URL=
+diff --git a/.gitignore b/.gitignore
+index 5cecbc4..5fb1a42 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,3 +2,5 @@ node_modules/
+ .env
+ .env.*
+ !.env.example
++
++.local/
+diff --git a/config/local-env/README.md b/config/local-env/README.md
+index ae0693b..e75a052 100644
+--- a/config/local-env/README.md
++++ b/config/local-env/README.md
+@@ -19,7 +19,10 @@ chmod 600 .env.local
+ | 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
+ | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
+ | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
+-| Agent | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；安装获批并确定频道后填写。 |
++| Slack Bot | `CHAT_TO_FIX_API_URL` | Chat-to-Fix 服务的本机地址；默认 `http://127.0.0.1:3090`。 |
++| Slack Bot | `CHAT_TO_FIX_API_TOKEN` | Chat-to-Fix 启动时写在 `<数据目录>/http-token` 里的令牌；也可放钥匙串 `Chat-to-Fix-Agent/CHAT_TO_FIX_API_TOKEN`。 |
++| Slack Bot | `SLACK_BOT_STATE_DIR` | 可选；发件箱游标目录，默认仓库根目录的 `.local/`（已被 Git 忽略）。 |
++| Agent、Slack Bot | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；安装获批并确定频道后填写。Slack Bot 只接受这个频道的 `/fix` 和 @（没有就拒绝启动），Chat-to-Fix 用它绑定仓库，两边是同一个值。 |
+ | Agent | `CHAT_TO_FIX_LOCAL_REPO` | 本机 F2P 仓库路径；Agent 会复制到独立目录。 |
+ | Agent | `CHAT_TO_FIX_JIRA_SITE_URL` | Jira 浏览器地址；可留空，由只读站点查询发现。 |
+ | Agent | `CHAT_TO_FIX_WORK_TYPE` | Agent 创建 `Task` 工单时的 `Work type` 值；默认 `Tech Research`。 |
+diff --git a/config/slack/README.md b/config/slack/README.md
+index 22a4ece..c08588e 100644
+--- a/config/slack/README.md
++++ b/config/slack/README.md
+@@ -54,6 +54,8 @@
+ 3. 更新 Bot 和模拟入口的处理代码；当前 `npm start` 仍运行旧私信测试代码，不能用于新入口验收。
+ 4. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
+ 
++5. 讨论串里的补充信息需要再加 Bot scope `app_mentions:read` 和订阅 `app_mention` 事件（见 [spec/slackenter.md](../../spec/slackenter.md) 第 3 节）。待 Logan 和管理员确认是否并入这次安装申请；未加之前，`/fix` 照常，讨论串里的 @ 收不到。
++
+ 旧私信测试 Bot 的行为保留在 [历史规格](../../spec/slack-dm-entry.md)。
+ 
+ ## 参考
+diff --git a/package.json b/package.json
+index 040e1a9..06a21db 100644
+--- a/package.json
++++ b/package.json
+@@ -11,7 +11,7 @@
+     "start:mock-slack": "node src/slackBot/start-mock.js",
+     "start:server": "node src/server/start.js",
+     "check:jira": "node src/jira/check-board.js",
+-    "test": "node --test"
++    "test": "node --test test/*.test.js"
+   },
+   "dependencies": {
+     "@slack/bolt": "4.7.3"
+diff --git a/spec/mock-slack-bot.md b/spec/mock-slack-bot.md
+index 0dbb93a..2cef870 100644
+--- a/spec/mock-slack-bot.md
++++ b/spec/mock-slack-bot.md
+@@ -1,6 +1,6 @@
+ # 模拟 Slack Bot 规格
+ 
+-状态：旧版模拟私信入口已实现并通过自动测试。它尚未模拟新的 `/fix` 命令；改造后才能用于新任务链路验收。模拟入口不会访问 Slack、Jira 或 GitLab。
++状态：旧版模拟私信入口已实现并通过自动测试；2026-11-12 起增加 `/fix`、讨论串 @ 和发件箱转发的模拟，规格见 [slackbot.md](slackbot.md) 4.4 和 [slackenter.md](slackenter.md) 第 2 节。模拟入口不会访问 Slack、Jira 或 GitLab，只访问本机的 Chat-to-Fix 接口。
+ 
+ ## 启动与接口
+ 
+@@ -9,7 +9,11 @@
+ | 请求 | 用途 | 结果 |
+ | --- | --- | --- |
+ | `POST /messages` | 提交一条模拟私信 | 返回事件 ID、频道、thread 时间戳和当前 thread 消息 |
+-| `GET /threads/:threadTs` | 查询默认模拟私信频道的 thread | 返回该 thread 的消息 |
++| `GET /threads/:threadTs` | 查询 thread | 返回该 thread 的消息；不带 `channelId` 时在所有模拟频道里找 |
++| `POST /fix` | 模拟在频道里输入 `/fix` | 返回 `acked`、`threadTs`、临时消息 `ephemeral` 和任务讨论串的消息 |
++| `POST /mentions` | 模拟在讨论串里 @ bot | 返回本次产生的临时消息和讨论串消息 |
++| `POST /relay/tick` | 立即拉一次发件箱，发进模拟讨论串 | 返回 `delivered`（发出的条数） |
++| `GET /ephemerals` | 查看所有临时消息 | 返回列表 |
+ 
+ 提交内容为 JSON。`text` 必填，长度为 1 到 10000 个字符。`userId`、`channelId`、`threadTs` 和 `eventId` 可选；默认发送者为 `U-MOCK`，默认私信频道为 `D-MOCK`。若指定 `threadTs`，该 thread 必须已存在。查询其他频道时附加 `?channelId=<频道 ID>`。
+ 
+@@ -25,11 +29,19 @@ curl -sS -X POST http://127.0.0.1:4001/messages \
+ curl -sS 'http://127.0.0.1:4001/threads/1760000000.000001'
+ ```
+ 
++## 新入口：`/fix`、@ 和发件箱
++
++- `/fix` 的 JSON：`text`（可为空，用来试“用法”提示）；可选 `userId`、`userName`、`channelId`（默认指定频道 `C-MOCK-FIX`）、`triggerId`（重复同一个 ID 代表同一次投递）。
++- `/mentions` 的 JSON：`text`；可选 `threadTs`（必须已存在，不带就是“不在讨论串里”）、`userId`、`channelId`、`eventId`。
++- 模拟 Bot 用与真实 Bot 相同的 `/fix` 和 @ 处理器，Slack 换成内存里的假频道；任务消息、发件箱消息和 Bot 的“服务暂时连不上”都进讨论串，临时消息单独记录。
++- Chat-to-Fix 接口地址和令牌读 `CHAT_TO_FIX_API_URL`（默认 `http://127.0.0.1:3090`）和 `CHAT_TO_FIX_API_TOKEN`；指定频道读 `CHAT_TO_FIX_SLACK_CHANNEL`，没有就用 `C-MOCK-FIX`。`npm run start:mock-slack` 启动后每 3 秒自动拉发件箱，游标只在内存里。
++- 用法示例：`curl -sS -X POST http://127.0.0.1:4001/fix -H 'Content-Type: application/json' -d '{"text":"购买按钮拼错了"}'`，再用返回的 `threadTs` 查 `/threads/<threadTs>`。
++
+ ## 行为边界
+ 
+-- 模拟 Bot 使用与当前真实 Bot 相同的私信处理器。它在原 thread 回复一条接入测试说明，不创建工单或 MR。
++- 私信接口仍使用旧私信处理器（真实 Bot 已不再挂它）。它在原 thread 回复一条接入测试说明，不创建工单或 MR。
+ - 相同 `eventId` 代表同一事件。并发重试只记录一条用户消息和一条 Bot 回复。同一 ID 若带不同内容，返回 `409`。
+ - 模拟消息和 thread 只保存在当前进程的内存中。重启后清空。后续任务处理器可通过 `createHandler` 注入，不需要改变模拟输入格式。
+ - 服务拒绝非本机 Host、跨站 Origin、非 JSON 请求及超过 16 KiB 的请求体。错误响应不包含 token。
+ 
+-真实 Slack 的当前目标见 [固定频道 `/fix` 入口规格](slack-fix-command.md)。本模拟入口仍使用旧私信处理器，不能代替新入口的验收。
++真实 Slack 的当前目标见 [固定频道 `/fix` 入口规格](slack-fix-command.md)。模拟入口不能代替真实 Slack 的验收（真实的 3 秒确认、权限和事件投递都不在模拟里）。
+diff --git a/src/slackBot/mock-slack-bot.js b/src/slackBot/mock-slack-bot.js
+index d924521..637ea8a 100644
+--- a/src/slackBot/mock-slack-bot.js
++++ b/src/slackBot/mock-slack-bot.js
+@@ -1,6 +1,8 @@
+ import { createServer } from 'node:http';
+ import { randomUUID } from 'node:crypto';
+ import { createDmHandler } from './slack-message.js';
++import { createFixCommandHandler, createMentionHandler } from './fix-command.js';
++import { createMemoryCursorStore, createOutboxRelay } from './outbox-relay.js';
+ 
+ const MAX_BODY_BYTES = 16 * 1024;
+ 
+@@ -51,13 +53,19 @@ async function readJson(request) {
+   }
+ }
+ 
+-export function createMockSlackBot({ createHandler = createDmHandler, now = Date.now } = {}) {
++export function createMockSlackBot({
++  createHandler = createDmHandler,
++  now = Date.now,
++  api,
++  fixChannelId = 'C-MOCK-FIX',
++  relayIntervalMs = 3000,
++} = {}) {
+   const threads = new Map();
+   const events = new Map();
+   let sequence = 0;
+ 
+   function threadKey(channel, threadTs) {
+-    return `${channel}:${threadTs}`;
++    return `${channel}|${threadTs}`;
+   }
+ 
+   function nextTs() {
+@@ -74,6 +82,99 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
+     },
+   });
+ 
++  // 假 Slack：频道里的消息和讨论串都在内存里，同时记录临时消息。
++  const ephemerals = [];
++  const triggers = new Map();
++
++  async function fakePost({ channel, thread_ts: threadTs, text }) {
++    const ts = nextTs();
++    const key = threadKey(channel, threadTs || ts);
++    if (!threads.has(key)) threads.set(key, []);
++    threads.get(key).push({ from: 'bot', text, ts });
++    return { ok: true, channel, ts };
++  }
++
++  const unavailable = { postEvent: async () => ({ status: 503, body: null }),
++    getOutbox: async () => ({ status: 503, body: null }) };
++  const fixApi = api || unavailable;
++  const handleFix = createFixCommandHandler({ api: fixApi, postMessage: fakePost, fixChannelId, now });
++  const handleMention = createMentionHandler({
++    api: fixApi,
++    fixChannelId,
++    botUserId: 'U-MOCK-BOT',
++    postMessage: fakePost,
++    postEphemeral: async ({ channel, user, text }) => { ephemerals.push({ channel, user, text }); },
++    now,
++  });
++  const relay = createOutboxRelay({
++    api: fixApi, postMessage: fakePost, cursorStore: createMemoryCursorStore(),
++    intervalMs: relayIntervalMs, log: () => {},
++  });
++
++  function newestThreadAfter(before) {
++    return [...threads.keys()].slice(before).map((key) => key.split('|'))[0];
++  }
++
++  function checkText(input) {
++    if (!input || typeof input !== 'object' || Array.isArray(input)) {
++      throw new MockInputError('消息内容无效');
++    }
++    if (typeof input.text !== 'string' || input.text.length > 10000) {
++      throw new MockInputError('text 必须是 0 到 10000 个字符的字符串');
++    }
++  }
++
++  async function receiveFix(input) {
++    checkText(input);
++    const userId = optionalId(input.userId, 'userId', 'U-MOCK');
++    const channel = optionalId(input.channelId, 'channelId', fixChannelId);
++    const triggerId = optionalId(input.triggerId, 'triggerId', `T-MOCK-${randomUUID()}`);
++    const before = threads.size;
++    const ephemeralBefore = ephemerals.length;
++    let acked = false;
++    await handleFix({
++      command: { text: input.text, user_id: userId, user_name: input.userName || 'mock-user',
++        channel_id: channel, trigger_id: triggerId },
++      ack: async () => { acked = true; },
++      respond: async ({ text }) => { ephemerals.push({ channel, user: userId, text }); },
++    });
++    const created = newestThreadAfter(before);
++    if (created) triggers.set(triggerId, created);
++    const [threadChannel, threadTs] = created || triggers.get(triggerId) || [];
++    return {
++      triggerId, acked, channel,
++      threadTs: threadTs ?? null,
++      ephemeral: ephemerals.slice(ephemeralBefore),
++      messages: threadTs ? getThread(threadTs, threadChannel) : [],
++    };
++  }
++
++  async function receiveMention(input) {
++    checkText(input);
++    const userId = optionalId(input.userId, 'userId', 'U-MOCK');
++    const channel = optionalId(input.channelId, 'channelId', fixChannelId);
++    const threadTs = optionalId(input.threadTs, 'threadTs', undefined);
++    const eventId = optionalId(input.eventId, 'eventId', `E-MOCK-${randomUUID()}`);
++    if (threadTs && !threads.has(threadKey(channel, threadTs))) {
++      throw new MockInputError('threadTs 不存在', 404);
++    }
++    const ts = nextTs();
++    if (threadTs) threads.get(threadKey(channel, threadTs)).push({ from: 'user', user: userId, text: input.text, ts });
++    const ephemeralBefore = ephemerals.length;
++    await handleMention({
++      event: { type: 'app_mention', channel, user: userId, ts, text: `<@U-MOCK-BOT> ${input.text}`,
++        ...(threadTs ? { thread_ts: threadTs } : {}) },
++      body: { event_id: eventId },
++    });
++    return { eventId, channel, threadTs: threadTs ?? null,
++      ephemeral: ephemerals.slice(ephemeralBefore),
++      messages: threadTs ? getThread(threadTs, channel) : [] };
++  }
++
++  async function relayTick() {
++    return { delivered: await relay.tick() };
++  }
++
+   async function receiveDm(input) {
+     if (!input || typeof input !== 'object' || Array.isArray(input)) {
+       throw new MockInputError('消息内容无效');
+@@ -110,12 +211,22 @@ export function createMockSlackBot({ createHandler = createDmHandler, now = Date
+       messages: getThread(record.threadTs, channel) };
+   }
+ 
+-  function getThread(threadTs, channel = 'D-MOCK') {
++  function getThread(threadTs, channel) {
++    if (channel === undefined) {
++      channel = [...threads.keys()].map((key) => key.split('|')[0])
++        .find((c) => threads.has(threadKey(c, threadTs))) ?? 'D-MOCK';
++    }
+     const messages = threads.get(threadKey(channel, threadTs));
+     return messages ? messages.map((message) => ({ ...message })) : null;
+   }
+ 
+-  return { receiveDm, getThread };
++  return {
++    receiveDm, receiveFix, receiveMention, relayTick, getThread,
++    getEphemerals: () => ephemerals.map((item) => ({ ...item })),
++    startRelay: () => relay.start(),
++    stopRelay: () => relay.stop(),
++    fixChannelId,
++  };
+ }
+ 
+ export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
+@@ -132,17 +243,29 @@ export function createMockSlackServer({ bot = createMockSlackBot() } = {}) {
+         sendJson(response, 200, { ok: true, ...await bot.receiveDm(await readJson(request)) });
+         return;
+       }
++      if ((path === '/fix' || path === '/mentions' || path === '/relay/tick') && request.method === 'POST') {
++        const input = path === '/relay/tick' ? {} : await readJson(request);
++        const result = path === '/fix' ? await bot.receiveFix(input)
++          : path === '/mentions' ? await bot.receiveMention(input) : await bot.relayTick();
++        sendJson(response, 200, { ok: true, ...result });
++        return;
++      }
++      if (path === '/ephemerals' && request.method === 'GET') {
++        sendJson(response, 200, { ok: true, ephemerals: bot.getEphemerals() });
++        return;
++      }
+       const match = /^\/threads\/([^/]+)$/.exec(path);
+       if (match && request.method === 'GET') {
+         const threadTs = decodeURIComponent(match[1]);
+-        const channel = optionalId(url.searchParams.get('channelId') ?? undefined, 'channelId', 'D-MOCK');
++        const channel = optionalId(url.searchParams.get('channelId') ?? undefined, 'channelId', undefined);
+         const messages = bot.getThread(threadTs, channel);
+         if (!messages) throw new MockInputError('thread 不存在', 404);
+         sendJson(response, 200, { ok: true, threadTs, messages });
+         return;
+       }
+-      sendJson(response, path === '/messages' || match ? 405 : 404, {
+-        ok: false, error: path === '/messages' || match ? '方法不支持' : '路径不存在',
++      const known = match || ['/messages', '/fix', '/mentions', '/relay/tick', '/ephemerals'].includes(path);
++      sendJson(response, known ? 405 : 404, {
++        ok: false, error: known ? '方法不支持' : '路径不存在',
+       });
+     } catch (error) {
+       sendJson(response, error instanceof MockInputError ? error.status : 500, {
+diff --git a/src/slackBot/slack-bot.js b/src/slackBot/slack-bot.js
+index 96f7b35..0a3d65f 100644
+--- a/src/slackBot/slack-bot.js
++++ b/src/slackBot/slack-bot.js
+@@ -1,7 +1,11 @@
+ import '../config/load-local-env.js';
+ import { execFileSync } from 'node:child_process';
++import { fileURLToPath } from 'node:url';
++import { resolve } from 'node:path';
+ import { App, LogLevel } from '@slack/bolt';
+-import { createDmHandler } from './slack-message.js';
++import { createChatToFixApi } from './chat-to-fix-api.js';
++import { createFixCommandHandler, createMentionHandler } from './fix-command.js';
++import { createFileCursorStore, createOutboxRelay } from './outbox-relay.js';
+ 
+ function readToken(name) {
+   if (process.env[name]) return process.env[name];
+@@ -22,27 +26,61 @@ function readToken(name) {
+   throw new Error(`找不到 ${name}；请先保存到 Mac 钥匙串或设置环境变量`);
+ }
+ 
++const fixChannelId = process.env.CHAT_TO_FIX_SLACK_CHANNEL;
++if (!fixChannelId) {
++  console.error('缺少 CHAT_TO_FIX_SLACK_CHANNEL：请填写指定频道的 ID（见 config/local-env/README.md），否则不启动。');
++  process.exit(1);
++}
++
++const stateDir = process.env.SLACK_BOT_STATE_DIR
++  || fileURLToPath(new URL('../../.local/', import.meta.url));
++
+ const app = new App({
+   token: readToken('SLACK_BOT_TOKEN'),
+   appToken: readToken('SLACK_APP_TOKEN'),
+   socketMode: true,
+   logLevel: LogLevel.WARN,
+ });
+-const handleDm = createDmHandler({
+-  postMessage: (message) => app.client.chat.postMessage(message),
++const api = createChatToFixApi({
++  baseUrl: process.env.CHAT_TO_FIX_API_URL || 'http://127.0.0.1:3090',
++  token: readToken('CHAT_TO_FIX_API_TOKEN'),
+ });
++const postMessage = (message) => app.client.chat.postMessage(message);
+ 
+-app.event('message', async ({ event, body }) => {
+-  await handleDm({ event, body });
++let botUserId;
++try {
++  botUserId = (await app.client.auth.test()).user_id;
++} catch {
++  // 取不到就用事件里的 authorizations。
++}
++
++app.command('/fix', createFixCommandHandler({ api, postMessage, fixChannelId }));
++const handleMention = createMentionHandler({
++  api,
++  fixChannelId,
++  botUserId,
++  postMessage,
++  postEphemeral: (message) => app.client.chat.postEphemeral(message),
++});
++app.event('app_mention', async ({ event, body }) => {
++  await handleMention({ event, body });
+ });
+ 
+ app.error(async (error) => {
+   console.error('Slack 事件处理失败：', error?.code || error?.name || 'unknown');
+ });
+ 
++const relay = createOutboxRelay({
++  api,
++  postMessage,
++  cursorStore: createFileCursorStore(resolve(stateDir, 'outbox-cursor')),
++  log: (line) => console.error(line),
++});
++
+ try {
+   await app.start();
+-  console.info('Slack 私信测试 Bot 已连接。');
++  relay.start();
++  console.info('Slack Bot 已连接：/fix、讨论串 @ 和发件箱转发已启动。');
+ } catch (error) {
+   console.error('Slack 连接失败：', error?.code || error?.name || 'unknown');
+   process.exitCode = 1;
+diff --git a/src/slackBot/start-mock.js b/src/slackBot/start-mock.js
+index ced71ef..0e0df84 100644
+--- a/src/slackBot/start-mock.js
++++ b/src/slackBot/start-mock.js
+@@ -1,11 +1,21 @@
+ import '../config/load-local-env.js';
+-import { createMockSlackServer } from './mock-slack-bot.js';
++import { createMockSlackBot, createMockSlackServer } from './mock-slack-bot.js';
++import { createChatToFixApi } from './chat-to-fix-api.js';
+ 
+ const port = Number(process.env.MOCK_SLACK_PORT || 4001);
+ if (!Number.isInteger(port) || port < 1 || port > 65535) {
+   throw new Error('MOCK_SLACK_PORT 必须是 1 到 65535 的整数');
+ }
+ 
+-createMockSlackServer().listen(port, '127.0.0.1', () => {
++const bot = createMockSlackBot({
++  api: createChatToFixApi({
++    baseUrl: process.env.CHAT_TO_FIX_API_URL || 'http://127.0.0.1:3090',
++    token: process.env.CHAT_TO_FIX_API_TOKEN || '',
++  }),
++  fixChannelId: process.env.CHAT_TO_FIX_SLACK_CHANNEL || 'C-MOCK-FIX',
++});
++bot.startRelay();
++
++createMockSlackServer({ bot }).listen(port, '127.0.0.1', () => {
+   console.info(`模拟 Slack Bot 已启动：http://127.0.0.1:${port}`);
+ });
