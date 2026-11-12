@@ -9,7 +9,6 @@
   "scripts": {
     "start": "node src/slackBot/slack-bot.js",
     "start:mock-slack": "node src/slackBot/start-mock.js",
-    "start:server": "node src/server/start.js",
     "check:jira": "node src/jira/check-board.js",
     "start:agent": "sh src/chat-to-fix/scripts/start-chat-to-fix.sh",
     "stop:agent": "sh src/chat-to-fix/scripts/stop-chat-to-fix.sh",

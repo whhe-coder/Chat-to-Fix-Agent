@@ -4,18 +4,13 @@
 
 ## 当前已接通：只读 API
 
-本地 Node.js 服务调用 GitLab REST API，读取目标项目的 `master` 分支。它使用 `GITLAB_TOKEN`，不读取 `glab` 的凭据配置。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
+Agent 的连接准备脚本直接调用 [`createGitlabConnection()`](../../src/gitlab/connection.js) 检查目标项目的 `master` 分支，不需要外围 HTTP 服务。它使用 `GITLAB_TOKEN`，不读取 `glab` 的凭据配置。变量来源和本机保存方式见 [本地环境变量配置](../local-env/README.md)。
 
-```text
-npm run start:server
-GET http://127.0.0.1:4000/health
-GET http://127.0.0.1:4000/gitlab/status
-GET http://127.0.0.1:4000/gitlab/merge-requests/<MR_IID>/checks
+```sh
+npm run check:agent-connections
 ```
 
-启动前按 [本地环境变量配置](../local-env/README.md) 提供 `GITLAB_TOKEN`。当前服务只监听本机。
-
-GitLab 连接现由 [`createGitlabConnection()`](../../src/gitlab/connection.js) 独立创建。后续本地 agent 可直接调用它，无需经过 HTTP 服务。进程启动时创建一次连接并复用；服务处理请求时不再读取钥匙串。每次重启仍可能出现 macOS 钥匙串授权提示。连接函数和当前验证范围见 [连接规格](../../spec/gitlab-connection.md)。
+Agent 执行任务时使用自己的 GitLab 适配器。此前用于验证连接的本地服务已删除；其接口记录保存在 [历史规格](../../docs/archive/legacy-local-server/gitlab-readonly-server.md)。连接函数和验证范围见 [连接规格](../../spec/gitlab-connection.md)。
 
 ## 完整任务所需权限
 
@@ -33,7 +28,7 @@ GitLab 连接现由 [`createGitlabConnection()`](../../src/gitlab/connection.js)
 
 首次保存时遗漏了 token 点号后的后缀，读取验证返回 `401`；随后已修正钥匙串条目。使用修正后的 token，仓库分支、MR 列表、pipeline 列表、jobs 列表及一条 job trace 的只读请求均返回 `200`。尚未尝试 Git push、创建 Draft MR 或修改 MR；这些写入能力仍待对应功能实施时验证。不要把 token 值写入仓库或聊天记录。
 
-本地服务已通过一个现有 MR 只读验证：它能读取主 pipeline、下游 E2E pipeline 和失败 job。即使 pipeline 总状态为 `success`，失败 job 仍会使严格检查状态为 `failed`。详情见 [GitLab MR 客户端规格](../../spec/gitlab-mr-client.md)。
+已删除的过渡服务曾通过一个现有 MR 做只读验证：它能读取主 pipeline、下游 E2E pipeline 和失败 job。即使 pipeline 总状态为 `success`，失败 job 仍会使严格检查状态为 `failed`。详情见 [GitLab MR 客户端规格](../../spec/gitlab-mr-client.md)。
 
 ## 写入方式与验证状态
 
