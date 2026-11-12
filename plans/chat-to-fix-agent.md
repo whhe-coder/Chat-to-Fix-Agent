@@ -46,7 +46,7 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。本地 agent 或�
 
 本里程碑完成后再推进 M1。管理员审批阻塞真实安装和 M6 验收。已完成事项见 [done.md](done.md)。
 
-接入代码已提前准备：`chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。此项不改变 M0 的验收状态。真实 Slack 安装获批、频道 ID 确定后，才能完成真实入口验证；GitLab 写入和完整 CI 循环仍需真实环境验证。
+接入代码已提前准备：`src/chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。此项不改变 M0 的验收状态。真实 Slack 安装获批、频道 ID 确定后，才能完成真实入口验证；GitLab 写入和完整 CI 循环仍需真实环境验证。
 
 ## 执行规则
 

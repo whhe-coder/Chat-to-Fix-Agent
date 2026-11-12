@@ -10,6 +10,7 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const plugin = resolve(import.meta.dirname, '..')
+const project = resolve(plugin, '../../..')
 const above = (start) => {
   for (let dir = start; ; dir = dirname(dir)) {
     if (existsSync(join(dir, 'deepseek-harness'))) return join(dir, 'deepseek-harness')
@@ -19,6 +20,7 @@ const above = (start) => {
 const installed = join(plugin, 'dev', 'harness')
 const findHarness = () => {
   if (process.env.DSH_HARNESS) return process.env.DSH_HARNESS
+  if (existsSync(join(project, 'node_modules', '@deepseek-ai', 'dsh'))) return project
   if (existsSync(join(installed, 'node_modules'))) return installed
   const near = above(dirname(plugin))
   if (near) return near

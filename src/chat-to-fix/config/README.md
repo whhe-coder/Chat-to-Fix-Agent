@@ -1,18 +1,18 @@
 # config/
 
-`cordis.patch.yml` is chat-to-fix's DSH profile patch. `scripts/start-chat-to-fix.sh` loads it as a `--patch` overlay over the profile `chat-to-fix` (bundles `@deepseek-ai/dsh-base`, then `@deepseek-ai/dsh-web-app`). It has been loaded by the real runtime (DSH 0.2.2-rc.1 in `runtime/`), and `scripts/smoke.ts` checks what it does.
+`cordis.patch.yml` is chat-to-fix's DSH profile patch. `scripts/start-chat-to-fix.sh` loads it as a `--patch` overlay over the profile `chat-to-fix` (bundles `@deepseek-ai/dsh-base`, then `@deepseek-ai/dsh-web-app`). It has been loaded by the real runtime (DSH 0.2.2-rc.1 installed from the repository root), and `scripts/smoke.ts` checks what it does.
 
-## The bundled runtime
+## Runtime installation
 
-- `runtime/package.json` names the DSH packages; `runtime/node_modules` is the tree installed from npm (moved here from `bot/dev/harness/node_modules`, not changed). `scripts/dev-env.sh` sets `DSH_HARNESS` to `runtime/` for the tests.
-- Start: `. scripts/dev-env.sh && scripts/start-chat-to-fix.sh [--patch extra.yml]`. Stop: `scripts/stop-chat-to-fix.sh`. Or use `npm start` / `npm stop`. Smoke run: `npm run smoke` (`--sentinel-home` gives an exact list of writes under HOME).
+- Root `package.json` names the DSH packages. One `npm ci` at the repository root installs them. `scripts/dev-env.sh` sets `DSH_HARNESS` to the root package for tests.
+- From the repository root, start with `npm run start:agent`, stop with `npm run stop:agent`, and run the smoke check with `npm run smoke:agent` (`--sentinel-home` gives an exact list of writes under HOME).
 - The configuration file is `$CHAT_TO_FIX_DATA/chat-to-fix.json` (default `.data/chat-to-fix.json`), or the path in `CHAT_TO_FIX_CONFIG`. Keep `dataDir` and `worktreesDir` under `$CHAT_TO_FIX_DATA`; the start script warns when they are not.
 - The token is read from `CHAT_TO_FIX_HTTP_TOKEN`. If that is not set, the start script creates `$CHAT_TO_FIX_DATA/http-token` (mode 600) once.
 - Claude Code: the start script passes `CLAUDE_BIN` (set by `dev-env.sh`) through, and the plugin row turns it into `claudeCommand`. Without a CLI there is no `claude-code` route, and every task fails at start.
 
 ## What the start script sets, and why
 
-The command is `node runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.ts`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
+The command is `node node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch src/chat-to-fix/config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.ts`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
 
 The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM`, the proxy variables (`HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY` and their lower-case forms), `ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
 
@@ -36,7 +36,7 @@ The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL 
 | 4 telemetry rows disabled | no OTel export | yes: the composed tree shows `disabled: true`; the process had no outward socket or proxy attempt |
 | 5 headless: web-startup, webserver, web-runtime, modules, client-hmr, session-log-download, ui-deliverables, directory-picker, open-in-app, office-to-pdf, harness-dev-context and workspace-changes disabled; `connection` restated without `inject: [webStartup]` | no web server, browser or desktop integration | yes: every row activated, and the only listener is the control interface on 127.0.0.1 |
 | 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly`; since the bot layer passes each bot's preset at every session it creates (own chat, group session, fresh part; the relay session prefers `readonly`), the shipped `standard` preset is unchanged and only the Coding bot uses it |
-| 7 plugin row `chat-to-fix/src/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
+| 7 plugin row `chat-to-fix/src/chat-to-fix/src/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
 
 Loader rules confirmed against the real runtime:
 

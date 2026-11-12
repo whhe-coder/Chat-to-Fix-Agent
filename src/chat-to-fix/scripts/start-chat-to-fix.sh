@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts chat-to-fix inside the project's own DSH runtime (runtime/), headless and isolated.
+# Starts chat-to-fix using DSH from the repository root install, headless and isolated.
 #
 #   scripts/start-chat-to-fix.sh [--patch <file>]...     extra --patch overlays go after config/cordis.patch.yml
 #   scripts/stop-chat-to-fix.sh                          stops it (process group from the pid file)
@@ -23,11 +23,11 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$ROOT/../.." && pwd)"
 DATA="${CHAT_TO_FIX_DATA:-$ROOT/.data}"
 mkdir -p "$DATA"
 DATA="$(cd "$DATA" && pwd)"
-RUNTIME="$ROOT/runtime"
-DSH_BIN="$RUNTIME/node_modules/@deepseek-ai/dsh/lib/bin.js"
+DSH_BIN="$PROJECT_ROOT/node_modules/@deepseek-ai/dsh/lib/bin.js"
 CONFIG="${CHAT_TO_FIX_CONFIG:-$DATA/chat-to-fix.json}"
 PATCH="$ROOT/config/cordis.patch.yml"
 RUN="$DATA/run"
@@ -36,7 +36,7 @@ LOG="$RUN/chat-to-fix.log"
 
 if ! command -v node >/dev/null 2>&1; then CHAT_TO_FIX_ROOT="$ROOT" . "$ROOT/scripts/dev-env.sh"; fi
 NODE="$(command -v node)"
-[ -f "$DSH_BIN" ] || { echo "start-chat-to-fix: the bundled DSH is missing ($DSH_BIN)" >&2; exit 1; }
+[ -f "$DSH_BIN" ] || { echo "start-chat-to-fix: DSH is missing from the root install ($DSH_BIN)" >&2; exit 1; }
 [ -f "$CONFIG" ] || { echo "start-chat-to-fix: no configuration at $CONFIG (copy config.example.json and set CHAT_TO_FIX_CONFIG)" >&2; exit 1; }
 # chat-to-fix's task store and worktrees are wherever the configuration says; say so when that is
 # outside the data directory (the isolation promise covers $CHAT_TO_FIX_DATA only).
@@ -76,12 +76,12 @@ cat > "$PROFILE/package.json" <<EOF
 {
   "name": "dsh-profile-chat-to-fix",
   "private": true,
-  "dependencies": { "chat-to-fix": "link:$ROOT" },
+  "dependencies": { "chat-to-fix": "link:$PROJECT_ROOT" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"] } }
 }
 EOF
 [ -f "$PROFILE/cordis.patch.yml" ] || printf '# Written by DSH settings forms only. chat-to-fix'"'"'s own rows are in config/cordis.patch.yml.\n[]\n' > "$PROFILE/cordis.patch.yml"
-ln -sfn "$ROOT" "$PROFILE/node_modules/chat-to-fix"
+ln -sfn "$PROJECT_ROOT" "$PROFILE/node_modules/chat-to-fix"
 
 # The control-interface token: given, else kept in a private file under the data directory.
 if [ -z "${CHAT_TO_FIX_HTTP_TOKEN:-}" ]; then

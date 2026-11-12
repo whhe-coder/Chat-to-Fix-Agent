@@ -89,13 +89,8 @@ export function reportMarkdown({ facts, client = {} as any, entries = [], client
   return out.join('\n')
 }
 
-const ownVersion = () => {
-  try {
-    return JSON.parse(readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')).version
-  } catch {
-    return undefined
-  }
-}
+// The bot layer is derived from DS Bot 0.3.1; its package manifest is merged into the root package.
+const ownVersion = () => '0.3.1'
 
 // DSH packages share one version; the LLM package is always beside the plugin.
 const dshVersion = () => {

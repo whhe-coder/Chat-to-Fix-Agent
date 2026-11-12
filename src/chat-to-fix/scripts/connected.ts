@@ -4,12 +4,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn, execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createGitlabConnection } from '../../src/gitlab/connection.js'
-import { createJiraConnection } from '../../src/jira/connection.js'
+import { createGitlabConnection } from '../../gitlab/connection.js'
+import { createJiraConnection } from '../../jira/connection.js'
 import { loadConfig } from '../src/config.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const PROJECT_ROOT = resolve(ROOT, '..')
+const PROJECT_ROOT = resolve(ROOT, '../..')
 const text = (value) => typeof value === 'string' && value.trim() !== ''
 
 export function bridgeEnv(env: any) {
