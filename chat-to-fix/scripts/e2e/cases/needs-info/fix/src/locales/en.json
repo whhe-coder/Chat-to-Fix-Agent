@@ -1,0 +1,12 @@
+{
+  "nav.store": "Store",
+  "nav.library": "Library",
+  "nav.cart": "Cart",
+  "card.purchase": "Purchase",
+  "card.owned": "Owned in library",
+  "card.add_to_cart": "Add to cart",
+  "cart.title": "Your cart",
+  "cart.buy_now": "Buy now",
+  "checkout.title": "Checkout",
+  "checkout.pay": "Place order"
+}

@@ -141,3 +141,10 @@ test('the group notice tells the CI loop, its three roles and the round limit', 
   assert.match(notice, /3 rounds/)
   assert.match(notice, /Never loosen CI/)
 })
+
+test('main: the close note is shown to the requester, so it is written in the discussion language without jargon', () => {
+  const main = loadPrompt('main')
+  assert.match(main, /requester reads that note/)
+  assert.match(main, /language of the discussion/)
+  assert.match(main, /no internal jargon/)
+})

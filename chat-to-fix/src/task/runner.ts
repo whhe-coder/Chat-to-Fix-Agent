@@ -159,6 +159,11 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
       if (endReason !== 'needs_info' && !DONE_END_REASONS.includes(endReason)) {
         await attempt('notify', taskId, async () => notify(task ?? await store.getTask(taskId), noticeKind(state, endReason)))
       }
+      // The Slack role has asked its question, but with slack.mentions false the requester cannot answer in the
+      // thread: tell them to submit again with /fix.
+      if (endReason === 'needs_info' && config.slack?.mentions === false) {
+        await attempt('notify', taskId, async () => notify(task ?? await store.getTask(taskId), 'needs_info_resubmit'))
+      }
       // 7. give the slot back, then let the queue take the next task
       await attempt('release', taskId, () => queue?.release(taskId))
       await attempt('dispatch', taskId, () => queue?.dispatch())

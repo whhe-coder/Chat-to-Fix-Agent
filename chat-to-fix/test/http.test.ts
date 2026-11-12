@@ -2,12 +2,16 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHttp } from '../src/task/http.ts'
 import { createQueue } from '../src/task/queue.ts'
+import { createOutbox } from '../src/task/outbox.ts'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const TOKEN = 'test-token'
 const binding = { channel: 'C1', repo: 'g/p', jiraProject: 'DEMO', issueType: 'Bug', labels: [], defaultBranch: 'master' }
 const event = (o = {}) => ({ eventId: 'Ev1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'n' }, text: 'broken', ...o })
 
-let tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax, opened, startThreadImpl
+let outbox, tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax, opened, startThreadImpl
 
 function fakeStore() {
   return {
@@ -17,6 +21,12 @@ function fakeStore() {
       const t = { id: `T-${n}`, no: n, state: 'queued', origin, binding: b, queuedAt: null, step: 'fetch', jira: { key: null }, mr: null }
       tasks.set(t.id, t); events.set(origin.eventId, t.id); threads.set(`${origin.channel}/${origin.threadTs}`, t.id)
       return t
+    },
+    async addFollowUp(id, eventId, message) {
+      const t = tasks.get(id)
+      tasks.set(id, { ...t, origin: { ...t.origin, followUps: [...(t.origin.followUps ?? []), message] } })
+      events.set(eventId, id)
+      return tasks.get(id)
     },
     async getTask(id) { return tasks.get(id) },
     async findByThread(c, t) { return tasks.get(threads.get(`${c}/${t}`)) },
@@ -34,7 +44,8 @@ async function start() {
   }
   const limits = { maxConcurrent, queueMax, queueWaitHours: 4 }
   const queue = createQueue({ store, limits, runner, notify: (t, k) => notices.push([t.id, k]), now: () => clock.t })
-  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, queue, runner, notify: (t, k) => notices.push([t.id, k]), startThread: (channel, text) => startThreadImpl(channel, text) })
+  outbox = createOutbox({ dataDir: mkdtempSync(join(tmpdir(), 'chat-to-fix-http-outbox-')), store })
+  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, outbox, queue, runner, notify: (t, k) => notices.push([t.id, k]), startThread: (channel, text) => startThreadImpl(channel, text) })
   await http.listen()
   srv = http
   base = `http://127.0.0.1:${http.port}`
@@ -113,6 +124,7 @@ test('4.1 discussion already queued or running -> 200 inProgress, notice, no new
   assert.deepEqual(r.body, { taskId: 'T-1', state: 'running', inProgress: true })
   assert.deepEqual(notices, [['T-1', 'in_progress']])
   assert.equal(tasks.size, 1)
+  assert.deepEqual(tasks.get('T-1').origin.followUps.map((f) => f.text), ['broken']) // the @ is kept on the task as a follow-up
   tasks.get('T-1').state = 'queued'
   assert.equal((await post(event({ eventId: 'Ev3' }))).body.state, 'queued')
 })
@@ -128,6 +140,8 @@ test('4.1 needs_info thread -> 202 rerun of the original task, queued again', as
   assert.equal(tasks.size, 1)
   assert.equal(tasks.get('T-1').queuedAt, new Date(clock.t).toISOString())
   assert.deepEqual(runnerCalls, [['start', 'T-1']])
+  assert.deepEqual(tasks.get('T-1').origin.followUps.map((f) => f.messageTs), ['1.5']) // the answer is stored
+  assert.deepEqual(notices, [['T-1', 'resumed']])
 })
 
 test('4.1 queue full -> 429, notice, nothing created', async () => {
@@ -216,7 +230,16 @@ test('health', async () => {
   await post(event({ eventId: 'E2', threadTs: '2' }))
   const r = await call('GET', '/health')
   assert.equal(r.status, 200)
-  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1 })
+  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false })
+})
+
+test('health: queueFull turns true when the queue is at queueMax', async () => {
+  await srv.close(); maxConcurrent = 1; queueMax = 1; await start()
+  await post(event({ eventId: 'E1', threadTs: '1' })); tasks.get('T-1').state = 'running'
+  await post(event({ eventId: 'E2', threadTs: '2' }))
+  const r = await call('GET', '/health')
+  assert.equal(r.body.queueMax, 1)
+  assert.equal(r.body.queueFull, true)
 })
 
 test('unknown route -> 404 JSON with error', async () => {
@@ -355,4 +378,130 @@ test('slash: a later @ in the opening thread finds the task: in progress -> inPr
   assert.deepEqual(again.body, { taskId: 'T-1', state: 'queued', position: 1, rerun: true })
   assert.deepEqual(runnerCalls, [['start', 'T-1']])
   assert.equal(tasks.size, 1); assert.equal(opened.length, 1)
+})
+
+
+// ---- source "fix" and "mention" (the company Slack Bot, spec slackbot.md 4.2 (1)) ----
+
+const fix = (o = {}) => event({ source: 'fix', eventId: 'slash:T1', threadTs: '50.000100', messageTs: '50.000100', ...o })
+const mention = (o = {}) => event({ source: 'mention', eventId: 'Ev-m1', threadTs: '50.000100', messageTs: '50.000300', text: 'it says Add to crat', ...o })
+
+test('source fix: creates the task in the Slack Bot\'s thread -> 202 queued, no opening message from the server', async () => {
+  const r = await post(fix())
+  assert.equal(r.status, 202)
+  assert.equal(r.body.taskId, 'T-1'); assert.equal(r.body.state, 'queued')
+  assert.equal(tasks.get('T-1').origin.threadTs, '50.000100')
+  assert.equal(tasks.get('T-1').origin.earlier, undefined)
+  assert.equal(opened.length, 0)
+  assert.deepEqual(runnerCalls, [['start', 'T-1']])
+})
+
+test('source fix: missing fields 400 (source and eventId and threadTs and messageTs and user.id and text), unknown source 400', async () => {
+  const r = await post({ source: 'fix' })
+  assert.equal(r.status, 400)
+  assert.match(r.body.error, /^missing_fields: eventId, channel, threadTs, messageTs, text, user\.id$/)
+  for (const k of ['threadTs', 'messageTs', 'text', 'eventId', 'channel']) assert.equal((await post(fix({ [k]: '' }))).status, 400, k)
+  assert.equal((await post(fix({ user: {} }))).status, 400)
+  assert.deepEqual((await post(fix({ source: 'bogus' }))).body, { error: 'invalid_source' })
+  assert.equal(tasks.size, 0)
+})
+
+test('source fix: the same eventId again -> 200 duplicate, also when two arrive at the same time', async () => {
+  const [a, b] = await Promise.all([post(fix()), post(fix())])
+  assert.deepEqual([a.status, b.status].sort(), [200, 202])
+  assert.equal(tasks.size, 1)
+  const again = await post(fix())
+  assert.equal(again.status, 200); assert.equal(again.body.duplicate, true); assert.equal(again.body.taskId, 'T-1')
+})
+
+test('source fix: channel not bound -> 422 and a notice; queue full -> 429 and a notice; nothing created', async () => {
+  const unbound = await post(fix({ channel: 'CX' }))
+  assert.equal(unbound.status, 422); assert.deepEqual(unbound.body, { error: 'channel_not_bound' })
+  queueMax = 1
+  await srv.close(); await start()
+  await post(fix({ eventId: 'E1', threadTs: '1.1', messageTs: '1.1' }))
+  tasks.get('T-1').state = 'running'
+  await post(fix({ eventId: 'E2', threadTs: '2.1', messageTs: '2.1' }))
+  notices.length = 0
+  const full = await post(fix({ eventId: 'E3', threadTs: '3.1', messageTs: '3.1' }))
+  assert.equal(full.status, 429); assert.deepEqual(full.body, { error: 'queue_full' })
+  assert.deepEqual(notices, [[null, 'queue_full']])
+  assert.equal(tasks.size, 2)
+})
+
+test('source fix: a finished task in the same thread does not carry its messages (no origin.earlier)', async () => {
+  await post(fix())
+  tasks.get('T-1').state = 'done'
+  const r = await post(fix({ eventId: 'slash:T2' }))
+  assert.equal(r.status, 202); assert.equal(r.body.taskId, 'T-2')
+  assert.equal(tasks.get('T-2').origin.earlier, undefined)
+})
+
+test('source mention: a queued or running task keeps the follow-up -> 200 inProgress and the in_progress notice', async () => {
+  await post(fix())
+  tasks.get('T-1').state = 'running'
+  notices.length = 0
+  const r = await post(mention())
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { taskId: 'T-1', state: 'running', inProgress: true })
+  assert.deepEqual(notices, [['T-1', 'in_progress']])
+  const [kept] = tasks.get('T-1').origin.followUps
+  assert.equal(kept.text, 'it says Add to crat'); assert.equal(kept.messageTs, '50.000300'); assert.equal(kept.user.id, 'U1')
+  assert.equal(tasks.size, 1)
+  const again = await post(mention())
+  assert.equal(again.body.duplicate, true); assert.equal(tasks.get('T-1').origin.followUps.length, 1)
+})
+
+test('source mention: a task that needs info -> 202 rerun, queued again, follow-up kept, resumed notice', async () => {
+  await post(fix())
+  tasks.set('T-1', { ...tasks.get('T-1'), state: 'needs_info' })
+  runnerCalls.length = 0; notices.length = 0
+  const r = await post(mention())
+  assert.equal(r.status, 202); assert.deepEqual(r.body, { taskId: 'T-1', state: 'queued', position: 1, rerun: true })
+  assert.deepEqual(runnerCalls, [['start', 'T-1']])
+  assert.deepEqual(notices, [['T-1', 'resumed']])
+  assert.equal(tasks.get('T-1').origin.followUps[0].text, 'it says Add to crat')
+})
+
+test('source mention: no task in the thread, or an ended one -> 409 no_open_task, a notice to that thread, nothing created or stored', async () => {
+  const none = await post(mention({ threadTs: '70.000100' }))
+  assert.equal(none.status, 409); assert.deepEqual(none.body, { error: 'no_open_task' })
+  assert.deepEqual(notices, [[null, 'no_open_task']])
+  await post(fix())
+  for (const state of ['done', 'failed', 'stopped', 'expired', 'timed_out']) {
+    tasks.get('T-1').state = state
+    notices.length = 0
+    const r = await post(mention({ eventId: `Ev-${state}` }))
+    assert.equal(r.status, 409, state); assert.deepEqual(r.body, { error: 'no_open_task' })
+    assert.deepEqual(notices, [[null, 'no_open_task']], state)
+  }
+  assert.equal(tasks.size, 1); assert.equal(tasks.get('T-1').origin.followUps, undefined)
+})
+
+test('source mention: channel not bound -> 422 and a notice; missing fields -> 400', async () => {
+  const r = await post(mention({ channel: 'CX' }))
+  assert.equal(r.status, 422); assert.deepEqual(notices, [[null, 'channel_not_bound']])
+  assert.equal((await post(mention({ messageTs: undefined }))).status, 400)
+})
+
+test('no source: the older format still starts a task from an @ and carries an ended task\'s messages', async () => {
+  await post(event())
+  tasks.get('T-1').state = 'done'
+  const r = await post(event({ eventId: 'Ev2', text: 'again' }))
+  assert.equal(r.status, 202)
+  assert.deepEqual(tasks.get('T-2').origin.earlier.map((m) => m.text), ['broken'])
+})
+
+test('GET /outbox: messages after a cursor, limit, next; token required; bad after or limit -> 400', async () => {
+  assert.deepEqual(await (await call('GET', '/outbox')).body, { messages: [], next: 0 })
+  for (const text of ['a', 'b', 'c']) await outbox.append({ channel: 'C1', threadTs: '1.1', purpose: 'ack', text })
+  const all = await call('GET', '/outbox')
+  assert.equal(all.status, 200)
+  assert.deepEqual(all.body.messages.map((m) => [m.seq, m.text]), [[1, 'a'], [2, 'b'], [3, 'c']]); assert.equal(all.body.next, 3)
+  const page = await call('GET', '/outbox?after=1&limit=1')
+  assert.deepEqual(page.body.messages.map((m) => m.seq), [2]); assert.equal(page.body.next, 2)
+  assert.deepEqual((await call('GET', '/outbox?after=3')).body, { messages: [], next: 3 })
+  assert.equal((await call('GET', '/outbox?limit=1000')).status, 200)
+  for (const q of ['after=-1', 'after=x', 'after=1.5', 'limit=0', 'limit=x', 'limit=']) assert.equal((await call('GET', `/outbox?${q}`)).status, 400, q)
+  assert.equal((await call('GET', '/outbox', undefined, {})).status, 401)
+  assert.equal((await call('GET', '/outbox', undefined, { 'x-chat-to-fix-token': 'wrong' })).status, 401)
 })

@@ -1,7 +1,7 @@
 // Jira tools (C3, spec 4 section 4.4). They reach only the one issue in task.jira.key; there is
 // no key parameter. A new issue carries no title prefix, so the existing automation does not
 // pick it up. Purposes are from tools-and-limits.md section 2.
-import { cutText, material } from './material.ts'
+import { announce, cutText, material } from './material.ts'
 
 export const ISSUE_TEXT_MAX_CHARS = 6000
 export const ISSUE_COMMENTS_MAX = 20
@@ -45,6 +45,7 @@ export function jiraTools() {
         const body = permalink ? `${description}\n\nSlack discussion: ${permalink}` : description
         const issue = await ctx.adapters.jira.createIssue(task.binding, { title, description: body, acceptance, permalink })
         await ctx.store.patchTask(task.id, { jira: { key: issue.key, url: issue.url } })
+        await announce(ctx, 'jira_created', { once: true })
         return `Created the Jira issue ${issue.key} (${issue.url}).`
       },
     },

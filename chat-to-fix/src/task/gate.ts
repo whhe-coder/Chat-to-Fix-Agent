@@ -151,7 +151,8 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
     if (missing.length > 0) return refused(`${rule.reason} (missing ${missing.join(', ')})`)
     // Spec 7, 4.8: outcome done takes its end reason from task.ci.outcome.
     const endReason = closeEndReason(outcome, task, trimmed)
-    await store.patchTask(taskId, { state: rule.state, endReason })
+    // The note is kept for the requester's end notice (needs_person has only a literal end reason).
+    await store.patchTask(taskId, { state: rule.state, endReason, ...(trimmed ? { closeNote: trimmed } : {}) })
     await record(task, { type: 'system', tool: 'task_close', ok: true, text: `closed: ${outcome}, state ${rule.state}, end reason ${endReason}` })
     await onClosed?.(taskId, rule.state, endReason)
     return { ok: true }

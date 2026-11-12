@@ -1,6 +1,6 @@
 // Connect the imported agent to this repository's existing local credentials and service checks.
 // Generated configuration contains addresses and IDs only. Tokens stay in the child environment.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { spawn, execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,8 +18,6 @@ export function bridgeEnv(env: any) {
     CHAT_TO_FIX_GITLAB_TOKEN: env.CHAT_TO_FIX_GITLAB_TOKEN || env.GITLAB_TOKEN,
     CHAT_TO_FIX_JIRA_TOKEN: env.CHAT_TO_FIX_JIRA_TOKEN || env.JIRA_TOKEN,
     CHAT_TO_FIX_JIRA_EMAIL: env.CHAT_TO_FIX_JIRA_EMAIL || env.JIRA_EMAIL,
-    CHAT_TO_FIX_SLACK_TOKEN: env.CHAT_TO_FIX_SLACK_TOKEN || env.SLACK_BOT_TOKEN,
-    CHAT_TO_FIX_SLACK_APP_TOKEN: env.CHAT_TO_FIX_SLACK_APP_TOKEN || env.SLACK_APP_TOKEN,
   }
 }
 
@@ -73,13 +71,16 @@ export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = 
     apiModel: env.CHAT_TO_FIX_API_MODEL || 'anthropic/claude-sonnet-5-5',
     codingModel: env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5',
     engineAuth: env.ANTHROPIC_API_KEY ? 'apiKey' : 'login',
-    adapters: { slack: 'real', jira: 'real', gitlab: 'real' },
+    // Slack: the company Slack Bot (src/slackBot) is the only program connected to Slack; this service has no Slack token
+    // and talks to it through the outbox (docs/slack/slackbot.md).
+    adapters: { slack: 'outbox', jira: 'real', gitlab: 'real' },
     jira: {
       baseUrl: `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}`, browseUrl: siteUrl(jiraSite), apiVersion: '3',
       fields: { [env.JIRA_WORK_TYPE_FIELD_ID]: { value: env.CHAT_TO_FIX_WORK_TYPE || 'Tech Research' } },
     },
     gitlab: { baseUrl: gitlab.origin },
-    slack: { inputMode: 'command' },
+    // mentions false: the Slack app has no app_mentions:read yet, so the requester cannot answer in the thread; turn on once it is granted.
+    slack: { inputMode: 'command', mentions: false },
     bindings: [{
       channel, repo: env.GITLAB_PROJECT, localRepo: repo,
       remote: new URL(`${env.GITLAB_PROJECT.replace(/^\/+|\/+$/g, '')}.git`, `${gitlab.origin}/`).href,
@@ -108,7 +109,7 @@ export function saveConfig(config: any, env: any, dataRoot = join(ROOT, '.data',
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const path = join(root, 'chat-to-fix.json')
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-  loadConfig({ path, env: { ...bridgeEnv(env), CHAT_TO_FIX_SLACK_TOKEN: bridgeEnv(env).CHAT_TO_FIX_SLACK_TOKEN || 'structure-check-only' } })
+  loadConfig({ path, env: bridgeEnv(env) })
   return path
 }
 
@@ -131,11 +132,9 @@ async function main() {
   const args = argsOf(process.argv.slice(2))
   if (args.action === 'check') {
     const result = await checkConnections(env)
-    console.log(`GitLab ${result.gitlab}; Jira ${result.jira}; Slack ${text(env.CHAT_TO_FIX_SLACK_TOKEN) ? 'bot token present' : 'bot token missing'}`)
+    console.log(`GitLab ${result.gitlab}; Jira ${result.jira}; Slack: through the Slack Bot (outbox), no Slack token here`)
     return
   }
-  if (args.action === 'start' && !text(env.CHAT_TO_FIX_SLACK_TOKEN)) throw new Error('SLACK_BOT_TOKEN is missing; Slack installation must finish before starting')
-  if (args.action === 'start' && !text(env.CHAT_TO_FIX_SLACK_APP_TOKEN)) throw new Error('SLACK_APP_TOKEN is missing')
   const dataRoot = args.dataRoot ?? join(ROOT, '.data', 'connected')
   const jiraSite = args.jiraSite ?? await discoverJiraSite(env)
   const config = connectedConfig({ env, channel: args.channel ?? env.CHAT_TO_FIX_SLACK_CHANNEL, localRepo: args.localRepo ?? env.CHAT_TO_FIX_LOCAL_REPO, jiraSite, dataRoot })
@@ -148,14 +147,8 @@ async function main() {
   const start = spawn('sh', [join(ROOT, 'scripts', 'start-chat-to-fix.sh')], { cwd: ROOT, env: childEnv, stdio: 'inherit' })
   const exitCode = await new Promise<number>((done) => start.once('exit', (code) => done(code ?? 1)))
   if (exitCode !== 0) throw new Error('Agent startup failed')
-  const httpToken = env.CHAT_TO_FIX_HTTP_TOKEN || readFileSync(join(resolve(dataRoot), 'http-token'), 'utf8').trim()
-  const forwarder = spawn(process.execPath, [join(ROOT, 'scripts', 'slack-forwarder.ts'),
-    '--url', `http://127.0.0.1:${config.httpPort}`], {
-    cwd: ROOT, env: { ...childEnv, CHAT_TO_FIX_HTTP_TOKEN: httpToken }, stdio: 'inherit',
-  })
-  process.once('SIGINT', () => forwarder.kill('SIGINT'))
-  process.once('SIGTERM', () => forwarder.kill('SIGTERM'))
-  await new Promise((done) => forwarder.once('exit', done))
+  // The Slack Bot (repo root, npm start) is started separately; it polls GET /outbox with <data>/http-token.
+  console.log(`Chat-to-Fix is up on http://127.0.0.1:${config.httpPort}; the API token is in ${join(resolve(dataRoot), 'http-token')}`)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

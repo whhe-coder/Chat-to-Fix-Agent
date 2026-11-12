@@ -90,6 +90,10 @@ export const REVIEW_VERDICTS = Object.freeze(['pass', 'fail', 'cannot_fix'])
  * @property {string} url
  * @property {number | string} [iid]
  * @property {string} [sha]
+ *
+ * task.closeNote (string, optional): the trimmed note of task_close, written by gate.close for every outcome
+ * that has one. The end notice shows it to the requester (`task.closeNote ?? task.endReason`); it survives
+ * needs_person, whose endReason is the literal 'needs_person'. startRun clears it (null), so an old reason never shows on a later run.
  */
 
 /**
