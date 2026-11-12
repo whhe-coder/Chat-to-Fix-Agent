@@ -14,6 +14,17 @@ const REVIEWER_DESCRIPTION = 'Read-only reviewer of a code change. Call it once 
 // The default for a permission request nobody answers (the driver then denies it).
 export const PERMISSION_TIMEOUT_MS = 5 * 60_000
 
+// The test commands, named in the system text so the Coding bot runs them as the allow-list has them
+// (an exact rule and a prefix rule, see testRules in src/engine/args.ts). The first real run (T-1)
+// had its test run refused with no trace of what the model had typed.
+export function withTestCommands(system, testCommands) {
+  const commands = testCommands.map(command => String(command).trim()).filter(command => command !== '')
+  if (commands.length === 0) return system
+  const list = commands.map(command => `\`${command}\``).join(', ')
+  const note = `The shell commands you may run are git status, git diff and these test commands: ${list}. Run a test command exactly as written, from your working folder: no cd, no pipe, no redirection and no && or ; chain, no environment prefix and no other wrapper. Any other command is refused at once and nobody can approve it.`
+  return system === undefined || system === '' ? note : `${system}\n\n${note}`
+}
+
 // The names of the tools this session's loopback MCP server may serve: DS Bot's team tools plus
 // the role tools of the session's bot (the task layer's bridgedToolNames).
 export function bridgeNames(rt, sessionId, requested = []) {
@@ -45,14 +56,15 @@ export function launchFor(rt, sessionId, open) {
     const roleToolNames = bridgeNames(rt, sessionId, open.toolNames).filter(name => name !== 'approve_agent_action')
     // No permission prompt is ever asked, so a session that is not saved cannot be resumed: a
     // process that comes back later starts fresh and the adapter replays the conversation.
+    const testCommands = own?.testCommands ?? config.testCommands ?? []
     const args = codingArgs({
       reviewer: { name: def.reviewer.name, description: REVIEWER_DESCRIPTION, prompt: loadPrompt(def.reviewer.instructions), tools: def.reviewer.tools },
       roleToolNames,
       mcpServer: { name: 'chat-to-fix', config: { url: open.mcp.url, token: open.mcp.token } },
-      testCommands: own?.testCommands ?? config.testCommands ?? [],
+      testCommands,
       maxTurns: config.engineMaxTurns,
       model,
-      system: open.system,
+      system: withTestCommands(open.system, testCommands),
     } as any)
     // The reviewer must run inside the turn: with background tasks on, the CLI (2.1.321) starts the
     // Agent tool's subagent in the background and ends the turn before the reviewer has answered.

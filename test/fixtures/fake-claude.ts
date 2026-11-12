@@ -15,6 +15,7 @@
 //      [permission]  Bash tool_use + can_use_tool; reports the reply it got. With
 //                    `--permission-prompts none` the action is refused at once
 //                    (system/permission_denied + is_error tool_result)
+//      [denied:CMD]  a Bash tool_use of CMD, refused at once (permission_denied + is_error tool_result)
 //      [slow]        does nothing until an interrupt arrives, then aborts (aborted_streaming)
 //      [slowtool]    a Bash tool_use that never returns; interrupt -> aborted_tools
 //      [maxturns]    ends with error_max_turns
@@ -180,6 +181,22 @@ function onPrompt(text) {
   if (text.includes('[login]')) {
     assistant([{ type: 'text', text: 'Not logged in · Please run /login' }])
     finish('Not logged in · Please run /login', { is_error: true, terminal_reason: 'api_error' })
+    return
+  }
+  // [denied:CMD] a Bash tool_use of CMD the allow-list does not cover: refused at once, as with
+  // `--permission-prompts none` (the permission_denied event carries no input, only the tool_use does).
+  const denied = /\[denied:([^\]]*)\]/.exec(text)
+  if (denied !== null) {
+    const id = toolId()
+    const input = { command: denied[1] }
+    assistant([{ type: 'tool_use', id, name: 'Bash', input }])
+    const refusal = 'Permission for this tool use was denied. It requires approval, and this session has no approval surface.'
+    send({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: id, decision_reason_type: 'asyncAgent', decision_reason: 'no approval surface in this session; permission request denied automatically', message: refusal, uuid: randomUUID(), session_id: sessionId })
+    toolResult(id, refusal, { isError: true })
+    denials = [{ tool_name: 'Bash', tool_use_id: id, tool_input: input }]
+    turnTools = 1
+    assistant([{ type: 'text', text: 'not run' }])
+    finish('not run')
     return
   }
   if (text.includes('[permission]')) {

@@ -47,9 +47,11 @@
 //  text {text, parentToolUseId}            thought {text, parentToolUseId} (never empty)
 //  activity {text:'▸ Tool', tool, toolUseId, input, parentToolUseId}
 //  permission {id, toolUseId, toolName, input, description, action, detail, options, reply(allow, reason?)}
-//  permission_cancelled {id}               permission_timeout {id, toolName, toolUseId}
-//  permission_denied {toolName, toolUseId, message, reasonType, reason}
-//  tool_error {toolUseId, toolName, text, parentToolUseId}
+//  permission_cancelled {id}               permission_timeout {id, toolName, toolUseId, input}
+//  permission_denied {toolName, toolUseId, input, message, reasonType, reason}   input = what the model attempted
+//                                          (the tool_use input, remembered until its tool_result; system/permission_denied
+//                                          carries no input of its own)
+//  tool_error {toolUseId, toolName, input, text, parentToolUseId}
 //  subagent {phase:'started'|'progress'|'updated'|'notification', taskId, toolUseId, ...}
 //  subagent_result {toolUseId, text, isError}
 //  done {reason:'stop', result, sessionId, usage, turnCostUsd, subtype, numTurns, durationMs, totalCostUsd, permissionDenials, terminalReason}
@@ -70,6 +72,7 @@ export class ClaudeSession {
   declare pending: any
   declare permissions: any
   declare toolNames: any
+  declare toolInputs: any
   declare nextId: any
   declare permissionTimeoutMs: any
   declare child: any
@@ -88,6 +91,7 @@ export class ClaudeSession {
     this.pending = new Map()
     this.permissions = new Map() // request_id -> { timer } for can_use_tool requests not yet answered
     this.toolNames = new Map() // tool_use id -> tool name
+    this.toolInputs = new Map() // tool_use id -> the input the model gave it (so a refusal can say what was attempted)
     this.nextId = 1
     this.permissionTimeoutMs = 0
   }
@@ -226,7 +230,7 @@ export class ClaudeSession {
         break
       case 'permission_denied':
         this.emit({
-          type: 'permission_denied', toolName: event.tool_name, toolUseId: event.tool_use_id, message: event.message,
+          type: 'permission_denied', toolName: event.tool_name, toolUseId: event.tool_use_id, input: this.toolInputs.get(event.tool_use_id), message: event.message,
           reasonType: event.decision_reason_type, reason: event.decision_reason,
         })
         break
@@ -254,7 +258,7 @@ export class ClaudeSession {
       else if (block.type === 'thinking') {
         if ((block.thinking ?? '') !== '') this.emit({ type: 'thought', text: block.thinking, parentToolUseId })
       } else if (block.type === 'tool_use') {
-        if (block.id !== undefined) this.toolNames.set(block.id, block.name)
+        if (block.id !== undefined) { this.toolNames.set(block.id, block.name); this.toolInputs.set(block.id, block.input) }
         this.emit({ type: 'activity', text: `▸ ${block.name ?? 'tool'}`, tool: block.name, toolUseId: block.id, input: block.input, parentToolUseId })
       }
     }
@@ -269,9 +273,12 @@ export class ClaudeSession {
       const toolName = this.toolNames.get(block.tool_use_id)
       const text = textOf(block.content)
       const isError = block.is_error === true
-      if (isError) this.emit({ type: 'tool_error', toolUseId: block.tool_use_id, toolName, text, parentToolUseId })
+      if (isError) this.emit({ type: 'tool_error', toolUseId: block.tool_use_id, toolName, input: this.toolInputs.get(block.tool_use_id), text, parentToolUseId })
       // The reviewer's final text arrives only here (and in task_notification.summary).
       if (toolName === 'Agent' || toolName === 'Task') this.emit({ type: 'subagent_result', toolUseId: block.tool_use_id, text, isError })
+      // The call is over: forget it, so a long-lived process does not keep every input it ever ran.
+      this.toolNames.delete(block.tool_use_id)
+      this.toolInputs.delete(block.tool_use_id)
     }
   }
 
@@ -291,7 +298,7 @@ export class ClaudeSession {
       timer = setTimeout(() => {
         if (!this.permissions.has(requestId)) return
         reply(false, 'Denied: nobody answered the permission request in time.')
-        this.emit({ type: 'permission_timeout', id: requestId, toolName: tool, toolUseId: request.tool_use_id })
+        this.emit({ type: 'permission_timeout', id: requestId, toolName: tool, toolUseId: request.tool_use_id, input: request.input })
       }, this.permissionTimeoutMs)
       timer.unref?.()
     }

@@ -108,12 +108,34 @@ function mcpServerEntry(mcp) {
 //   reviewer: { name?, description, prompt, tools }   the review subagent
 //   roleToolNames: ['review_report', ...]             tools of our MCP server this role may call
 //   mcpServer: { name = 'chat-to-fix', config }            config is an http { url, token } or stdio { command, args, env? } entry
-//   testCommands: ['sh test.sh', ...]                 shell commands allowed besides git status / git diff
+//   testCommands: ['sh test.sh', ...]                 shell commands allowed besides git status / git diff (each as an exact and a prefix rule, see testRules)
 //   maxTurns, model, persist (default false: --no-session-persistence), settingSources (default 'project'),
 //   system, resumeId
 // No permission request ever reaches the driver: edits inside the working directory
 // are accepted by the mode, the allow-list holds the rest, everything else is
 // refused by the CLI. AskUserQuestion, web and scheduling tools are not offered at all.
+// What the CLI 2.1.321 does with a Bash allow rule (read from its bundled permission code; the
+// run of T-1 on 2026-11-12 showed that an exact `Bash(sh test.sh)` alone refused what the model ran):
+//  - An exact rule `Bash(cmd)` matches only that exact string. Redirections (`2>&1`, `> /dev/null`)
+//    are stripped before matching, so `sh test.sh 2>&1` still matches; a further argument does not.
+//  - A prefix rule `Bash(cmd:*)` matches `cmd` and `cmd <anything>` (a space after the prefix).
+//  - A compound command (`a && b`, `a; b`, `a | b`) is split; each part must be allowed on its own,
+//    and a prefix rule never matches a part that is itself compound. `cd`, `echo` and a few
+//    read-only commands are allowed by the CLI itself, anything else in the chain is refused
+//    (spec 5 section 4.9: "permission prompts none" refuses whatever would prompt; allow rules decide first).
+// So each test command is allowed as an exact rule and as a prefix rule (trailing arguments), but a
+// command that is itself compound or has a wildcard gets the exact rule only. The Coding bot is
+// told to run the command exactly as given (src/prompts/coding.md and launch.ts), from its working folder.
+const SHELL_OPERATOR = /&&|\|\||[;|&<>`\n]|\$\(/
+const WILDCARD = /\*/
+export function testRules(command) {
+  const text = String(command).trim()
+  if (text === '') return []
+  const exact = `Bash(${text})`
+  if (SHELL_OPERATOR.test(text) || WILDCARD.test(text)) return [exact]
+  return [exact, `Bash(${text}:*)`]
+}
+
 export const CODING_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'Agent', 'ToolSearch'])
 
 export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testCommands = [], maxTurns, model, persist = false, settingSources = 'project', system, resumeId, print }: any = {}) {
@@ -122,7 +144,7 @@ export function codingArgs({ reviewer, roleToolNames = [], mcpServer, testComman
   const allowedTools = [
     ...roleToolNames.map(name => (name.startsWith('mcp__') ? name : `${prefix}${name}`)),
     'Bash(git status:*)', 'Bash(git diff:*)',
-    ...testCommands.map(command => `Bash(${command})`),
+    ...testCommands.flatMap(testRules),
   ]
   return claudeArgs({
     ...(print === undefined ? {} : { print }),

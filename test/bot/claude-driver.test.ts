@@ -74,6 +74,9 @@ test('a bound coding bot\'s CLI is started with the settled arguments', async (t
   const allowed = valueOf(argv, '--allowedTools').split(',')
   for (const name of ['review_report', 'needs_info_confirm', 'task_read']) assert.ok(allowed.includes(`mcp__chat-to-fix__${name}`), name)
   assert.ok(allowed.includes('Bash(git status:*)') && allowed.includes('Bash(git diff:*)') && allowed.includes('Bash(sh test.sh)'))
+  assert.ok(allowed.includes('Bash(sh test.sh:*)'), 'trailing arguments of the test command are allowed too')
+  // The test commands are named in the system text, with the rule to run them exactly as written.
+  assert.match(valueOf(argv, '--append-system-prompt'), /test commands: `sh test\.sh`\. Run a test command exactly as written/)
   assert.equal(allowed.some(name => /approve_agent_action/.test(name)), false)
   assert.equal(allowed.some(name => /^(Read|Edit|Write|Bash)$/.test(name)), false, 'no bare file or shell rule')
   assert.equal(allowed.some(name => /task_advance|slack_|jira_|mr_open/.test(name)), false, 'no tool of another role')
@@ -170,6 +173,20 @@ test('with the settled arguments a refused action is a denial in the session eve
   assert.equal(answerOf(agent), 'refused')
   const types = agent.session.snapshotEvents().filter(event => event.type === 'tool/call')
   assert.equal(types.length, 0, 'no approval call was made')
+})
+
+test('a refused shell command is visible: the command it attempted is in the session events, secrets masked', async (t) => {
+  const { host, bots, adapter } = await rig(t)
+  const { ctx, agent, close } = await mountLoop(host, adapter, bots.coding)
+  t.after(close)
+  send(agent, '[denied:cd /work && sh test.sh 2>&1 | tail -5 # API_TOKEN=abc123secret Bearer abcdefghij1234567890]')
+  await waitForIdle(ctx, agent)
+  const reasoning = reasoningOf(agent)
+  assert.match(reasoning, /▸ Bash: cd \/work && sh test\.sh 2>&1 \| tail -5/, 'the attempt is shown')
+  assert.match(reasoning, /▸ denied: Bash \(Permission for this tool use was denied[^\n]*\| attempted: cd \/work && sh test\.sh 2>&1 \| tail -5 # API_TOKEN=\[redacted\] Bearer \[redacted\]\n/)
+  assert.match(reasoning, /▸ tool error: Bash: Permission for this tool use was denied[^\n]*\| attempted: cd \/work && sh test\.sh/)
+  assert.equal(/abc123secret|abcdefghij1234567890/.test(reasoning), false, 'no secret reaches the line')
+  assert.equal(answerOf(agent), 'not run')
 })
 
 test('a permission request nobody answers is denied after the timeout and the turn ends', async (t) => {

@@ -57,6 +57,23 @@ test('a tool/call session event becomes a tool_call entry; other session events 
   assert.match(list[0].text, /jira_create_issue .*summary/)
 })
 
+test('refused and failed engine tool uses in a reasoning block become refusal and tool_error entries', async () => {
+  const r = await rig({ step: 'code' })
+  const reasoning = [
+    '▸ Bash: sh test.sh; echo $?',
+    '▸ denied: Bash (Permission for this tool use was denied.) | attempted: sh test.sh; echo $?',
+    '▸ tool error: Bash: exit code 1 | attempted: sh test.sh',
+    '▸ permission request for Bash timed out: denied | attempted: npm i',
+  ].join('\n')
+  const message = { content: [{ type: 'reasoning', text: reasoning }, { type: 'text', text: '▸ denied: in the answer text, not a record' }] }
+  r.botlayer.emit.sessionEvent({ sessionId: r.bots.coding, botId: r.bots.coding, type: 'assistant/message', event: { type: 'assistant/message', data: { message } }, at: AT })
+  r.botlayer.emit.sessionEvent({ sessionId: r.bots.main, botId: r.bots.main, type: 'assistant/message', event: { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'plain answer' }] } } }, at: AT })
+  const list = await entries(r)
+  assert.deepEqual(list.map((e) => [e.type, e.role, e.step]), [['refusal', 'coding', 'code'], ['tool_error', 'coding', 'code'], ['refusal', 'coding', 'code']])
+  assert.match(list[0].text, /^▸ denied: Bash .* attempted: sh test\.sh; echo \$\?$/)
+  assert.match(list[2].text, /timed out/)
+})
+
 test('a tool result becomes a tool_result entry with ok and ms', async () => {
   const r = await rig()
   r.botlayer.emit.toolResult({ sessionId: r.bots.jira, botId: r.bots.jira, tool: 'jira_create_issue', args: {}, ok: true, text: 'DEMO-7', ms: 840, at: AT })

@@ -3,7 +3,7 @@
 // No process is started and no model is called; the key is a fake value.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { launchFor } from '../bot/src/host/local-agents/launch.ts'
+import { launchFor, withTestCommands } from '../bot/src/host/local-agents/launch.ts'
 
 const FAKE_KEY = 'sk-ant-api03-FAKE-KEY-FOR-TESTS-0123456789'
 const valueOf = (argv, flag) => argv[argv.indexOf(flag) + 1]
@@ -25,12 +25,23 @@ test('the Coding bot gets the test commands of its task\'s binding, not the plug
   const host = rt({ testCommands: ['plugin cmd'] }, { roles: CODING, options: { 'T-1': { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] }, 'T-2': { testCommands: ['make check'] } } })
   const first = allowedOf(launchFor(host, 'coding', open))
   assert.ok(first.includes('Bash(sh test.sh)'))
+  assert.ok(first.includes('Bash(sh test.sh:*)'))
   assert.equal(first.includes('Bash(plugin cmd)'), false)
   const second = allowedOf(launchFor(host, 'other', open))
   assert.ok(second.includes('Bash(make check)'))
   assert.equal(second.includes('Bash(sh test.sh)'), false)
   // setup commands are run by the system, never allowed to the CLI
   assert.equal(first.some((rule) => /pnpm install/.test(rule)), false)
+})
+
+test('the Coding bot is told the test commands and to run them exactly as written', () => {
+  const host = rt({}, { roles: CODING, options: { 'T-1': { testCommands: ['sh test.sh', 'make lint'] }, 'T-2': { testCommands: [] } } })
+  const system = valueOf(launchFor(host, 'coding', open).args, '--append-system-prompt')
+  assert.ok(system.startsWith('sys\n\n'), 'the bot instructions stay first')
+  assert.match(system, /test commands: `sh test\.sh`, `make lint`\. Run a test command exactly as written, from your working folder: no cd, no pipe, no redirection/)
+  // no test commands: the system text is left as it is
+  assert.equal(valueOf(launchFor(host, 'other', open).args, '--append-system-prompt'), 'sys')
+  assert.equal(withTestCommands(undefined, ['x']).startsWith('The shell commands you may run'), true)
 })
 
 test('without commands on the binding, the plugin-level list is the fallback; without both, only git status and diff', () => {

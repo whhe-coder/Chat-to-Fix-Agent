@@ -434,18 +434,24 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'thought':
           yield* think(event.text)
           break
-        case 'activity':
+        case 'activity': {
           // An activity line stands on its own line of the reasoning, which is how the chat
-          // tells it from the thought around it.
-          yield* note(event.parentToolUseId ? `  ${event.text}` : event.text)
+          // tells it from the thought around it. A shell command shows what it runs.
+          const line = event.tool === 'Bash' && event.input?.command ? `${event.text}: ${attempted(event.tool, event.input)}` : event.text
+          yield* note(event.parentToolUseId ? `  ${line}` : line)
           break
+        }
         // What the CLI refused or failed, and the subagent's work, are shown the way activity is.
-        // The task layer's recorder and monitor read them from the session events.
+        // The task layer's recorder and monitor read them from the session events. A refusal
+        // names what was attempted (the command, the path), redacted: this line is the only trace
+        // of it, the CLI's own session is not kept.
+        // Line formats (a recorder can match the prefixes): `▸ denied: <tool> (<reason>) | attempted: <what>`,
+        // `▸ tool error: <tool>: <text> | attempted: <what>`, `▸ permission request for <tool> timed out: denied | attempted: <what>`.
         case 'permission_denied':
-          yield* note(`▸ denied: ${event.toolName ?? 'tool'}${event.message ? ` (${oneLine(event.message, 200)})` : ''}`)
+          yield* note(`▸ denied: ${event.toolName ?? 'tool'}${event.message ? ` (${oneLine(redact(event.message), 200)})` : ''}${refusedWhat(event)}`)
           break
         case 'tool_error':
-          yield* note(`▸ tool error: ${event.toolName ?? 'tool'}: ${oneLine(event.text, 300)}`)
+          yield* note(`▸ tool error: ${event.toolName ?? 'tool'}: ${oneLine(redact(event.text), 300)}${refusedWhat(event)}`)
           break
         case 'subagent':
           if (event.phase === 'started') yield* note(`▸ subagent${event.subagentType ? ` ${event.subagentType}` : ''} started: ${oneLine(event.description ?? '', 200)}`)
@@ -461,7 +467,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission_timeout':
           // The driver already denied it; the approval card (if any) answers nothing now.
           live.pending.delete(event.id)
-          yield* note(`▸ permission request for ${event.toolName ?? 'tool'} timed out: denied`)
+          yield* note(`▸ permission request for ${event.toolName ?? 'tool'} timed out: denied${refusedWhat(event)}`)
           break
         case 'init':
           // The CLI names its session only once the first prompt is in; the record needs it to resume.
@@ -531,6 +537,32 @@ function replyPermission(event, result) {
 const oneLine = (text, max) => {
   const flat = String(text ?? '').replace(/\s+/g, ' ').trim()
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
+}
+
+// What a tool call attempted, in one short redacted piece of text: the shell command, or the path,
+// pattern or URL; the content of a write or an edit is left out (it can be long and is in the file).
+function attempted(tool, input) {
+  if (input === undefined || input === null) return ''
+  if (typeof input === 'string') return oneLine(redact(input), 300)
+  const pick = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.url ?? input.query ?? input.subagent_type
+  if (pick !== undefined) return oneLine(redact(pick), 300)
+  const names = Object.keys(input)
+  return names.length === 0 ? '' : `{${names.join(', ')}}`
+}
+
+// ` | attempted: <what>` for the line of a refusal, or nothing when the input is not known.
+const refusedWhat = (event) => {
+  const what = attempted(event.toolName, event.input)
+  return what === '' ? '' : ` | attempted: ${what}`
+}
+
+// Masks what looks like a credential before it goes into a line that is kept: bearer values,
+// key=value pairs whose key names a secret, and the common token shapes.
+function redact(text) {
+  return String(text ?? '')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/gi, '$1 [redacted]')
+    .replace(/((?:token|secret|passw(?:or)?d|api[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[redacted]')
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|glpat-[A-Za-z0-9_-]{10,}|xox[abprs]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/g, '[redacted]')
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the

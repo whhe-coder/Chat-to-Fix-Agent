@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { claudeArgs, cliMode, codingArgs, CODING_TOOLS } from '../src/engine/args.ts'
+import { claudeArgs, cliMode, codingArgs, CODING_TOOLS, testRules } from '../src/engine/args.ts'
 import { authEnv, childEnv } from '../src/engine/env.ts'
 import { ClaudeSession } from '../src/engine/claude.ts'
 
@@ -92,7 +92,7 @@ test('args: codingArgs builds the verified unattended argument list', () => {
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompt-tool', 'stdio', '--permission-prompts', 'none',
     '--setting-sources', 'project', '--permission-mode', 'acceptEdits', '--model', 'sonnet',
     '--tools', 'Read,Edit,Write,Bash,Glob,Grep,Agent,ToolSearch',
-    '--allowedTools', 'mcp__chat-to-fix__review_report,mcp__chat-to-fix__other,Bash(git status:*),Bash(git diff:*),Bash(sh test.sh),Bash(npm test)',
+    '--allowedTools', 'mcp__chat-to-fix__review_report,mcp__chat-to-fix__other,Bash(git status:*),Bash(git diff:*),Bash(sh test.sh),Bash(sh test.sh:*),Bash(npm test),Bash(npm test:*)',
     '--no-session-persistence',
     '--mcp-config', JSON.stringify({ mcpServers: { 'chat-to-fix': { type: 'stdio', command: '/bin/node', args: ['s.mjs'] } } }), '--strict-mcp-config',
     '--max-turns', '20', '--agents', JSON.stringify({ reviewer }),
@@ -556,4 +556,38 @@ test('fake CLI: a non-JSON line kills it, closing stdin ends it with exit 0', as
   })
   assert.equal(await run(stdin => stdin.write('not json\n')), 1)
   assert.equal(await run(stdin => stdin.end()), 0)
+})
+
+test('args: a test command is allowed as an exact rule and as a prefix rule for trailing arguments, nothing wider', () => {
+  assert.deepEqual(testRules('sh test.sh'), ['Bash(sh test.sh)', 'Bash(sh test.sh:*)'])
+  assert.deepEqual(testRules('  npm test  '), ['Bash(npm test)', 'Bash(npm test:*)'])
+  // A command that is compound or has a wildcard keeps its exact rule only: a prefix rule on it would be wider than the command.
+  for (const command of ['cd app && npm test', 'make a; make b', 'npm test | tee log', 'npm test > out', 'sh test.sh *', 'echo $(id)']) {
+    assert.deepEqual(testRules(command), [`Bash(${command})`], command)
+  }
+  assert.deepEqual(testRules(''), [])
+  const coding = codingArgs({ testCommands: ['sh test.sh'] })
+  const allowed = coding[coding.indexOf('--allowedTools') + 1].split(',')
+  assert.deepEqual(allowed, ['Bash(git status:*)', 'Bash(git diff:*)', 'Bash(sh test.sh)', 'Bash(sh test.sh:*)'])
+  // Still refused as before: no bare Bash.
+  assert.throws(() => claudeArgs({ allowedTools: ['Bash'] }), /bare "Bash"/)
+  assert.throws(() => claudeArgs({ allowedTools: ['Bash(*)'] }), /bare "Bash\(\*\)"/)
+})
+
+test('session: a refused action names what the model attempted, taken from its tool_use', async () => {
+  const session = await open({}, { args: codingArgs({ testCommands: ['sh test.sh'] }) })
+  try {
+    await session.prompt('[denied:cd /work && sh test.sh 2>&1 | tail -5]')
+    let denied, error
+    for (;;) {
+      const event = await session.next()
+      if (event.type === 'permission_denied') denied = event
+      if (event.type === 'tool_error') error = event
+      if (event.type === 'done') break
+    }
+    assert.deepEqual(denied.input, { command: 'cd /work && sh test.sh 2>&1 | tail -5' })
+    assert.deepEqual(error.input, denied.input)
+    assert.equal(session.toolInputs.size, 0, 'a finished call is forgotten')
+    assert.equal(session.toolNames.size, 0)
+  } finally { session.kill() }
 })

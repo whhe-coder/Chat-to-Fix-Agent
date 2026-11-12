@@ -67,7 +67,32 @@ export function createRecorder({ store, botlayer, warn = (...args) => console.wa
     return task === undefined ? undefined : { task, bot }
   }
 
+  // The Coding bot's own tool uses happen inside Claude Code, not as DSH tool calls. The adapter
+  // (bot/src/host/local-agents/adapter.ts) writes a refused or failed one as a reasoning line
+  // starting with "▸ denied:", "▸ permission request for … timed out" or "▸ tool error:"; those
+  // lines become entries so a refused test command is visible in the records.
+  const ENGINE_LINE = /^\s*▸ (denied:|permission request for .* timed out|tool error:)/
+  async function onEngineLines(e) {
+    const blocks = e.event?.data?.message?.content
+    if (!Array.isArray(blocks)) return
+    const lines = []
+    for (const block of blocks) {
+      if (block === null || typeof block !== 'object' || block.type === 'text') continue
+      const text = [block.text, block.thinking, block.reasoning].find((v) => typeof v === 'string')
+      if (text === undefined) continue
+      for (const line of text.split('\n')) if (ENGINE_LINE.test(line)) lines.push(line.trim())
+    }
+    if (lines.length === 0) return
+    const found = await ofSession(e.sessionId)
+    if (found === undefined) return
+    const { task, bot } = found
+    for (const line of lines) {
+      await append(task, runOf(task), bot.role, bot.botId, { at: e.at, type: line.startsWith('▸ tool error:') ? 'tool_error' : 'refusal', text: line })
+    }
+  }
+
   async function onSessionEvent(e) {
+    if (e.type === 'assistant/message') return onEngineLines(e)
     if (e.type !== 'tool/call') return // only tool calls become entries
     const found = await ofSession(e.sessionId)
     if (found === undefined) return
