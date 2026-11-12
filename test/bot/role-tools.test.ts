@@ -3,7 +3,7 @@
 // The task layer is src/app.ts on the fake DSH context of host.js; the tools come from the
 // registry, defined with DSH's own defineTool.
 //
-// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/role-tools.test.js
+// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/role-tools.test.ts
 import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,7 @@ import { loadConfig } from '../../src/config.ts'
 import { createApp } from '../../src/app.ts'
 import { ROLES } from '../../src/task/contracts.ts'
 import { connectTaskLayer, defineTool } from '../../src/bot/index.ts'
-import { start } from './host.js'
+import { start } from './host.ts'
 
 async function rig(t) {
   const host = await start(t)

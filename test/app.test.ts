@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { loadConfig } from '../src/config.ts'
 import { createApp } from '../src/app.ts'
 import { ROLES } from '../src/task/contracts.ts'
-import { createFakeBotLayer } from './helpers/fake-botlayer.js'
+import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 async function rig() {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-app-'))

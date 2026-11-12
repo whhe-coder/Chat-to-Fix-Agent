@@ -1,8 +1,8 @@
-// A real DSH agent loop (the agent-loop testkit, as in bot/test/local-agents-loop.test.js; the
-// packages come through bot/test/loop-kit.js) whose
+// A real DSH agent loop (the agent-loop testkit, as in bot/test/local-agents-loop.test.ts; the
+// packages come through bot/test/loop-kit.ts) whose
 // model route is the local-agents adapter of a bot-layer host. Shared by the tests under
 // test/bot/ and by the real-run script.
-import { Context, SessionId, createUserMessage, mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '../../bot/test/loop-kit.js'
+import { Context, SessionId, createUserMessage, mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '../../bot/test/loop-kit.ts'
 
 // The agent of `sessionId` on route claude-code; the role tools of that session (as the host's
 // fake Agent scope holds them) are registered in the loop's tool scope, so a call that comes

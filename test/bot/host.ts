@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { loadConfig } from '../../src/config.ts'
 import { createApp } from '../../src/app.ts'
 import { connectTaskLayer, createRuntime, defineTool, runtimeOf } from '../../src/bot/index.ts'
-import { fakeContext } from '../../bot/test/fake-ctx.js'
+import { fakeContext } from '../../bot/test/fake-ctx.ts'
 
 export async function start(t, config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'chat-to-fix-botlayer-'))

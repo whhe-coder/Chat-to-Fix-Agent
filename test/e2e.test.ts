@@ -13,7 +13,7 @@ import { loadConfig } from '../src/config.ts'
 import { createApp } from '../src/app.ts'
 import { createTestRepo } from '../scripts/make-test-repo.ts'
 import { sendFakeEvent } from '../scripts/fake-event.ts'
-import { createFakeBotLayer } from './helpers/fake-botlayer.js'
+import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 async function rig(t) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-e2e-'))

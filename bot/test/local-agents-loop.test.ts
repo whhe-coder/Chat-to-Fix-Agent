@@ -1,5 +1,5 @@
 // A real DSH agent turn through the local-agent adapter: the loop, its tool
-// dispatch and its steering deliver to the fake Claude Code CLI (test/fixtures/fake-claude.mjs), not stubs.
+// dispatch and its steering deliver to the fake Claude Code CLI (test/fixtures/fake-claude.ts), not stubs.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { mkdtempSync } from 'node:fs'
@@ -15,7 +15,7 @@ import { ClaudeEngine } from '../src/host/local-agents/claude-engine.ts'
 import { launchFor } from '../src/host/local-agents/launch.ts'
 import { output } from '../src/host/tools.ts'
 
-const FIXTURE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../test/fixtures/fake-claude.ts', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']
 
 function makeAdapter(records = {}) {

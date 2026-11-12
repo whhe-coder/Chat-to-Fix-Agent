@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStore } from '../src/task/store.ts'
 import { createRecorder } from '../src/task/recorder.ts'
-import { createFakeBotLayer } from './helpers/fake-botlayer.js'
+import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 const ORIGIN = { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'tester' }, text: 'broken' }
 const BINDING = { repo: 'g/p', defaultBranch: 'master', jiraProject: 'DEMO', issueType: 'Bug', labels: [] }

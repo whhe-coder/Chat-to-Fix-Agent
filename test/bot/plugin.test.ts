@@ -1,7 +1,7 @@
 // The plugin entry (src/plugin.ts) on the fake DSH context: one call builds the bot layer and
 // the task layer, connects them, and the control interface answers.
 //
-// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/plugin.test.js
+// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/plugin.test.ts
 import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createChatToFix, inject, name } from '../../src/plugin.ts'
 import { runtimeOf } from '../../src/bot/index.ts'
-import { start } from './host.js'
+import { start } from './host.ts'
 
 test('the plugin entry builds both layers, connects them, and serves the control interface', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-plugin-'))

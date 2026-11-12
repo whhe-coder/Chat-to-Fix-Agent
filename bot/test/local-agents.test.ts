@@ -10,10 +10,10 @@ import { launchFor } from '../src/host/local-agents/launch.ts'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.ts'
 import { ENGINES, isLocalAgentRoute } from '../src/host/local-agents/engines.ts'
 import { install as partsInstall } from '../src/host/parts.ts'
-import { fakeContext } from './fake-ctx.js'
+import { fakeContext } from './fake-ctx.ts'
 
 // The fake Claude Code CLI of the task layer (behaves like the real CLI 2.1.321).
-const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url))
+const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.ts', import.meta.url))
 
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } })

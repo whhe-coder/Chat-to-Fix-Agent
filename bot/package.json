@@ -23,7 +23,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\""
+    "test": "node --import ./test/harness-resolve.ts --test --test-timeout=120000 --test-force-exit \"test/*.test.ts\""
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

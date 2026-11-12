@@ -1,18 +1,18 @@
 // The Claude Code driver on the real bot layer: the Coding bot's CLI is started with the
 // settled arguments, and its turns reach the bot's reply and the session events. The CLI is
-// the fake of test/fixtures/fake-claude.mjs; the task layer is src/app.ts on the fake DSH
-// context of host.js; the loop is DSH's own (test/bot/loop.js).
+// the fake of test/fixtures/fake-claude.ts; the task layer is src/app.ts on the fake DSH
+// context of host.js; the loop is DSH's own (test/bot/loop.ts).
 //
-// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/claude-driver.test.js
+// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/claude-driver.test.ts
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { loadPrompt } from '../../src/prompts/index.ts'
 import { CODING_TOOLS } from '../../src/engine/args.ts'
-import { startApp } from './host.js'
-import { answerOf, endOf, mountLoop, reasoningOf, send, waitForIdle } from './loop.js'
+import { startApp } from './host.ts'
+import { answerOf, endOf, mountLoop, reasoningOf, send, waitForIdle } from './loop.ts'
 
-const FAKE = fileURLToPath(new URL('../fixtures/fake-claude.mjs', import.meta.url))
+const FAKE = fileURLToPath(new URL('../fixtures/fake-claude.ts', import.meta.url))
 const CLI = { command: process.execPath, args: [FAKE] }
 
 const rig = async (t, runtime = {}) => {

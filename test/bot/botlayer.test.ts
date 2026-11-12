@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { start, settle } from './host.js'
+import { start, settle } from './host.ts'
 
 // Drives the I1 facade on DS Bot's fake DSH context, in the style of bot/test/group-work.test.js.
 const NAMES = ['Boss', 'Slacker', 'Jirer', 'Piper', 'Coder']

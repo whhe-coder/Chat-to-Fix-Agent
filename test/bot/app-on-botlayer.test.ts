@@ -4,7 +4,7 @@
 // admin-mode group, the task reaches only the Main bot, the Main bot uses a task tool, the
 // recorder writes what happened, and a stop dissolves the group and deletes the bots.
 //
-// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/app-on-botlayer.test.js
+// Run: node --import ./bot/test/harness-resolve.mjs --test --test-force-exit test/bot/app-on-botlayer.test.ts
 import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,7 @@ import { test } from 'node:test'
 import { loadConfig } from '../../src/config.ts'
 import { createApp } from '../../src/app.ts'
 import { ROLES } from '../../src/task/contracts.ts'
-import { start, settle } from './host.js'
+import { start, settle } from './host.ts'
 
 async function rig(t) {
   const host = await start(t)

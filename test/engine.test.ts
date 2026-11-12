@@ -5,7 +5,7 @@ import { claudeArgs, cliMode, codingArgs, CODING_TOOLS } from '../src/engine/arg
 import { authEnv, childEnv } from '../src/engine/env.ts'
 import { ClaudeSession } from '../src/engine/claude.ts'
 
-const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
+const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.ts', import.meta.url))
 const BASE = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompt-tool', 'stdio']
 const reviewer = { description: 'Reviews a change', prompt: 'Review it.', tools: ['Read', 'Grep'] }
 
