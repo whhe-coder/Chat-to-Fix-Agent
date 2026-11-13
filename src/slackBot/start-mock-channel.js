@@ -10,6 +10,9 @@ const dataRoot = resolve(process.env.CHAT_TO_FIX_DATA || 'src/chat-to-fix/.data/
 const channel = createMockChannel({
   agentUrl: process.env.MOCK_SLACK_AGENT_URL || 'http://127.0.0.1:3090',
   channelId: process.env.CHAT_TO_FIX_SLACK_CHANNEL || 'CLOCAL',
+  userId: process.env.MOCK_SLACK_USER_ID || 'UMOCK',
+  userName: process.env.MOCK_SLACK_USER_NAME || '模拟用户',
+  userEmail: process.env.MOCK_SLACK_USER_EMAIL || 'mock.user@example.com',
   tokenProvider: () => process.env.CHAT_TO_FIX_HTTP_TOKEN || readFileSync(join(dataRoot, 'http-token'), 'utf8'),
 });
 

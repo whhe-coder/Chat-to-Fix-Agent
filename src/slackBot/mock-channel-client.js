@@ -4,8 +4,12 @@ const textarea = document.querySelector('#message');
 const sendButton = document.querySelector('#send-button');
 const note = document.querySelector('#composer-note');
 const status = document.querySelector('#agent-status');
+const userIdInput = document.querySelector('#mock-user-id');
+const userNameInput = document.querySelector('#mock-user-name');
+const userEmailInput = document.querySelector('#mock-user-email');
 let sending = false;
 let refreshPending = false;
+let defaultsLoaded = false;
 const taskStates = {
   queued: '排队中', running: '处理中', done: '已完成', needs_info: '等待补充',
   failed: '任务失败', timed_out: '已超时', stopped: '已停止', expired: '已过期',
@@ -27,7 +31,7 @@ function addLinkedText(node, text) {
   }
 }
 
-function messageNode(message) {
+function messageNode(message, user) {
   const row = document.createElement('div');
   row.className = `message message-${message.from}`;
   const avatar = document.createElement('div');
@@ -38,7 +42,7 @@ function messageNode(message) {
   const meta = document.createElement('div');
   meta.className = 'message-meta';
   const name = document.createElement('strong');
-  name.textContent = message.from === 'user' ? '模拟用户' : message.from === 'bot' ? '模拟 Slack Bot' : 'Chat-to-Fix Agent';
+  name.textContent = message.from === 'user' ? (user?.name || '模拟用户') : message.from === 'bot' ? '模拟 Slack Bot' : 'Chat-to-Fix Agent';
   const time = document.createElement('time');
   if (message.at) {
     time.dateTime = message.at;
@@ -65,7 +69,7 @@ function threadNode(thread) {
   state.textContent = thread.status === 'failed' ? '发送失败' : taskStates[thread.taskState] || (thread.status === 'pending' ? '发送中' : '已接收');
   head.append(title, state);
   article.append(head);
-  for (const message of thread.messages) article.append(messageNode(message));
+  for (const message of thread.messages) article.append(messageNode(message, thread.user));
   if (thread.error) {
     const error = document.createElement('div');
     error.className = 'thread-error';
@@ -74,7 +78,7 @@ function threadNode(thread) {
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.textContent = '重试发送';
-    retry.addEventListener('click', () => send(thread.command, thread.eventId));
+    retry.addEventListener('click', () => send(thread.command, thread.eventId, thread.user));
     error.append(text, retry);
     article.append(error);
   }
@@ -84,6 +88,13 @@ function threadNode(thread) {
 function render(data) {
   const channel = data.channelId === 'CLOCAL' ? 'chat-to-fix-local' : data.channelId;
   for (const id of ['sidebar-channel', 'channel-title', 'composer-channel']) document.getElementById(id).textContent = channel;
+  if (!defaultsLoaded) {
+    userIdInput.value = data.mockUser.id;
+    userNameInput.value = data.mockUser.name;
+    userEmailInput.value = data.mockUser.email;
+    defaultsLoaded = true;
+    sendButton.disabled = false;
+  }
   status.className = `status ${data.agent.online ? 'status-online' : 'status-offline'}`;
   status.textContent = data.agent.online ? 'Agent 已连接' : (data.agent.error || 'Agent 未连接');
   threadsNode.replaceChildren(...data.threads.map(threadNode));
@@ -102,14 +113,15 @@ async function refresh() {
   } finally { refreshPending = false; }
 }
 
-async function send(command, eventId = `mock:${crypto.randomUUID()}`) {
+async function send(command, eventId = `mock:${crypto.randomUUID()}`, retryUser) {
   if (sending) return;
+  const user = retryUser ?? { id: userIdInput.value.trim(), name: userNameInput.value.trim(), email: userEmailInput.value.trim() };
   sending = true;
   sendButton.disabled = true;
   note.textContent = '正在发送…';
   try {
     const response = await fetch('/api/messages', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: command, eventId }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: command, eventId, user }),
     });
     const result = await response.json();
     if (result.thread) textarea.value = '';

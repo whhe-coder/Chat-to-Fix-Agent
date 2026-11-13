@@ -132,14 +132,14 @@ Bot 每发出一条就记一次游标，重启后从游标接着发（4.4）。
 
 Bot 自己处理不了的情况，都给用户一句看得懂的话（临时消息或讨论串），不只写日志。公司内的反例是 duty-monkey 出错只记日志，用户什么也看不到。
 
-### 4.8 发起人身份（待 Logan 确认用途）
+### 4.8 发起人身份（权限已添加，真实读取待实现）
 
 | | 行为 |
 |---|---|
-| 当前实现 | Bot 传给 Agent 的 `user` 是 `{ id, name }`：`id` 是 Slack 用户 ID；`name` 来自命令里的 `user_name`，Slack 官方已弃用、不要依赖。Agent 建 Jira 和 MR 都不设报告人或经办人，发起人只由模型写进 Jira 描述 |
+| 当前实现 | 真实 Bot 传给 Agent 的 `user` 是 `{ id, name }`：`id` 是 Slack 用户 ID；`name` 来自命令里的 `user_name`，Slack 官方已弃用、不要依赖。模拟 Bot 可从本机配置传 `{ id, name, email }`。Agent 建 Jira 和 MR 都不设报告人或经办人，发起人只由模型写进 Jira 描述 |
 | 拟改 | 按公司通行做法（git-access、whoisoncall、Neuronet）：Bot 用 `user_id` 调 `users.info` 取 `profile.email`，校验是 `@xsolla.com`、不是机器人或访客，再随 `user` 一起传给 Agent。查不到邮箱就给本人回临时消息，不发任务消息 |
 
-- 需要给 Slack 应用加 `users:read`、`users:read.email`。缺 `users:read.email` 时 Slack 不报错，只是不返回邮箱（`xsolla/neuronet` `src/slack/slash-commands/neuronet-agent/job-steps.ts`），所以 Bot 要把“没有邮箱”当成配置错误处理。
+- Slack 应用已配置 `users:read`、`users:read.email`，安装仍待审批。缺 `users:read.email` 时 Slack 不报错，只是不返回邮箱（`xsolla/neuronet` `src/slack/slash-commands/neuronet-agent/job-steps.ts`），所以真实 Bot 要把“没有邮箱”当成配置错误处理。
 - 只写进描述：Agent 直接用名字和邮箱。
 - 要设 Jira 报告人、MR assignee：Agent 再用邮箱查账号。GitLab 用 `GET /users?search=<邮箱>` 后逐个精确比对邮箱，查不到再用邮箱 `@` 前面的部分当用户名查（git-access 的做法）；Jira 按邮箱查。都查不到就明确说明，不猜。这部分是 Agent 侧改动。
 
@@ -153,7 +153,7 @@ Bot 自己处理不了的情况，都给用户一句看得懂的话（临时消�
 | `GET /outbox` | `outboxId: string` | 发件箱编号。建议存成数据目录里的 `outbox-id` 文件，第一次用时生成随机 UUID，之后不变；数据目录清空就重新生成 |
 | `GET /outbox` | `lastSeq: number` | 当前最大 seq，发件箱为空时为 `0`；和本次返回的 `messages` 无关 |
 
-若 4.8 定下来，`POST /events` 的 `user` 再加 `email`（可选字段，不改已有字段）。
+`POST /events` 的 `user.email` 为可选字段，不改已有字段和返回码。模拟 Bot 已发送该字段；真实 Bot 仍需调用 `users.info` 获取邮箱。
 
 ## 6. Slack 应用权限
 
@@ -161,7 +161,7 @@ Bot 自己处理不了的情况，都给用户一句看得懂的话（临时消�
 |---|---|---|
 | `commands` | 收 `/fix` | 需要 |
 | `chat:write` | 发任务消息和讨论串回复 | 需要 |
-| `users:read`、`users:read.email` | 4.8 拿发起人邮箱 | 待 Logan 确认；公司内多个应用已获批 |
+| `users:read`、`users:read.email` | 4.8 拿发起人邮箱 | 已添加到 Slack 应用；安装待审批，真实 Bot 代码待实现 |
 | App-level token `connections:write` | Socket Mode | 需要 |
 
 加权限要在 #it-help-desk 申请审批，首次响应最长 4 个工作日，最好一次申请齐。

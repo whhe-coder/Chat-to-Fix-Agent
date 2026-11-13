@@ -18,6 +18,9 @@ chmod 600 .env.local
 | 模拟 Slack Bot | `MOCK_SLACK_PORT` | 自行选择未占用的本机端口；默认 `4001`。模拟 Bot 不连接 Slack，无需 token。 |
 | 模拟 Slack Bot | `MOCK_SLACK_AGENT_URL` | 本机 Agent 控制接口地址；默认 `http://127.0.0.1:3090`。 |
 | 模拟 Slack Bot | `MOCK_SLACK_STATE_DIR` | 后台页面进程的状态目录；留空时使用 `src/slackBot/.data/`，PID 和日志在其 `run/` 下。 |
+| 模拟 Slack Bot | `MOCK_SLACK_USER_ID` | 模拟发起人的 Slack User ID；留空时使用 `UMOCK`。真实 ID 只填入本机 `.env.local`。 |
+| 模拟 Slack Bot | `MOCK_SLACK_USER_NAME` | 模拟发起人的显示名；留空时使用“模拟用户”。 |
+| 模拟 Slack Bot | `MOCK_SLACK_USER_EMAIL` | 模拟发起人的邮箱；留空时使用 `mock.user@example.com`。真实邮箱只填入本机 `.env.local`。页面把这三个身份字段作为可编辑默认值；每条新命令按当前输入发送，刷新页面恢复本机默认值。失败重试保留原命令的身份。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
 | Slack Bot | `CHAT_TO_FIX_API_URL` | 本机 Agent 控制接口地址；默认 `http://127.0.0.1:3090`。 |

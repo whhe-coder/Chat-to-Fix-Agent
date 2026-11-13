@@ -342,12 +342,13 @@ test('outbox adapter: createSlackAdapter picks it, needs the shared outbox and n
 test('outbox adapter: readThread is the discussion the task holds (earlier, the /fix text, follow-ups)', async () => {
   const { slack } = outboxRig()
   const origin = {
-    ...ORIGIN, text: 'button typo', user: { id: 'U1', name: 'alice' },
+    ...ORIGIN, text: 'button typo', user: { id: 'U1', name: 'alice', email: 'alice@example.com' },
     followUps: [{ user: { id: 'U1' }, text: 'it says Add to crat', messageTs: '1731377500.000200', files: [] }],
   }
   const thread = await slack.readThread(origin)
   assert.deepEqual(thread.map((m) => m.text), ['button typo', 'it says Add to crat'])
   assert.equal(thread[0].user.name, 'alice')
+  assert.equal(thread[0].user.email, 'alice@example.com')
   assert.deepEqual(thread, commandDiscussion(origin))
   for (const threadTs of ['../x', 'a b', '', undefined]) await assert.rejects(slack.readThread({ ...origin, threadTs }), (e: any) => e.code === 'bad_origin')
   // the outbox does not call Slack: any safe id is a key (the mock Slack Bot uses C-MOCK-FIX)

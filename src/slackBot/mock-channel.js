@@ -10,6 +10,17 @@ class MockError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
+function mockUserOf(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MockError('模拟用户信息无效');
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const name = typeof value.name === 'string' ? value.name.trim() : '';
+  const email = typeof value.email === 'string' ? value.email.trim() : '';
+  if (!/^[UW][A-Z0-9]{1,63}$/.test(id)) throw new MockError('模拟用户 ID 无效');
+  if (!name || name.length > 80) throw new MockError('模拟用户名无效');
+  if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) throw new MockError('模拟用户邮箱无效');
+  return { id, name, email };
+}
+
 function respond(response, status, body, type) {
   response.writeHead(status, {
     'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
@@ -36,12 +47,16 @@ async function readJson(request) {
   return body;
 }
 
-export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelId = 'CLOCAL', tokenProvider, fetchImpl = fetch, now = Date.now } = {}) {
+export function createMockChannel({
+  agentUrl = 'http://127.0.0.1:3090', channelId = 'CLOCAL', tokenProvider, fetchImpl = fetch, now = Date.now,
+  userId = 'UMOCK', userName = '模拟用户', userEmail = 'mock.user@example.com',
+} = {}) {
   const target = new URL(agentUrl);
   if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || !target.port || target.pathname !== '/'
     || target.username || target.password || target.search || target.hash) throw new Error('Agent 地址必须是 http://127.0.0.1:<端口>');
   if (!/^C[A-Z0-9]+$/.test(channelId)) throw new Error('模拟频道 ID 无效');
   if (typeof tokenProvider !== 'function') throw new Error('需要 Agent token 读取函数');
+  const mockUser = mockUserOf({ id: userId, name: userName, email: userEmail });
   const events = new Map();
   const threads = new Map();
   let sequence = 0;
@@ -74,6 +89,7 @@ export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelI
 
   const visible = (record) => ({
     eventId: record.eventId, command: record.command, threadTs: record.threadTs,
+    user: { ...record.user },
     taskId: record.taskId, taskState: record.taskState, status: record.status, error: record.error,
     messages: record.messages.map((message) => ({ ...message })),
   });
@@ -87,10 +103,12 @@ export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelI
     const eventId = input.eventId === undefined ? `mock:${randomUUID()}` : input.eventId;
     if (typeof eventId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(eventId)) throw new MockError('eventId 无效');
     let record = events.get(eventId);
-    if (record && record.command !== command.trim()) throw new MockError('eventId 已用于另一条命令', 409);
+    const user = input.user === undefined ? { ...(record?.user ?? mockUser) } : mockUserOf(input.user);
+    if (record && (record.command !== command.trim() || record.user.id !== user.id
+      || record.user.name !== user.name || record.user.email !== user.email)) throw new MockError('eventId 已用于另一条命令或身份', 409);
     if (!record) {
       const threadTs = nextTs();
-      record = { eventId, command: command.trim(), issue, threadTs, taskId: null, taskState: null,
+      record = { eventId, command: command.trim(), issue, user, threadTs, taskId: null, taskState: null,
         status: 'pending', error: null, errorStatus: null, pending: null,
         messages: [{ from: 'user', text: command.trim(), ts: threadTs, at: new Date(now()).toISOString() }] };
       events.set(eventId, record);
@@ -104,7 +122,7 @@ export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelI
         try {
           const result = await agentRequest('POST', '/events', {
             source: 'fix', eventId, channel: channelId, threadTs: record.threadTs,
-            messageTs: record.threadTs, text: record.issue, user: { id: 'UMOCK', name: '模拟用户' },
+            messageTs: record.threadTs, text: record.issue, user: { ...record.user },
           });
           if (typeof result?.taskId !== 'string') throw new MockError('Agent 未返回任务编号', 502);
           record.taskId = result.taskId;
@@ -150,7 +168,7 @@ export function createMockChannel({ agentUrl = 'http://127.0.0.1:3090', channelI
     return syncing;
   }
 
-  return { submit, sync, snapshot: () => ({ channelId, threads: [...threads.values()].map(visible).reverse() }) };
+  return { submit, sync, snapshot: () => ({ channelId, mockUser: { ...mockUser }, threads: [...threads.values()].map(visible).reverse() }) };
 }
 
 export function createMockChannelServer({ channel, serviceId } = {}) {

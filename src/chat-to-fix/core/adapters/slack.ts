@@ -209,8 +209,9 @@ export function commandDiscussion(origin) {
     .filter((m) => m !== null && typeof m === 'object' && typeof m.text === 'string' && m.text.trim() !== '')
     .map((m) => {
       const seconds = Number(m.messageTs)
+      const email = typeof m.user?.email === 'string' && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(m.user.email) ? m.user.email : undefined
       return {
-        user: { id: m.user?.id ?? 'unknown', name: m.user?.name ?? m.user?.id ?? 'unknown' },
+        user: { id: m.user?.id ?? 'unknown', name: m.user?.name ?? m.user?.id ?? 'unknown', ...(email ? { email } : {}) },
         at: typeof m.at === 'string' ? m.at : Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null,
         text: m.text,
         files: list(m.files),

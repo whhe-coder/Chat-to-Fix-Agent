@@ -25,9 +25,18 @@
         <div id="threads" class="threads" aria-live="polite"></div>
       </section>
       <form id="composer" class="composer">
+        <fieldset class="identity-fields">
+          <legend>模拟发起人</legend>
+          <div class="identity-grid">
+            <label for="mock-user-id">Slack User ID<input id="mock-user-id" name="userId" pattern="[UW][A-Z0-9]{1,63}" maxlength="64" required></label>
+            <label for="mock-user-name">显示名<input id="mock-user-name" name="userName" maxlength="80" required></label>
+            <label for="mock-user-email">邮箱<input id="mock-user-email" name="userEmail" type="email" maxlength="254" required></label>
+          </div>
+          <p>默认值来自本机配置；编辑后对新命令生效，刷新页面可恢复默认值。</p>
+        </fieldset>
         <label for="message">发送到 # <span id="composer-channel">chat-to-fix</span></label>
         <textarea id="message" name="message" rows="3" maxlength="4000" placeholder="/fix 登录页按钮点击后没有反应" required></textarea>
-        <div class="composer-bottom"><span id="composer-note">仅接受 /fix 命令 · Enter 发送，Shift+Enter 换行</span><button id="send-button" type="submit">发送命令 <span aria-hidden="true">↗</span></button></div>
+        <div class="composer-bottom"><span id="composer-note">仅接受 /fix 命令 · Enter 发送，Shift+Enter 换行</span><button id="send-button" type="submit" disabled>发送命令 <span aria-hidden="true">↗</span></button></div>
       </form>
     </main>
   </div>

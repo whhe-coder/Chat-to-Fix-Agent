@@ -11,7 +11,8 @@ const linkOf = (file) => (typeof file === 'string' ? undefined : file?.url ?? fi
 
 function formatMessage(message) {
   const who = message.user?.name ?? message.user?.id ?? 'unknown'
-  const lines = [`[${message.at ?? '?'}] ${who}: ${message.text ?? ''}`]
+  const email = typeof message.user?.email === 'string' && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(message.user.email) ? ` <${message.user.email}>` : ''
+  const lines = [`[${message.at ?? '?'}] ${who}${email}: ${message.text ?? ''}`]
   for (const file of message.files ?? []) {
     const link = linkOf(file)
     lines.push(`  attachment: ${nameOf(file)}${link ? ` (${link})` : ''}`)

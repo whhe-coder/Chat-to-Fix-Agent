@@ -15,7 +15,7 @@ async function listen(server) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-async function fixture(t) {
+async function fixture(t, mockUser = {}) {
   const received = [];
   const messages = [];
   const tasks = [];
@@ -49,7 +49,7 @@ async function fixture(t) {
   });
   const agentUrl = await listen(agent);
   t.after(() => agent.close());
-  const channel = createMockChannel({ agentUrl, tokenProvider: () => 'local-test-token' });
+  const channel = createMockChannel({ agentUrl, tokenProvider: () => 'local-test-token', ...mockUser });
   const mock = createMockChannelServer({ channel });
   const mockUrl = await listen(mock);
   t.after(() => mock.close());
@@ -63,25 +63,46 @@ test('频道网页把 /fix 转给 Agent，并显示回传进度和任务状态',
   const { mockUrl, post, received } = await fixture(t);
   const page = await fetch(mockUrl);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /欢迎来到模拟频道/);
+  const html = await page.text();
+  assert.match(html, /欢迎来到模拟频道/);
+  for (const id of ['mock-user-id', 'mock-user-name', 'mock-user-email']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
 
   const sent = await post({ text: '/fix 登录页按钮无响应', eventId: 'mock:E1' });
   assert.equal(sent.status, 202);
   const body = await sent.json();
   assert.equal(body.thread.taskId, 'T-1');
+  assert.deepEqual(body.thread.user, { id: 'UMOCK', name: '模拟用户', email: 'mock.user@example.com' });
   assert.deepEqual(received[0], {
     source: 'fix', eventId: 'mock:E1', channel: 'CLOCAL', threadTs: body.thread.threadTs,
-    messageTs: body.thread.threadTs, text: '登录页按钮无响应', user: { id: 'UMOCK', name: '模拟用户' },
+    messageTs: body.thread.threadTs, text: '登录页按钮无响应', user: { id: 'UMOCK', name: '模拟用户', email: 'mock.user@example.com' },
   });
 
   const snapshot = await (await fetch(`${mockUrl}/api/channel`)).json();
   assert.equal(snapshot.agent.online, true);
+  assert.deepEqual(snapshot.mockUser, { id: 'UMOCK', name: '模拟用户', email: 'mock.user@example.com' });
   assert.equal(snapshot.threads[0].taskState, 'running');
   assert.deepEqual(snapshot.threads[0].messages.map((message) => message.from), ['user', 'bot', 'agent']);
   assert.match(snapshot.threads[0].messages[2].text, /F2PGBA-1/);
   assert.equal(JSON.stringify(snapshot).includes('local-test-token'), false);
   assert.equal((await (await fetch(`${mockUrl}/api/channel`)).json()).threads[0].messages.length, 3);
+});
+
+test('模拟身份默认来自服务端配置，也可按消息编辑；重试保持原身份', async (t) => {
+  const { post, received } = await fixture(t, { userId: 'U123ABC', userName: '测试用户', userEmail: 'user@example.com' });
+  const first = await post({ text: '/fix 修复登录按钮', eventId: 'mock:default' });
+  assert.equal(first.status, 202);
+  assert.deepEqual(received[0].user, { id: 'U123ABC', name: '测试用户', email: 'user@example.com' });
+  const edited = { id: 'W987XYZ', name: '另一位用户', email: 'another@example.com' };
+  const input = { text: '/fix 修复登录按钮', eventId: 'mock:identity', user: edited };
+  const sent = await post(input);
+  assert.equal(sent.status, 202);
+  assert.deepEqual(received[1].user, edited);
+  assert.deepEqual((await sent.json()).thread.user, edited);
+  assert.equal((await post(input)).status, 200);
+  assert.equal((await post({ ...input, user: { ...edited, email: 'changed@example.com' } })).status, 409);
+  assert.equal((await post({ ...input, user: { ...edited, email: 'invalid' } })).status, 400);
+  assert.throws(() => createMockChannel({ tokenProvider: () => 'x', userEmail: 'invalid' }), /邮箱无效/);
 });
 
 test('相同命令并发重试只转发一次，改用同一 eventId 提交其他内容会拒绝', async (t) => {
@@ -108,7 +129,7 @@ test('只接受本机页面的 /fix；转发失败后可用同一事件重试', 
   const server = createMockChannelServer({ channel });
   const retryUrl = await listen(server);
   t.after(() => server.close());
-  const input = { text: '/fix 表单验证出错', eventId: 'mock:retry' };
+  const input = { text: '/fix 表单验证出错', eventId: 'mock:retry', user: { id: 'U123ABC', name: '测试用户', email: 'user@example.com' } };
   const submit = () => fetch(`${retryUrl}/api/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
   const failed = await submit();
   assert.equal(failed.status, 503);
@@ -119,6 +140,7 @@ test('只接受本机页面的 /fix；转发失败后可用同一事件重试', 
   assert.equal(success.status, 202);
   assert.equal((await success.json()).thread.threadTs, failedBody.thread.threadTs);
   assert.equal(received.length, 1);
+  assert.deepEqual(received[0].user, input.user);
 });
 
 test('模拟频道与 Agent 的真实 HTTP 接口能完成任务创建和发件箱回传', async (t) => {
@@ -170,6 +192,7 @@ test('模拟频道与 Agent 的真实 HTTP 接口能完成任务创建和发件�
   assert.equal(order[1], 'enqueue');
   assert.equal(order[0].includes('local-test-token'), false);
   assert.equal([...tasks.values()][0].origin.text, '修复表单错误');
+  assert.deepEqual([...tasks.values()][0].origin.user, { id: 'UMOCK', name: '模拟用户', email: 'mock.user@example.com' });
   const snapshot = await (await fetch(`${mockUrl}/api/channel`)).json();
   assert.equal(snapshot.threads[0].messages.at(-1).text, 'Agent 已收到问题');
   assert.equal(snapshot.threads[0].taskId, 'T-1');
