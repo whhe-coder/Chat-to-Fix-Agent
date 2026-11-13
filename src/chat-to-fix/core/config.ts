@@ -2,19 +2,35 @@
 // Credentials come only from environment variables. They are never copied into the returned
 // configuration and never appear in an error message (only the variable NAME may be mentioned).
 import { readFileSync } from 'node:fs'
-import { EFFORT_LEVELS } from './engine/args.ts'
 import { pricingProblems } from './task/pricing.ts'
 
 // The slash command that opens a task (design 2026-11-12); slack.slashCommand overrides it.
 export const DEFAULT_SLASH_COMMAND = '/fix'
 
+// The thinking levels a configuration may name for the Coding bot (`codingEffort`); the bot layer checks the
+// level against the model's catalog entry when the bot is created (DS Bot roster.ts updateBot).
+export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])
+
+// The model routes. Every bot is a DSH session on an API route; `anthropic/<model>` is the route of the
+// profile patch (config/cordis.patch.yml, row 1) and needs ANTHROPIC_API_KEY. The Claude Code route
+// (`claude-code/...`) was removed on 2026-11-13 (docs/chat-to-fix/design/plan-dsh-coding.md).
+export const ANTHROPIC_KEY = 'ANTHROPIC_API_KEY'
+const REMOVED_ROUTE = 'claude-code/'
+
 export const DEFAULT_LIMITS = Object.freeze({
+  // Soft limits start a wrap-up (the Main bot closes the task as needs_person); the task time limit below ends the task.
+  softTaskMinutes: 20,
+  softTaskUsd: 2.5,
   taskMinutes: 80,
   stepMinutes: Object.freeze({ fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, ci: 30, writeback: 5 }),
   quietMinutes: 3,
   quietNudges: 2,
+  // The Coding bot: no output while its turn runs (minutes; a call of its own tools in flight does not count),
+  // tool calls in one turn, one test run, one review.
   engineSilentMinutes: 10,
-  engineMaxTurns: 200,
+  codingMaxSteps: 200,
+  testMinutes: 10,
+  reviewMinutes: 15,
   reviewMaxRounds: 3,
   maxConcurrent: 1,
   queueMax: 20,
@@ -34,14 +50,12 @@ export const DEFAULT_LIMITS = Object.freeze({
 })
 
 // Limits that count things: a whole number, not just a positive one.
-const INTEGER_LIMITS = Object.freeze(['ciMaxRounds', 'ciLogMaxChars'])
+const INTEGER_LIMITS = Object.freeze(['ciMaxRounds', 'ciLogMaxChars', 'codingMaxSteps', 'reviewMaxRounds'])
 
 const DEFAULTS = {
   language: 'zh',
-  codingModel: 'claude-code/default',
+  codingModel: 'anthropic/claude-sonnet-5-5',
   codingEffort: 'high',
-  codingPermission: 'workspace-write',
-  engineAuth: 'login',
   jiraTransitions: ['In Review'],
   commitAuthor: { name: 'chat-to-fix', email: 'chat-to-fix@example.com' },
 }
@@ -55,8 +69,8 @@ const isPositive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
 const PLACEHOLDER = 'CHANGE-ME'
 // A key that looks like it holds a credential; credentials are read from the environment only.
 const CREDENTIAL_KEY = /token|secret|password|passwd|api[-_]?key/i
-// What the Claude Code allow-list cannot take (core/engine/args.ts): a comma, or a rule for every command.
-const unusableCommand = (v) => v.includes(',') || v === '*' || v === ':*'
+// A test command is run as written by `sh -c` in the code directory (core/tools/tests.ts); it must be one line.
+const unusableCommand = (v) => /[\r\n\0]/.test(v)
 
 const isHttpUrl = (v) => {
   if (!isText(v)) return false
@@ -183,11 +197,19 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
   const gitlab = adapterSection(raw, 'gitlab', adapters.gitlab, problems)
   const slack = adapterSection(raw, 'slack', adapters.slack, problems)
 
-  const engineAuth = raw.engineAuth ?? DEFAULTS.engineAuth
-  if (engineAuth !== 'login' && engineAuth !== 'apiKey') problems.push('engineAuth must be "login" or "apiKey"')
-  else if (engineAuth === 'apiKey' && secret(env, 'ANTHROPIC_API_KEY') === undefined) problems.push('engineAuth is "apiKey" but ANTHROPIC_API_KEY is not set')
+  // Models: every bot runs on an API route. A removed Claude Code route is named as such; an anthropic route
+  // needs the key in the environment (it is read by DSH through the profile patch, never by this layer).
+  const codingModel = raw.codingModel ?? DEFAULTS.codingModel
+  for (const [key, value] of [['apiModel', raw.apiModel], ['codingModel', codingModel]]) {
+    if (!isText(value)) continue
+    if (value.startsWith(REMOVED_ROUTE)) problems.push(`${key} ${value}: the Claude Code route was removed; every bot runs on the Anthropic API (for example anthropic/claude-sonnet-5-5) and needs ${ANTHROPIC_KEY}`)
+    else if (!/^[a-z0-9-]+\/\S+$/.test(value)) problems.push(`${key} must be a model route like anthropic/claude-sonnet-5-5`)
+  }
+  if ([raw.apiModel, codingModel].some((v) => isText(v) && v.startsWith('anthropic/')) && secret(env, ANTHROPIC_KEY) === undefined) {
+    problems.push(`${ANTHROPIC_KEY} is not set: Chat-to-Fix runs every bot on the Anthropic API (anthropic/... models) and needs the key in the environment`)
+  }
 
-  // codingEffort: --effort of the Coding bot and its reviewer (low, medium, high, xhigh, max).
+  // codingEffort: the thinking level of the Coding bot (low, medium, high, xhigh, max); its reviewer inherits it.
   const codingEffort = raw.codingEffort ?? DEFAULTS.codingEffort
   if (!EFFORT_LEVELS.includes(codingEffort)) problems.push(`codingEffort must be one of ${EFFORT_LEVELS.join(', ')}`)
   // pricing: rows of the price table (USD per million tokens) that replace or add to core/task/pricing.ts.
@@ -207,9 +229,9 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
         if (seen.has(b.channel)) problems.push(`channel ${b.channel} appears twice in bindings`)
         seen.add(b.channel)
       }
-      // testCommands: the shell commands the Coding bot may run (each becomes a Bash(<command>) rule);
+      // testCommands: the commands the Coding bot may run with run_tests (each exactly as written, by sh -c);
       // setupCommands: run once in a fresh worktree; jiraFields: extra fields for this channel's issues.
-      const testCommands = textList(b.testCommands, `bindings[${i}].testCommands`, problems, { allowed: (v) => !unusableCommand(v), why: 'must not contain a comma and must not be a bare wildcard' })
+      const testCommands = textList(b.testCommands, `bindings[${i}].testCommands`, problems, { allowed: (v) => !unusableCommand(v), why: 'must be one line' })
       const setupCommands = textList(b.setupCommands, `bindings[${i}].setupCommands`, problems)
       if (b.jiraFields !== undefined && !isObject(b.jiraFields)) problems.push(`bindings[${i}].jiraFields must be an object`)
       ciBindingProblems(b, `bindings[${i}]`, problems)
@@ -231,6 +253,8 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     else if (INTEGER_LIMITS.includes(key) && !Number.isInteger(value)) problems.push(`limits.${key} must be a whole number`)
     else limits[key] = value
   }
+  // The soft time limit must be below the task time limit, or the wrap-up could never happen before the task is ended.
+  if (limits.softTaskMinutes >= limits.taskMinutes) problems.push(`limits.softTaskMinutes (${limits.softTaskMinutes}) must be less than limits.taskMinutes (${limits.taskMinutes})`)
   if (rawLimits.stepMinutes !== undefined) {
     if (!isObject(rawLimits.stepMinutes)) problems.push('limits.stepMinutes must be an object')
     else for (const [step, value] of Object.entries(rawLimits.stepMinutes)) {
@@ -248,11 +272,9 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     httpPort: raw.httpPort,
     language: raw.language ?? DEFAULTS.language,
     apiModel: raw.apiModel,
-    codingModel: raw.codingModel ?? DEFAULTS.codingModel,
+    codingModel,
     codingEffort,
     ...(raw.pricing === undefined ? {} : { pricing: raw.pricing }),
-    codingPermission: raw.codingPermission ?? DEFAULTS.codingPermission,
-    engineAuth,
     adapters,
     jira,
     gitlab,

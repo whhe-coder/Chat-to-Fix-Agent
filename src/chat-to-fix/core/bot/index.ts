@@ -20,7 +20,6 @@ import * as groups from '../../bot/src/host/groups.ts'
 import * as approvals from '../../bot/src/host/approvals.ts'
 import * as resume from '../../bot/src/host/resume.ts'
 import * as parts from '../../bot/src/host/parts.ts'
-import * as localAgents from '../../bot/src/host/local-agents/index.ts'
 import * as stubs from './stubs.ts'
 import { createBotLayer } from '../task/botlayer.ts'
 
@@ -30,7 +29,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 
 // Order matters (see bot/index.js:55-58): diagnostics before store (store takes the log
 // function), the stand-ins right after diagnostics, delivery before resume (resume wraps it).
-const MODULES = [diagnostics, stubs, store, models, permissions, turns, handoffs, requests, delivery, roster, folders, prompt, timeContext, tools, chatIndex, groups, approvals, resume, parts, localAgents]
+const MODULES = [diagnostics, stubs, store, models, permissions, turns, handoffs, requests, delivery, roster, folders, prompt, timeContext, tools, chatIndex, groups, approvals, resume, parts]
 
 const runtimes = new WeakMap()
 // The internal object behind a facade, for tests and for the later task-layer hooks.
@@ -45,10 +44,10 @@ export function apply(ctx, config = {}) {
 // only files under bot/ can resolve @deepseek-ai/dsh-tools.)
 export { defineTool } from '../../bot/src/host/tools.ts'
 
-// `config.taskLayer = { attachRoleTools, bridgedToolNames }` is kept on `rt.taskLayer`;
-// tools.js (shareBotTools) calls attachRoleTools, local-agents/launch.js calls bridgedToolNames.
-// `config` also carries what the Claude Code driver needs (local-agents/launch.js): engineAuth,
-// engineApiKey, engineMaxTurns, testCommands, permissionTimeoutMs. Returns the I1 facade.
+// `config.taskLayer = { attachRoleTools }` is kept on `rt.taskLayer`; tools.js (shareBotTools) calls
+// attachRoleTools. Returns the I1 facade. DS Bot's local-agents module (bots on a local CLI route) is
+// not installed: every bot is a DSH session on an API route; the calls DS Bot makes into it are optional
+// (rt.isLocalAgentRef?.(...)) and find nothing.
 export function createRuntime(ctx, config: any = {}) {
   const dshHome = folders.dshHomeOf(process.env.DSH_HOME)
   const home = config.home ?? join(dshHome, 'bot')
@@ -66,14 +65,13 @@ export function createRuntime(ctx, config: any = {}) {
   // Registered last, as channel.js did: this effect runs first on dispose, before the state lock goes.
   ctx.effect(() => { void rt.load() }, 'chat-to-fix: load state')
   const botlayer = createBotLayer(rt)
-  // The facade, for the code that starts a Claude Code process: it asks which task role a session is bound to.
   rt.botlayer = botlayer
   runtimes.set(botlayer, rt)
   return botlayer
 }
 
 // The facade is created before the task layer (the task layer needs the facade), so the task
-// layer is handed over afterwards: `taskLayer = { attachRoleTools, bridgedToolNames }`.
+// layer is handed over afterwards: `taskLayer = { attachRoleTools }`.
 export function connectTaskLayer(facade, taskLayer) {
   const rt = runtimes.get(facade)
   if (rt === undefined) throw new Error('connectTaskLayer: not a bot layer facade')

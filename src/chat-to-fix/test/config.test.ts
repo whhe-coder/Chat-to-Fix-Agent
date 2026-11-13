@@ -15,7 +15,9 @@ function write(obj) {
   writeFileSync(path, typeof obj === 'string' ? obj : JSON.stringify(obj))
   return path
 }
-const load = (obj, env = {}) => loadConfig({ path: write(obj), env })
+const KEY = { ANTHROPIC_API_KEY: 'sk-ant-test' }
+// Every test has the Anthropic key unless it says { key: false }.
+const load = (obj, env: any = {}, { key = true } = {}) => loadConfig({ path: write(obj), env: key ? { ...KEY, ...env } : env })
 
 const EXAMPLE = new URL('../config.example.json', import.meta.url).pathname
 
@@ -40,7 +42,7 @@ test('a configuration that still holds the CHANGE-ME placeholder in apiModel is 
 })
 
 test('path may come from CHAT_TO_FIX_CONFIG', () => {
-  const c = loadConfig({ env: { CHAT_TO_FIX_CONFIG: write(base()) } })
+  const c = loadConfig({ env: { ...KEY, CHAT_TO_FIX_CONFIG: write(base()) } })
   assert.equal(c.dataDir, '/d')
   assert.throws(() => loadConfig({ env: {} }), /CHAT_TO_FIX_CONFIG/)
 })
@@ -48,9 +50,13 @@ test('path may come from CHAT_TO_FIX_CONFIG', () => {
 test('defaults are applied for missing optional keys and partial limits', () => {
   const c = load({ ...base(), limits: { queueMax: 5, stepMinutes: { code: 50 } } })
   assert.equal(c.language, 'zh')
-  assert.equal(c.codingModel, 'claude-code/default')
-  assert.equal(c.codingPermission, 'workspace-write')
-  assert.equal(c.engineAuth, 'login')
+  assert.equal(c.codingModel, 'anthropic/claude-sonnet-5-5')
+  assert.equal('codingPermission' in c, false)
+  assert.equal('engineAuth' in c, false)
+  assert.equal(c.limits.codingMaxSteps, 200)
+  assert.equal(c.limits.testMinutes, 10)
+  assert.equal(c.limits.reviewMinutes, 15)
+  assert.equal(c.limits.reviewMaxRounds, 3)
   assert.deepEqual(c.adapters, { slack: 'fake', jira: 'fake', gitlab: 'fake' })
   assert.deepEqual(c.jiraTransitions, ['In Review'])
   assert.equal(c.limits.queueMax, 5)
@@ -110,15 +116,32 @@ test('slack.mentions must be a boolean', () => {
   assert.throws(() => load({ ...base(), slack: { mentions: 'no' } }, {}), /slack\.mentions must be true or false/)
 })
 
-test('engineAuth apiKey needs ANTHROPIC_API_KEY', () => {
-  const cfg = { ...base(), engineAuth: 'apiKey' }
-  assert.throws(() => load(cfg, {}), /ANTHROPIC_API_KEY/)
-  assert.equal(load(cfg, { ANTHROPIC_API_KEY: 'sk-ant-secret' }).engineAuth, 'apiKey')
+test('every bot runs on the Anthropic API: an anthropic model needs ANTHROPIC_API_KEY, with a message that says so', () => {
+  const noKey = { key: false }
+  assert.throws(() => load(base(), {}, noKey), /ANTHROPIC_API_KEY is not set: Chat-to-Fix runs every bot on the Anthropic API/)
+  assert.throws(() => load({ ...base(), apiModel: 'deepseek/v4' }, {}, noKey), /ANTHROPIC_API_KEY is not set/, 'the Coding bot defaults to anthropic/')
+  assert.equal(load({ ...base(), apiModel: 'deepseek/v4', codingModel: 'deepseek/v4' }, {}, noKey).codingModel, 'deepseek/v4', 'another route needs no Anthropic key')
+  assert.equal(load(base(), { ANTHROPIC_API_KEY: 'sk-ant-secret' }, noKey).apiModel, 'anthropic/x')
+})
+
+test('the removed Claude Code route is refused by name; a model must be a route', () => {
+  assert.throws(() => load({ ...base(), codingModel: 'claude-code/claude-sonnet-5-5' }), /codingModel claude-code\/claude-sonnet-5-5: the Claude Code route was removed/)
+  assert.throws(() => load({ ...base(), apiModel: 'claude-code/default' }), /apiModel claude-code\/default: the Claude Code route was removed/)
+  assert.throws(() => load({ ...base(), codingModel: 'sonnet' }), /codingModel must be a model route/)
+  // an old configuration's engineAuth and codingPermission are ignored
+  assert.equal(load({ ...base(), engineAuth: 'login', codingPermission: 'workspace-write' }).apiModel, 'anthropic/x')
+})
+
+test('Coding limits are whole numbers; a test command must be one line', () => {
+  assert.throws(() => load({ ...base(), limits: { codingMaxSteps: 2.5 } }), /limits\.codingMaxSteps must be a whole number/)
+  assert.throws(() => load({ ...base(), limits: { testMinutes: 0 } }), /limits\.testMinutes/)
+  const bindings = (testCommands) => [{ ...base().bindings[0], testCommands }]
+  assert.deepEqual(load({ ...base(), bindings: bindings(['npm ci && npm test', 'sh test.sh, then more']) }).bindings[0].testCommands, ['npm ci && npm test', 'sh test.sh, then more'])
+  assert.throws(() => load({ ...base(), bindings: bindings(['sh a.sh\nrm -rf /']) }), /testCommands\[0\] must be one line/)
 })
 
 test('invalid values are named', () => {
   assert.throws(() => load({ ...base(), adapters: { slack: 'bogus' } }), /adapters\.slack/)
-  assert.throws(() => load({ ...base(), engineAuth: 'x' }), /engineAuth/)
   assert.throws(() => load({ ...base(), limits: { queueMax: 0 } }), /limits\.queueMax/)
   assert.throws(() => load({ ...base(), limits: { stepMinutes: { code: -1 } } }), /limits\.stepMinutes\.code/)
   assert.throws(() => load({ ...base(), httpPort: 'abc' }), /httpPort/)
@@ -129,7 +152,7 @@ test('invalid values are named', () => {
 test('secrets never appear in the returned config or in errors', () => {
   const env = { CHAT_TO_FIX_SLACK_TOKEN: 'xoxb-secret-1', CHAT_TO_FIX_JIRA_TOKEN: 'jira-secret-2', CHAT_TO_FIX_GITLAB_TOKEN: 'gl-secret-3', ANTHROPIC_API_KEY: 'sk-secret-4', CHAT_TO_FIX_HTTP_TOKEN: 'http-secret-5' }
   const real = { jira: { baseUrl: 'https://j.example.com', email: 'bot@example.com' }, gitlab: { baseUrl: 'https://g.example.com' } }
-  const c = load({ ...base(), ...real, engineAuth: 'apiKey', adapters: { slack: 'real', jira: 'real', gitlab: 'real' } }, env)
+  const c = load({ ...base(), ...real, adapters: { slack: 'real', jira: 'real', gitlab: 'real' } }, env)
   const text = JSON.stringify(c)
   for (const v of Object.values(env)) assert.ok(!text.includes(v), `config leaks ${v}`)
   try { load({ ...base(), httpPort: 'x', adapters: { slack: 'real' } }, env); assert.fail() } catch (e) {
@@ -193,8 +216,7 @@ test('binding testCommands, setupCommands and jiraFields are validated and passe
   assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: 'sh test.sh' }] }), /bindings\[0\]\.testCommands must be an array/)
   assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: ['ok', ''] }] }), /bindings\[0\]\.testCommands\[1\] must be a non-empty string/)
   assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: [3] }] }), /testCommands\[0\]/)
-  assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: ['a,b'] }] }), /testCommands\[0\] must not contain a comma/)
-  assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: ['*'] }] }), /bare wildcard/)
+  assert.throws(() => load({ ...base(), bindings: [{ ...binding, testCommands: ['a\nb'] }] }), /testCommands\[0\] must be one line/)
   assert.throws(() => load({ ...base(), bindings: [{ ...binding, setupCommands: [' '] }] }), /setupCommands\[0\]/)
   assert.throws(() => load({ ...base(), bindings: [{ ...binding, jiraFields: [] }] }), /bindings\[0\]\.jiraFields must be an object/)
 })
@@ -261,4 +283,13 @@ test('binding ciJobs and ciNone (simulated CI) are validated and passed through'
   assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', delaySeconds: -1 }] }), /ciJobs\[0\]\.delaySeconds/)
   assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', flaky: 'yes' }] }), /ciJobs\[0\]\.flaky/)
   assert.throws(() => bad({ ciNone: 'yes' }), /bindings\[0\]\.ciNone/)
+})
+
+test('soft task limits: defaults, overrides, and the soft time must stay below taskMinutes', () => {
+  const c = load(base())
+  assert.deepEqual([c.limits.softTaskMinutes, c.limits.softTaskUsd, c.limits.taskMinutes], [20, 2.5, 80])
+  const o = load({ ...base(), limits: { softTaskMinutes: 5, softTaskUsd: 1, taskMinutes: 10 } })
+  assert.deepEqual([o.limits.softTaskMinutes, o.limits.softTaskUsd, o.limits.taskMinutes], [5, 1, 10])
+  assert.throws(() => load({ ...base(), limits: { softTaskUsd: -1 } }), /limits\.softTaskUsd must be a positive number/)
+  assert.throws(() => load({ ...base(), limits: { taskMinutes: 10 } }), /softTaskMinutes \(20\) must be less than limits\.taskMinutes \(10\)/)
 })

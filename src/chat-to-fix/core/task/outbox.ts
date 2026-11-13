@@ -1,7 +1,8 @@
 // The outbox (docs/chat-to-fix/slack/slackbot.md, 4.2 (2)): the messages Chat-to-Fix wants posted into a Slack discussion.
 // Append-only file <dataDir>/outbox.jsonl, one JSON line per message, `seq` global from 1 and never reused.
 // The company Slack Bot polls GET /outbox?after=<seq> and posts each message; Chat-to-Fix itself holds no Slack token.
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const OUTBOX_DEFAULT_LIMIT = 50
@@ -15,6 +16,8 @@ const isText = (v) => typeof v === 'string' && v.trim() !== ''
  */
 export function createOutbox({ dataDir, store, now = () => new Date().toISOString() }: any) {
   const path = join(dataDir, 'outbox.jsonl')
+  const idPath = join(dataDir, 'outbox-id')
+  let outboxId: string | undefined
   let lastSeq: number | undefined
   let chain: Promise<any> = Promise.resolve()
   let lead = '' // '\n' when the file ends in a half-written line, so the next message starts on its own line
@@ -72,5 +75,27 @@ export function createOutbox({ dataDir, store, now = () => new Date().toISOStrin
     return { messages, next: messages.length > 0 ? messages[messages.length - 1].seq : from }
   }
 
-  return { append, read, path }
+  /** The outbox's id: file <dataDir>/outbox-id, a random UUID made on first use and unchanged after (a wiped data dir gets a new one). Read once, then cached. */
+  function id(): Promise<string> {
+    return serialized(async () => {
+      if (outboxId !== undefined) return outboxId
+      let value = ''
+      try { value = (await readFile(idPath, 'utf8')).trim() } catch (error: any) { if (error?.code !== 'ENOENT') throw error }
+      if (value === '') {
+        value = randomUUID()
+        await mkdir(dataDir, { recursive: true })
+        await writeFile(idPath, `${value}\n`, 'utf8')
+      }
+      outboxId = value
+      return value
+    })
+  }
+
+  /** The current maximum seq, 0 when the outbox is empty. */
+  async function last() {
+    await chain
+    return (await readAll()).reduce((max, m) => Math.max(max, m.seq), 0)
+  }
+
+  return { append, read, id, last, path }
 }

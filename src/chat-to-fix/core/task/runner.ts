@@ -35,11 +35,8 @@ export function taskMessage(task) {
 // A registry field holds a literal or the name of a configuration key (registry/bots.js).
 const resolve = (config, value) => (CONFIG_KEYS.includes(value) ? (config[value] ?? CONFIG_DEFAULTS[value] ?? value) : value)
 
-// Which DSH preset a bot's session uses (spec 5, 4.3): the four API bots use the `readonly`
-// agent preset (config/cordis.patch.yml), the Coding bot DS Bot's `standard`.
-const presetOf = (def) => def.preset ?? (def.role === 'coding' ? 'standard' : 'readonly')
-
 const noticeKind = (state, endReason) => {
+  if (endReason === 'interrupted') return 'interrupted'
   if (state === 'stopped') return 'stopped'
   if (endReason === 'task_timeout' || endReason === 'coding_timeout' || state === 'timed_out') return 'timed_out'
   return 'failed'
@@ -60,8 +57,7 @@ const noticeKind = (state, endReason) => {
  */
 export function createRunner({ store, botlayer, config, monitor, notify, loadPrompt, groupNotice, repo, warn = (...args) => console.warn(...args), now = () => Date.now() }) {
   let queue
-  // What exists for each task that has a run in this process: group id, bot ids (by role), and the
-  // binding copy of the task (kept here so the Claude Code launcher can read it synchronously).
+  // What exists for each task that has a run in this process: group id and bot ids (by role).
   const live = new Map()
   const ending = new Set()
 
@@ -89,20 +85,21 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
   async function start(taskId) {
     const task = await store.getTask(taskId)
     if (task === undefined) throw new Error(`No such task: ${taskId}`)
-    const entry: any = { groupId: null, bots: {}, watched: false, binding: task.binding ?? undefined }
+    const entry: any = { groupId: null, bots: {}, watched: false }
     live.set(taskId, entry)
     try {
       // Step 1: five bots from the registry. Name = prefix + task number (DSB:src/host/roster.js:140).
-      // The facade sets model and permission after creating the bot and sends no greeting.
+      // The facade sets model, effort and permission after creating the bot and sends no greeting.
+      // The preset is the DSH agent preset of the bot's sessions (config/cordis.patch.yml).
       for (const def of allBotDefs()) {
-        const model = resolve(config, def.model)
         const botId = await botlayer.createBot({
           name: `${def.name}-${task.no}`,
           label: def.label,
           instructions: await loadPrompt(def.instructions),
-          model,
+          model: resolve(config, def.model),
+          ...(def.effort === undefined ? {} : { effort: resolve(config, def.effort) }),
           permission: resolve(config, def.permission),
-          preset: presetOf(def),
+          preset: def.preset,
         })
         entry.bots[def.role] = botId
         await botlayer.bindBot(botId, { taskId, role: def.role })
@@ -177,7 +174,7 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
     for (const task of await store.listTasks({ state: 'running' })) {
       const run = task.runs?.findLast((entry) => entry.endedAt === null)
       if (run?.groupId && botlayer.groupExists(run.groupId)) {
-        live.set(task.id, { groupId: run.groupId, bots: { ...run.bots }, watched: true, binding: task.binding ?? undefined })
+        live.set(task.id, { groupId: run.groupId, bots: { ...run.bots }, watched: true })
         await attempt('watch', task.id, () => monitor.watch(task.id, { restarted: true }))
       } else {
         await end(task.id, 'failed', 'restart')
@@ -210,16 +207,5 @@ export function createRunner({ store, botlayer, config, monitor, notify, loadPro
     return cleaned
   }
 
-  /**
-   * What the Coding bot of a running task may do in its repository, from the binding the task was
-   * created with (synchronous: the CLI launcher asks while it builds the argument list).
-   * `testCommands` is undefined when the binding has none, so the caller falls back to its own list.
-   */
-  function codingOptions(taskId) {
-    const binding = live.get(taskId)?.binding
-    if (binding === undefined) return undefined
-    return { testCommands: binding.testCommands, setupCommands: binding.setupCommands }
-  }
-
-  return { start, end, bind, restore, cleanupWorktrees, codingOptions }
+  return { start, end, bind, restore, cleanupWorktrees }
 }

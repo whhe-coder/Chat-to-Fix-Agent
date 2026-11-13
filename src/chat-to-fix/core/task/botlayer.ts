@@ -54,8 +54,8 @@ export function createBotLayer(rt) {
   })
 
   // --- usage ----------------------------------------------------------------------------
-  // Bots on an API route report usage (source 'dsh') through DSH's per-session projections, read through
-  // ctx.sessionController.projections({ sessionId }): `tokenUsage` (the session's token totals: uncached
+  // Every bot runs on an API route and reports usage (source 'dsh') through DSH's per-session projections, read
+  // through ctx.sessionController.projections({ sessionId }): `tokenUsage` (the session's token totals: uncached
   // input, output, cache read, cache write; every settled call and failed attempt is in it) and
   // `sessionStats` of @deepseek-ai/dsh-session-stats (ttftMs and ttftSteps, decodeMs and decodeTokens: the
   // time and the output tokens of the first-token-to-message span). They are session totals, so a round's
@@ -63,8 +63,9 @@ export function createBotLayer(rt) {
   // usage event is fired per round, just before the round-end event. The speed is derived from them
   // (decodeTokens / decodeMs, the very quotient of DSH's stats table); nothing is recomputed from streams.
   // DSH reports no cost, so the task layer prices the tokens from its table (core/task/pricing.ts).
-  // Bots on a local CLI route are not read here: their turns are reported by reportEngineUsage below.
-  // Not counted: model calls DSH keeps out of the session log (a session title, a compaction summary).
+  // The reviewer's session (runReview below) is a child session: its totals are read once when it ends and
+  // booked to the Coding bot. Not counted: model calls DSH keeps out of the session log (a session title, a
+  // compaction summary).
   const READ_MS = 5000
   const canRead = () => typeof ctx.sessionController?.projections === 'function'
   async function readTotals(id) {
@@ -88,12 +89,14 @@ export function createBotLayer(rt) {
     if (input + output + cacheRead + cacheWrite === 0) return undefined
     const botId = botIdOf(id)
     const ref = rt.botOf(botId)?.appliedModel ?? rt.botOf(botId)?.model
+    const effort = rt.botOf(botId)?.effort
     const decodeMs = diff(after.stats, before.stats, 'decodeMs')
     const decodeTokens = diff(after.stats, before.stats, 'decodeTokens')
     const ttftSteps = diff(after.stats, before.stats, 'ttftSteps')
     const outputTps = tpsOf(decodeTokens, decodeMs)
     return {
       sessionId: id, botId, source: 'dsh', model: typeof ref === 'string' && ref.includes('/') ? ref.slice(ref.indexOf('/') + 1) : (ref ?? 'unknown'),
+      ...(typeof effort === 'string' && effort !== '' ? { effort } : {}),
       input, output, cacheRead, cacheWrite, costUsd: null,
       durationMs: decodeMs, tpsTokens: decodeTokens, ...(ttftSteps > 0 ? { ttftMs: Math.round(diff(after.stats, before.stats, 'ttftMs') / ttftSteps) } : {}),
       outputTps, tpsBasis: outputTps === null ? null : 'dsh-decode', at,
@@ -115,7 +118,7 @@ export function createBotLayer(rt) {
     switch (event.type) {
       case 'turn/start':
         answers.delete(id)
-        if (canRead() && botIdOf(id) !== null && !rt.isLocalAgentSession?.(id)) baselines.set(id, readTotals(id))
+        if (canRead() && botIdOf(id) !== null) baselines.set(id, readTotals(id))
         break
       case 'assistant/message':
         answers.set(id, textOf(event.data?.message?.content))
@@ -172,43 +175,60 @@ export function createBotLayer(rt) {
     fire(listeners.approval, { id: data.id, sessionId: data.sessionId, botId: data.botId ?? null, tool: data.tool, text: data.detail?.text || data.reason || data.detail?.code || '' })
   })
 
-  // The Coding bot's turn as the Claude Code CLI reports it (bot/src/host/local-agents/adapter.ts
-  // reportUsage; core/engine/claude.ts for the event). One UsageEvent per model of the turn, so the
-  // reviewer subagent's model is a row of its own; the cost is the CLI's costUSD. Speed is derived:
-  // output tokens of the turn over duration_api_ms (the time spent in API calls) when the CLI gives
-  // it, else over duration_ms (the whole turn, tools included, so lower). With no per-model rows
-  // (an older CLI) the summed usage is booked under the model of system/init, with no cost.
-  function reportEngineUsage(report) {
-    const id = report?.sessionId
-    if (!teamSession(id)) return
-    const rows = Array.isArray(report.models) && report.models.length > 0
-      ? report.models
-      : report.usage === undefined ? [] : [{ model: report.model ?? 'unknown', input: report.usage.inputTokens ?? 0, output: report.usage.outputTokens ?? 0, cacheRead: report.usage.cacheReadTokens ?? 0, cacheWrite: report.usage.cacheCreationTokens ?? 0, costUsd: null }]
-    const output = rows.reduce((sum, row) => sum + (row.output ?? 0), 0)
-    const api = typeof report.durationApiMs === 'number' && report.durationApiMs > 0
-    const durationMs = api ? report.durationApiMs : (typeof report.durationMs === 'number' ? report.durationMs : 0)
-    const effort = rt.config?.codingEffort
-    for (const row of rows) {
-      // the turn's one span is shared out over the models by their output, so the sums of tokens and time stay the turn's
-      const share = output > 0 ? (row.output ?? 0) / output : 0
-      const part = Math.round(durationMs * share)
-      const outputTps = tpsOf(row.output, part)
-      fire(listeners.usage, {
-        sessionId: id, botId: botIdOf(id), source: 'cli', model: row.model, ...(effort === undefined ? {} : { effort }),
-        input: row.input ?? 0, output: row.output ?? 0, cacheRead: row.cacheRead ?? 0, cacheWrite: row.cacheWrite ?? 0,
-        costUsd: typeof row.costUsd === 'number' ? row.costUsd : null,
-        durationMs: part, outputTps, tpsBasis: outputTps === null ? null : api ? 'cli-api' : 'cli-wall',
-        ...(report.failed ? { failed: true } : {}), at: iso(),
+  // The reviewer of the Coding bot (core/tools/review.ts, request_review): a DSH subagent of the calling
+  // session, started by the system and awaited here, so the review happens inside the Coding bot's tool call.
+  // @deepseek-ai/dsh-subagent startActivation: provider 'spawn' (a fresh in-process child that does not see
+  // the conversation; it inherits the parent's model, effort and working directory), `agentPreset` names the
+  // child's tools, delivery 'caller' returns the result here instead of waking the parent with a notice. The
+  // subagents service is not in the plugin's inject list, so it is read with ctx.get (as turns.ts does).
+  // -> { childId, text, stopReason, diagnostic? }; throws when the review cannot start or does not end in time.
+  const REVIEW_LABEL = 'review'
+  async function runReview({ sessionId, prompt, preset, timeoutMs }) {
+    const subagents = ctx.get?.('subagents')
+    if (typeof subagents?.startActivation !== 'function') throw new Error('the DSH subagents service is not available')
+    const parent = ctx.get?.('agents')?.get?.(sessionId) ?? await rt.resolveAgent(sessionId)
+    const controller = new AbortController()
+    const activation = await subagents.startActivation({
+      provider: 'spawn',
+      label: REVIEW_LABEL,
+      delivery: 'caller',
+      signal: controller.signal,
+      request: { prompt: [{ type: 'text', text: prompt }], parent, ...(preset ? { agentPreset: preset } : {}) },
+    })
+    let timer
+    try {
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`the review did not end within ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs)
       })
+      const result: any = await Promise.race([activation.result, timeout])
+      return {
+        childId: activation.childId,
+        text: textOf(result?.output ?? []),
+        stopReason: result?.stopReason ?? 'error',
+        ...(typeof result?.diagnostic === 'string' ? { diagnostic: result.diagnostic } : {}),
+      }
+    } catch (error) {
+      controller.abort()
+      await Promise.resolve(activation.dispose?.()).catch(() => {})
+      throw error
+    } finally {
+      clearTimeout(timer)
+      await reportChildUsage(sessionId, activation.childId)
     }
   }
 
+  // The reviewer's whole usage, booked to the session that asked for the review.
+  async function reportChildUsage(sessionId, childId) {
+    if (!canRead() || childId === undefined) return
+    const usage = roundUsage(sessionId, { tokens: {}, stats: {} }, await readTotals(childId), iso())
+    if (usage !== undefined) fire(listeners.usage, usage)
+  }
+
   return {
-    reportEngineUsage,
     // roster.js:140 createBot (pickModel holds the greeting back), :316 updateBot. Roles map to
     // DS Bot's `role` label. `preset` is the permission preset the bot's session is created
     // with (roster.js botPreset) and is stored on the bot.
-    async createBot({ name, label, instructions, model, permission, preset }) {
+    async createBot({ name, label, instructions, model, effort, permission, preset }) {
       await rt.load()
       const bot = await rt.createBot({ name, role: label, instructions, pickModel: true, preset })
       // No greeting: the one held for the "choose a model later" bot is cleared before a model is set.
@@ -218,6 +238,10 @@ export function createBotLayer(rt) {
       if (model) patch.model = model
       if (permission) patch.permission = permission
       if (Object.keys(patch).length > 0) await rt.updateBot(bot.id, patch)
+      // The thinking level is checked against the model's catalog entry; a model without levels keeps its default.
+      if (effort) {
+        try { await rt.updateBot(bot.id, { effort }) } catch (error) { rt.warn('chat-to-fix: the thinking level %s was not set for %s: %s', effort, name, error?.message ?? error) }
+      }
       return bot.id
     },
 
@@ -337,6 +361,8 @@ export function createBotLayer(rt) {
     onUsage: fn => subscribe(listeners.usage, fn),
     // approvals.js:100
     answerApproval: (id, choice) => rt.answerApproval(id, choice),
+
+    runReview,
 
     // New: the in-memory binding table.
     // A bot's own-chat session gets its tool scope when the bot is created, which is before the

@@ -9,24 +9,29 @@ test('five bots with the spec fields', () => {
   const defs = allBotDefs()
   assert.deepEqual(defs.map((d) => d.role), [...ROLES])
   assert.deepEqual(defs.map((d) => d.name), ['Main', 'Slack', 'Jira', 'Pipeline', 'Coding'])
-  assert.deepEqual(defs.map((d) => d.label), ['Flow', 'Slack', 'Jira', 'GitLab', 'Claude Code'])
+  assert.deepEqual(defs.map((d) => d.label), ['Flow', 'Slack', 'Jira', 'GitLab', 'Coding'])
+  // Every bot is a DSH session on an API route; the entries differ only in data.
   assert.equal(botDef('coding').model, 'codingModel')
-  assert.equal(botDef('coding').permission, 'codingPermission')
+  assert.equal(botDef('coding').effort, 'codingEffort')
+  assert.equal(botDef('coding').permission, 'workspace-write')
+  assert.equal(botDef('coding').preset, 'coding')
   for (const role of ['main', 'slack', 'jira', 'pipeline']) {
     assert.equal(botDef(role).model, 'apiModel')
     assert.equal(botDef(role).permission, 'read-only')
+    assert.equal(botDef(role).preset, 'readonly')
+    assert.equal(botDef(role).effort, undefined)
   }
+  const fields = new Set(['role', 'name', 'label', 'instructions', 'model', 'effort', 'permission', 'preset', 'tools', 'reviewer'])
+  for (const def of defs) for (const key of Object.keys(def)) assert.ok(fields.has(key), `${def.role}: ${key}`)
   assert.deepEqual(toolsOfRole('main'), ['task_records', 'task_advance', 'task_close', 'needs_info_confirm'])
-  assert.deepEqual(toolsOfRole('coding'), ['request_code', 'review_report', 'needs_info_confirm'])
+  assert.deepEqual(toolsOfRole('coding'), ['repo_diff', 'run_tests', 'request_review', 'request_code', 'review_report', 'needs_info_confirm'])
   assert.deepEqual(toolsOfRole('nobody'), [])
   assert.equal(botDef('nobody'), undefined)
 })
 
 test('coding carries the reviewer, others do not', () => {
   const reviewer = botDef('coding').reviewer
-  assert.equal(reviewer.name, 'reviewer')
-  assert.ok(reviewer.instructions)
-  assert.deepEqual(reviewer.tools, ['Read', 'Grep', 'Glob'])
+  assert.deepEqual(reviewer, { instructions: 'reviewer.md', preset: 'readonly' })
   for (const role of ['main', 'slack', 'jira', 'pipeline']) assert.equal(botDef(role).reviewer, undefined)
 })
 
@@ -38,7 +43,8 @@ test('eight steps in order, with the spec data', () => {
   assert.deepEqual(STEPS.map((s) => s.id).slice(4, 7), ['mr', 'ci', 'writeback'])
   assert.deepEqual(stepDef('ci').roles, ['pipeline', 'coding'])
   assert.deepEqual(stepDef('ci').evidence, ['ci.settled'])
-  assert.deepEqual(stepDef('ci').writeTools, ['mr_push_fix', 'review_report', 'ci_stop'])
+  assert.deepEqual(stepDef('ci').writeTools, ['mr_push_fix', 'request_review', 'review_report', 'ci_stop'])
+  assert.deepEqual(stepDef('code').writeTools, ['request_review'])
   assert.equal(nextStep('mr').id, 'ci')
   assert.equal(nextStep('ci').id, 'writeback')
   assert.deepEqual(stepDef('code').evidence, ['diff', 'review.verdict == pass'])
@@ -59,18 +65,19 @@ test('stepOfWriteTool: bound, purpose-keyed, unbound, unknown', () => {
 })
 
 test('stepsOfWriteTool: one tool in several steps; the single-step view keeps its old answers', () => {
-  assert.deepEqual(stepsOfWriteTool('review_report'), ['code', 'ci'])
+  assert.deepEqual(stepsOfWriteTool('request_review'), ['code', 'ci'])
+  assert.deepEqual(stepsOfWriteTool('review_report'), ['ci'])
   assert.deepEqual(stepsOfWriteTool('mr_push_fix'), ['ci'])
   assert.deepEqual(stepsOfWriteTool('ci_stop'), ['ci'])
   assert.deepEqual(stepsOfWriteTool('mr_open_draft'), ['mr'])
   assert.deepEqual(stepsOfWriteTool('slack_reply', 'result'), ['writeback'])
   assert.deepEqual(stepsOfWriteTool('slack_reply', 'question'), [])
   assert.deepEqual(stepsOfWriteTool('rm_rf'), [])
-  assert.equal((stepOfWriteTool as any)('review_report'), 'code')
+  assert.equal((stepOfWriteTool as any)('request_review'), 'code')
   assert.equal((stepOfWriteTool as any)('ci_stop'), 'ci')
   // createFlow on a modified copy answers the same way.
   const flow = createFlow(STEPS.filter((s) => s.id !== 'code'))
-  assert.deepEqual(flow.stepsOfWriteTool('review_report'), ['ci'])
+  assert.deepEqual(flow.stepsOfWriteTool('request_review'), ['ci'])
 })
 
 test('closeEndReason: done follows task.ci.outcome (spec 7, 4.8); the other outcomes are unchanged', () => {
@@ -139,7 +146,7 @@ test('validateFlow finds non-consecutive numbers and unregistered tools', () => 
 
 test('adding a bot only touches bots.js: a new entry validates and is found', () => {
   const defs = [...structuredClone(allBotDefs()), {
-    role: 'notify', name: 'Notify', label: 'Notify', instructions: 'notify.md', model: 'apiModel', permission: 'read-only', tools: ['notify_send'],
+    role: 'notify', name: 'Notify', label: 'Notify', instructions: 'notify.md', model: 'apiModel', permission: 'read-only', preset: 'readonly', tools: ['notify_send'],
   }]
   assert.deepEqual(validateRegistry(defs), [])
   assert.deepEqual(toolsOfRole('notify', defs), ['notify_send'])

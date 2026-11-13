@@ -22,7 +22,7 @@ async function rig({ binding = {} }: any = {}) {
     apiModel: 'anthropic/test',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO', ...binding }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const botlayer = createFakeBotLayer()
   const clock = { ms: Date.now() }
   const changed = { files: [] }
@@ -104,11 +104,17 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   await app.store.patchTask(id, { repo: { dir: '/tmp/wt/T-1', branch: 'ai/DEMO-1', base: 'abc123' } })
   assert.match(await tool('main', 'task_advance', { to: 'code' }), /Advanced/)
 
-  // Step 4: the Coding bot records the review with its own tool; without a change and a pass the step stays.
+  // Step 4: the Coding bot asks for the review; the system runs the reviewer and records the verdict. Without a
+  // change and a pass the step stays.
   assert.match(await tool('main', 'task_advance', { to: 'mr' }), /Cannot advance/)
   r.changed.files = [{ path: 'src/button.js', added: 2, removed: 1 }]
-  assert.match(await tool('main', 'review_report', { verdict: 'pass', comments: 'x', rounds: 1 }), /tool failed/)
-  assert.doesNotMatch(await tool('coding', 'review_report', { verdict: 'pass', comments: 'fine', rounds: 1 }), /tool failed/)
+  assert.match(await tool('main', 'request_review', { summary: 'x' }), /tool failed/)
+  assert.match(await tool('coding', 'request_review', { summary: 'Bound the click handler; sh test.sh passes.' }), /^Review round 1 of at most 3: pass\./)
+  assert.equal(botlayer.reviews.length, 1)
+  assert.equal(botlayer.reviews[0].sessionId, bots.coding)
+  assert.equal(botlayer.reviews[0].preset, 'readonly')
+  assert.match(botlayer.reviews[0].prompt, /Bound the click handler/)
+  assert.equal((await app.store.getTask(id)).review.by, 'reviewer')
   assert.match(await tool('main', 'task_advance', { to: 'mr' }), /Advanced/)
 
   // Steps 5 and 6. Step ci waits for ci.settled, which the monitor writes (spec 7); the test writes it by hand.
@@ -138,17 +144,14 @@ test('a Slack @ becomes a run with five bots and one group, and goes through the
   assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings))
 })
 
-test('the task layer hands the Claude Code launcher the test commands of the task\'s binding', async (t) => {
+test('the task layer gives the bot layer only attachRoleTools; the Coding bot reads its test commands with task_read', async (t) => {
   const r = await rig({ binding: { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] } })
   t.after(() => r.app.stop())
-  assert.equal(typeof r.app.taskLayer.codingOptions, 'function')
+  assert.deepEqual(Object.keys(r.app.taskLayer), ['attachRoleTools'])
   const id = (await r.post('/events', event('E10', '10.1'))).body.taskId
-  await r.inState(id, 'running')
-  assert.deepEqual(r.app.taskLayer.codingOptions(id), { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
-  assert.equal(r.app.taskLayer.codingOptions('T-999'), undefined)
-  await r.post(`/tasks/${id}/stop`, undefined)
-  await r.inState(id, 'stopped')
-  assert.equal(r.app.taskLayer.codingOptions(id), undefined, 'gone with the run')
+  const task = await r.inState(id, 'running')
+  const view = JSON.parse(await r.app.tools.call('task_read', task.runs.at(-1).bots.coding, {}))
+  assert.deepEqual(view.testCommands, ['sh test.sh'])
 })
 
 test('a task that runs past its total time is ended by the monitor, the person is told, and the next task starts', async (t) => {

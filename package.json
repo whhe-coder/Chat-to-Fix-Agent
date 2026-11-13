@@ -31,16 +31,13 @@
     "typecheck": "tsc -p src/chat-to-fix/tsconfig.json"
   },
   "dependencies": {
-    "@slack/bolt": "4.7.3",
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/dsh": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-agent-loop-testkit": "0.2.2-rc.1",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
     "@deepseek-ai/dsh-web": "0.2.2-rc.1",
-    "deep-view": "0.1.2",
-    "jsdom": "29.1.1",
-    "oxlint": "1.76.0"
+    "@slack/bolt": "4.7.3",
+    "deep-view": "0.1.2"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

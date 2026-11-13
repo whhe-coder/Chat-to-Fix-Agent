@@ -29,7 +29,7 @@ async function rig({ limits = {}, retryDelayMs = 0 } = {}) {
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
     limits,
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
   const changed = { files: [] }
   const repo = { diff: async () => ({ files: changed.files, totalFiles: changed.files.length, totalLines: changed.files.length * 3 }) }
@@ -85,6 +85,8 @@ test('defineRoleTool rejects bad definitions and duplicates', async () => {
     [valid({ parameters: { a: { type: 'blob' } } }), /needs a type/],
     [valid({ parameters: { a: { type: 'string', enum: [] } } }), /empty enum/],
     [valid({ run: undefined }), /run must be a function/],
+    [valid({ timeoutMs: 5 }), /timeoutMs must be a function/],
+    [valid({ retries: -1 }), /retries must be a whole number/],
   ]
   for (const [def, pattern] of bad) assert.throws(() => registry.defineRoleTool(def), pattern, JSON.stringify(def)?.slice(0, 60))
   registry.defineRoleTool(valid())
@@ -112,7 +114,6 @@ test('attachRoleTools registers only the tools of the session role; unbound sess
     const agent = fakeAgent(`S-${role}`)
     assert.deepEqual(registry.attachRoleTools(agent), expected[role], role)
     assert.deepEqual([...agent.registered.keys()].sort(), [...expected[role]].sort(), role)
-    assert.deepEqual(registry.bridgedToolNames(`S-${role}`).sort(), [...expected[role]].sort(), role)
     const def = agent.registered.get('task_read')
     assert.equal(typeof def.execute, 'function')
     assert.equal(def.output.schema.type, 'string')
@@ -120,7 +121,6 @@ test('attachRoleTools registers only the tools of the session role; unbound sess
   const stray = fakeAgent('S-none')
   assert.deepEqual(registry.attachRoleTools(stray), [])
   assert.equal(stray.registered.size, 0)
-  assert.deepEqual(registry.bridgedToolNames('S-none'), [])
   assert.deepEqual(registry.attachRoleTools({}), [])
   assert.deepEqual(registry.attachRoleTools(undefined), [])
   assert.deepEqual(warnings, [])
@@ -297,24 +297,20 @@ test('every task tool the registry gives a role is defined, with matching roles'
   assert.deepEqual(write, ['needs_info_confirm', 'review_report', 'task_advance', 'task_close'])
 })
 
-test('review_report: cannot_fix only in step ci (spec 7, 4.6); in step ci it is the review of the round', async () => {
+test('review_report records only cannot_fix, only in step ci, with the reason; the review rounds are kept', async () => {
   const { registry, store, task } = await rig()
   registerTaskTools(registry)
-  const args = { verdict: 'cannot_fix', comments: 'the failing job needs a service we cannot start', rounds: 1 }
+  const args = { verdict: 'cannot_fix', comments: 'the failing job needs a service we cannot start' }
   await store.patchTask(task.id, { step: 'code' })
-  assert.match(await registry.call('review_report', 'S-coding', args), /^tool failed: the verdict cannot_fix can be used only in step ci, the task is in step code/)
+  assert.match(await registry.call('review_report', 'S-coding', args), /review_report belongs to step ci, the task is in step code/)
   assert.equal((await store.getTask(task.id)).review, null)
-  // In step code the ordinary verdicts still work.
-  assert.equal(await registry.call('review_report', 'S-coding', { ...args, verdict: 'pass' }), 'Recorded: review pass, round 1.')
-  await store.patchTask(task.id, { step: 'ci' })
-  assert.equal(await registry.call('review_report', 'S-coding', args), 'Recorded: review cannot_fix, round 1.')
-  assert.equal((await store.getTask(task.id)).review.verdict, 'cannot_fix')
-  // The last call counts: a later pass in the same step replaces it.
-  assert.equal(await registry.call('review_report', 'S-coding', { ...args, verdict: 'pass', comments: 'fixed after all' }), 'Recorded: review pass, round 1.')
-  assert.equal((await store.getTask(task.id)).review.verdict, 'pass')
-  // Not allowed from the steps it does not belong to.
-  await store.patchTask(task.id, { step: 'mr' })
-  assert.match(await registry.call('review_report', 'S-coding', args), /belongs to step code or ci, the task is in step mr/)
+  await store.patchTask(task.id, { step: 'ci', review: { verdict: 'fail', comments: 'x', rounds: 2, by: 'reviewer' } })
+  assert.match(await registry.call('review_report', 'S-coding', { ...args, verdict: 'pass' }), /must be one of cannot_fix/)
+  assert.match(await registry.call('review_report', 'S-coding', { ...args, comments: ' ' }), /^tool failed: comments must say why/)
+  assert.equal(await registry.call('review_report', 'S-coding', args), 'Recorded: cannot_fix. The Pipeline bot can now stop the CI loop.')
+  const review = (await store.getTask(task.id)).review
+  assert.deepEqual({ verdict: review.verdict, comments: review.comments, rounds: review.rounds, by: review.by }, { verdict: 'cannot_fix', comments: args.comments, rounds: 2, by: 'coding' })
+  assert.match(await registry.call('review_report', 'S-main', args), /not available to the main bot/)
 })
 
 test('task_read shows ci (status, round, failed jobs with id and link, pipeline, outcome) and null before the CI step', async () => {
@@ -455,24 +451,4 @@ test('task_close done in step close, and failed with a note', async () => {
   assert.equal(failed.state, 'failed')
   assert.equal(failed.endReason, 'cannot reproduce')
   assert.deepEqual(two.closed, [[two.task.id, 'failed', 'cannot reproduce']])
-})
-
-test('review_report: refused outside steps code and ci, recorded there, the last call counts', async () => {
-  const { registry, store, task } = await rig()
-  registerTaskTools(registry)
-  const args = { verdict: 'pass', comments: 'looks fine', rounds: 1 }
-  assert.match(await registry.call('review_report', 'S-coding', args), /review_report belongs to step code or ci, the task is in step fetch/)
-  assert.equal((await store.getTask(task.id)).review, null)
-
-  await store.patchTask(task.id, { step: 'code' })
-  assert.equal(await registry.call('review_report', 'S-coding', { verdict: 'fail', comments: 'null check missing', rounds: 1 }), 'Recorded: review fail, round 1.')
-  assert.equal((await store.getTask(task.id)).review.verdict, 'fail')
-  assert.equal(await registry.call('review_report', 'S-coding', { ...args, rounds: 4 }), 'Recorded: review pass, round 4.')
-  const review = (await store.getTask(task.id)).review
-  assert.deepEqual({ verdict: review.verdict, comments: review.comments, rounds: review.rounds }, { verdict: 'pass', comments: 'looks fine', rounds: 4 })
-  assert.ok(review.at)
-
-  assert.match(await registry.call('review_report', 'S-coding', { ...args, verdict: 'maybe' }), /must be one of pass, fail, cannot_fix/)
-  assert.match(await registry.call('review_report', 'S-coding', { ...args, rounds: 0 }), /^tool failed: rounds must be at least 1/)
-  assert.match(await registry.call('review_report', 'S-main', args), /not available to the main bot/)
 })

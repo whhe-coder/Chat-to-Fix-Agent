@@ -112,6 +112,46 @@ test('getChecks: a failed job counts, allow_failure does not, a cancelled job co
   } finally { await s.close() }
 })
 
+test('getChecks: allow_failure work (jobs, trigger jobs, their downstream pipelines) is not waited for and never fails the round', async () => {
+  const routes: any = {
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7`]: mrBody(),
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7/pipelines`]: [pipe(12)],
+    [`GET /projects/group%2Fsub%2Fproject/pipelines/12`]: pipe(12, { status: 'running' }),
+    [`GET /projects/11/pipelines/12/trigger_jobs`]: [{ id: 50, name: 'e2e-remote-persona-pipeline', status: 'pending', allow_failure: true, web_url: 'http://gitlab.test/p/-/jobs/50', downstream_pipeline: { id: 99, project_id: 77, sha: 'down-sha', status: 'pending' } }],
+    [`GET /projects/11/pipelines/12/jobs`]: [job(1, 'commitlint', 'failed'), job(2, 'build', 'success'), job(3, 'soft', 'running', { allow_failure: true })],
+  }
+  const s = await routed(routes)
+  try {
+    // a counting job failed, an allow_failure downstream and job are still going: failed now
+    const failed = await real(s.baseUrl).getChecks(binding, 7)
+    assert.equal(failed.status, 'failed')
+    assert.deepEqual(failed.failedJobs.map((j) => j.name), ['commitlint'])
+    assert.equal(s.requests.some((r) => r.path.includes('/projects/77/')), false, 'the allow_failure downstream is not even read')
+
+    // all counting jobs passed, allow_failure work still going: passed now
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'commitlint', 'success'), job(2, 'build', 'success'), job(3, 'soft', 'running', { allow_failure: true })]
+    assert.equal((await real(s.baseUrl).getChecks(binding, 7)).status, 'passed')
+
+    // an allow_failure job that failed does not fail the round
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'commitlint', 'success'), job(3, 'soft', 'failed', { allow_failure: true })]
+    routes[`GET /projects/11/pipelines/12/trigger_jobs`] = [{ id: 50, name: 'persona', status: 'failed', allow_failure: true, downstream_pipeline: { id: 99, project_id: 77, sha: 'down-sha', status: 'failed' } }]
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/12`] = pipe(12, { status: 'success' })
+    assert.equal((await real(s.baseUrl).getChecks(binding, 7)).status, 'passed')
+
+    // a counting job (or trigger job) still going keeps the round pending, also next to a failed one
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/12`] = pipe(12, { status: 'running' })
+    routes[`GET /projects/11/pipelines/12/trigger_jobs`] = []
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'commitlint', 'failed'), job(2, 'unit', 'running')]
+    assert.equal((await real(s.baseUrl).getChecks(binding, 7)).status, 'pending')
+    // after the retry: the re-run counting job is waited for, the allow_failure one is not
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(5, 'commitlint', 'running'), job(3, 'soft', 'running', { allow_failure: true })]
+    assert.equal((await real(s.baseUrl).getChecks(binding, 7)).status, 'pending')
+    // an active pipeline without any job yet: pending
+    routes[`GET /projects/11/pipelines/12/jobs`] = []
+    assert.equal((await real(s.baseUrl).getChecks(binding, 7)).status, 'pending')
+  } finally { await s.close() }
+})
+
 test('getChecks: a downstream pipeline is read with its OWN project id; its failures count; an unreadable one counts as failed', async () => {
   const routes: any = {
     [`GET /projects/group%2Fsub%2Fproject/merge_requests/7`]: mrBody(),
@@ -406,6 +446,20 @@ test('fake CI: a flaky job fails the first time and passes after retryJobs (a ne
   // a job that passed cannot be retried; an unknown one is not found
   await assert.rejects(repo.retryJobs(b, first.failedJobs), (e: any) => e.code === 'job_not_retryable' && e.retryable === false)
   await assert.rejects(repo.retryJobs(b, [{ id: 9999 }]), (e: any) => e.code === 'gitlab_not_found')
+})
+
+test('fake CI: an allow_failure job or downstream still running is not waited for; a failed counting job settles at once', async () => {
+  const { repo, b, open } = await fakeSetup({
+    ciJobs: [{ name: 'lint', command: 'exit 1' }, { name: 'e2e', command: 'echo ok', delaySeconds: 30, allowFailure: true, downstream: true }, { name: 'soft', command: 'echo ok', delaySeconds: 30, allowFailure: true }],
+  })
+  const { opened } = await open()
+  const out = await poll(() => repo.getChecks(b, opened.iid), (c) => c.status !== 'pending', 5000)
+  assert.equal(out.status, 'failed')
+  assert.deepEqual(out.failedJobs.map((j) => j.name), ['lint'])
+  const ok = await fakeSetup({ ciJobs: [{ name: 'unit', command: 'echo ok' }, { name: 'e2e', command: 'echo ok', delaySeconds: 30, allowFailure: true, downstream: true }] })
+  const o = await ok.open()
+  const passed = await poll(() => ok.repo.getChecks(ok.b, o.opened.iid), (c) => c.status !== 'pending', 5000)
+  assert.equal(passed.status, 'passed')
 })
 
 test('fake CI: a deterministic failure stays failed after a retry', async () => {

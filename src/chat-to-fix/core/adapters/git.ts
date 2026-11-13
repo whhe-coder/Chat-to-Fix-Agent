@@ -3,8 +3,8 @@
 // Every call runs `git` with execFile (no shell string), a timeout, and a minimal environment:
 // the user's global and system git config are switched off, hooks are switched off, nothing may
 // prompt, and author and committer come from the configuration value `commitAuthor`.
-// The pattern (execFile + timeout + an explicit small env) follows the DS Bot reference
-// bot/src/host/local-agents/discover.ts:13 (outputOf) and :77.
+// The pattern (execFile + timeout + an explicit small env) follows the DS Bot 0.3.1 reference
+// local-agents/discover.ts (outputOf), a module this project no longer ships.
 //
 // Directory rules: a code directory is always <worktreesDir>/T-<n>; anything else is refused, so a
 // bot that is handed a wrong path cannot make this module touch another folder.
@@ -30,10 +30,55 @@ const COMMIT_MESSAGE = new RegExp(`^(${COMMIT_TYPES.join('|')})(\\([A-Za-z0-9][A
 /** True when `text` is `type(scope)?!?: summary` on one line, at most 100 characters, with a known type. */
 export const isCommitMessage = (text) => typeof text === 'string' && text.length <= COMMIT_MESSAGE_MAX && COMMIT_MESSAGE.test(text)
 
-/** `fix: <title>` from an MR title: newlines and runs of blanks become one space, cut to 100 characters. */
-export function commitMessageFromTitle(title) {
+const LEADING_KEY = /^([A-Za-z][A-Za-z0-9_]*-\d+): /
+const TRAILING_KEY = /^(.*) \(([A-Za-z][A-Za-z0-9_]*-\d+)\)$/
+
+/** ` (KEY-1)`: the end of every commit line the bot makes. */
+export const jiraKeySuffix = (key) => ` (${key})`
+
+/** The longest `type(scope): summary` that still fits in 100 characters once ` (KEY)` is added. */
+export const commitMessageMaxFor = (key) => COMMIT_MESSAGE_MAX - jiraKeySuffix(key).length
+
+/**
+ * `message` without a Jira key this task's key already put at the front (`KEY: `, the old format) or at the end (` (KEY)`).
+ * A different Jira-looking key in either place is refused.
+ */
+export function stripJiraKey(key, message) {
+  let text = String(message).trim()
+  const lead = LEADING_KEY.exec(text)
+  if (lead) {
+    if (lead[1] !== key) throw new Error(`the commit message names another Jira key (${lead[1]}); the tool adds this task's key (${key}) itself`)
+    text = text.slice(lead[0].length).trim()
+  }
+  const tail = TRAILING_KEY.exec(text)
+  if (tail) {
+    if (tail[2] !== key) throw new Error(`the commit message names another Jira key (${tail[2]}); the tool adds this task's key (${key}) itself`)
+    text = tail[1].trim()
+  }
+  return text
+}
+
+/**
+ * The company commit format: `<type(scope): summary> (<KEY>)`. The push rule needs the key somewhere, commitlint needs type and
+ * subject at the front, so the key goes at the end. A key already at the front or the end is taken off first, so it is added once.
+ * The whole line must stay within 100 characters (commitlint header-max-length).
+ */
+export function withJiraKey(key, message) {
+  if (typeof key !== 'string' || !JIRA_KEY.test(key)) throw new Error('the task has no valid Jira key to put at the end of the commit message')
+  const text = stripJiraKey(key, message)
+  const max = commitMessageMaxFor(key)
+  if (text.length > max) throw new Error(`the commit message is too long: without the Jira key it must be at most ${max} characters (the whole line with " (${key})" is limited to ${COMMIT_MESSAGE_MAX}), this one has ${text.length}`)
+  return `${text}${jiraKeySuffix(key)}`
+}
+
+/** True when `text` is a Conventional Commit line, optionally with a Jira key at the end (`fix: x (KEY-1)`); the whole line is at most 100 characters. */
+export const isCommitMessageWithOptionalKey = (text) => typeof text === 'string' && isCommitMessage(text.replace(/ \([A-Za-z][A-Za-z0-9_]*-\d+\)$/, '')) && text.length <= COMMIT_MESSAGE_MAX
+
+/** `fix: <title>` from an MR title: newlines and runs of blanks become one space, cut so the line (plus ` (KEY)` when a key is given) is at most 100 characters. */
+export function commitMessageFromTitle(title, key = undefined) {
   const line = String(title ?? '').replace(/\s+/g, ' ').trim()
-  return `fix: ${line}`.slice(0, COMMIT_MESSAGE_MAX).trimEnd()
+  const max = key === undefined ? COMMIT_MESSAGE_MAX : commitMessageMaxFor(key)
+  return `fix: ${line}`.slice(0, max).trimEnd()
 }
 
 /** Config switches that make git independent of the machine it runs on. */

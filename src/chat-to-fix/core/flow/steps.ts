@@ -25,11 +25,11 @@ export const STEPS = deepFreeze([
   { no: 1, id: 'fetch', roles: ['slack'], evidence: ['slack.readAt', 'slack.sent.ack', 'stepResults.fetch'], writeTools: ['slack_reply:ack'] },
   { no: 2, id: 'issue', roles: ['jira'], evidence: ['jira.key'], writeTools: ['jira_assess_request', 'jira_create_issue'] },
   { no: 3, id: 'prepare', roles: ['pipeline'], evidence: ['repo.dir', 'repo.branch', 'repo.base'], writeTools: ['repo_prepare'] },
-  { no: 4, id: 'code', roles: ['coding'], evidence: ['diff', 'review.verdict == pass'], writeTools: ['review_report'] },
+  { no: 4, id: 'code', roles: ['coding'], evidence: ['diff', 'review.verdict == pass'], writeTools: ['request_review'] },
   { no: 5, id: 'mr', roles: ['pipeline'], evidence: ['mr.url'], writeTools: ['mr_open_draft'] },
   // Step ci (spec 7, 4.2): the system waits for the MR pipeline and counts rounds (monitor.ts); the fix loop runs
-  // inside this step. review_report is also a write tool of step code, so a tool may belong to several steps.
-  { no: 6, id: 'ci', roles: ['pipeline', 'coding'], evidence: ['ci.settled'], writeTools: ['mr_push_fix', 'review_report', 'ci_stop'] },
+  // inside this step. request_review is also a write tool of step code, so a tool may belong to several steps.
+  { no: 6, id: 'ci', roles: ['pipeline', 'coding'], evidence: ['ci.settled'], writeTools: ['mr_push_fix', 'request_review', 'review_report', 'ci_stop'] },
   { no: 7, id: 'writeback', roles: ['jira', 'slack'], evidence: ['jira.commentedMr', 'slack.sent.result'], writeTools: ['jira_add_comment', 'jira_transition', 'slack_reply:result'] },
   { no: 8, id: 'close', roles: ['main'], evidence: ['ended'], writeTools: [] },
 ])

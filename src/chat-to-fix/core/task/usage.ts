@@ -1,7 +1,7 @@
 // Usage records and the running summary of a task (token billing per task).
 //
-// A usage record is one entry of the execution record (type 'usage'), one per model call or CLI turn
-// (the Coding bot: one per model of the turn, so the reviewer's model shows up separately):
+// A usage record is one entry of the execution record (type 'usage'), one per round of a bot, and one per
+// review for the Coding bot's reviewer (booked to the Coding bot):
 //   { type: 'usage', role, botId, run, step, at, model, effort?, input, output, cacheRead, cacheWrite,
 //     costUsd (number | null), unpriced, source: 'dsh' | 'cli', durationMs, ttftMs?, outputTps (number | null),
 //     tpsBasis: 'dsh-decode' | 'cli-api' | 'cli-wall' | null, tpsTokens?, failed?, text }
@@ -9,8 +9,8 @@
 //   source 'dsh': DSH's own per-session projections (tokenUsage and sessionStats, read at the start and the end of a
 //                 round, see core/task/botlayer.ts), one record per round; the cost is computed from the price table
 //                 (DSH reports none). `tpsTokens` is DSH's decodeTokens, the output tokens of the timed span.
-//   source 'cli': the Claude Code `result` event (core/engine/claude.ts); the cost is the CLI's own costUSD, and the
-//                 speed is output tokens / duration_api_ms (cli-api) or / duration_ms (cli-wall), derived here.
+//   source 'cli': only in records of the Claude Code route, removed on 2026-11-13 (the CLI's own cost; the speed
+//                 derived from duration_api_ms or duration_ms). They are still read and shown.
 //
 // The summary kept on the task (task.usage) is updated as records arrive (store.addUsage):
 //   { totalUsd, input, output, cacheRead, cacheWrite, calls, unpriced, tpsTokens, tpsMs, outputTps,
@@ -158,7 +158,7 @@ export function usageLine(summary) {
 // ----------------------------------------------------------------------------- views for the debug page
 // Display-ready objects, built on the server so the page itself only prints strings.
 
-/** "DSH" for a speed taken from DSH's sessionStats, "推算" for one derived from the CLI result. */
+/** "DSH" for a speed taken from DSH's sessionStats, "推算" for one derived from a CLI result (old records only). */
 export const TPS_TAG = Object.freeze({ 'dsh-decode': 'DSH', 'cli-api': '推算', 'cli-wall': '推算' })
 
 const viewOfBucket = (b) => ({
@@ -174,7 +174,7 @@ const viewOfBucket = (b) => ({
  *   { calls, line, title, costText, tokensText, tpsText, tpsParts: [{ tag, tpsText }], unpriced,
  *     byRole: { <role>: { models, modelText, effort, costText, tokensText, tpsText, tpsTag, tpsLabel, unpriced, subtitle } } }
  * `line` is the header text ("花费 $0.42 · 输入 120k / 输出 8k / 缓存读 300k · 平均 74 tok/s（DSH 52 · 推算 120）");
- * the speed of the API bots is DSH's, the Coding bot's is derived, so the average is shown with both parts.
+ * every speed is DSH's; a record of the removed Claude Code route has a derived one, so an old task shows both parts.
  * null when nothing has been billed yet.
  */
 export function usageView(usage) {
@@ -203,7 +203,7 @@ export function usageView(usage) {
   if (total.tpsText) parts.push(`平均 ${total.tpsText}${tpsParts.length > 0 ? `（${tpsParts.map((p) => `${p.tag} ${p.tpsText.replace(' tok/s', '')}`).join(' · ')}）` : ''}`)
   const title = [
     `${usage.calls} 次调用；${total.tokensText}`,
-    '速度 = 输出 token ÷ 计时秒数，按总数相除。DSH：API bot 的速度，取自 DSH 的 sessionStats 统计（decodeTokens ÷ decodeMs）；推算：修复 bot 的速度，由 CLI 结果推算（输出 token ÷ duration_api_ms）。',
+    '速度 = 输出 token ÷ 计时秒数，按总数相除。DSH：五个 bot 的速度，取自 DSH 的 sessionStats 统计（decodeTokens ÷ decodeMs）；推算：只出现在 2026-11-13 前的记录里，是已删的 Claude Code 路线的修复 bot 速度，由 CLI 结果推算（输出 token ÷ duration_api_ms）。',
     ...Object.entries<any>(byRole).map(([role, r]) => `${role}：${r.subtitle}`),
     ...(usage.unpriced ? ['有调用的模型不在价格表里，它们没有计入花费。'] : []),
   ].join('\n')

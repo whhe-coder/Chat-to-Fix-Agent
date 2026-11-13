@@ -1,21 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMonitor, NOTICE_KINDS } from '../core/task/monitor.ts'
+import { createMonitor, NOTICE_KINDS, noticeText, ciNoticeText, CI_NOTICE_KINDS } from '../core/task/monitor.ts'
 
 const LIMITS = {
   taskMinutes: 80,
   stepMinutes: { fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, writeback: 5 },
-  quietMinutes: 3, quietNudges: 2, engineSilentMinutes: 10,
+  quietMinutes: 3, quietNudges: 2, engineSilentMinutes: 10, codingMaxSteps: 5,
 }
 const MIN = 60_000
 const T0 = Date.parse('2026-11-12T02:00:00Z')
 
-function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false, language = undefined } = {}) {
+function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false, language = undefined, limits = {}, usd = 0 } = {}) {
   const clock = { t: T0 }
   const iso = (agoMin) => new Date(T0 - agoMin * MIN).toISOString()
   const tasks = new Map([['T-1', {
     id: 'T-1', state: 'running', step, stepAt: iso(stepAgoMin), origin: { channel: 'C1', threadTs: '1.1' },
-    jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' },
+    jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' }, usage: { totalUsd: usd },
     runs: [{ no: 1, groupId: 'g1', bots: { main: 'bm', coding: 'bc' }, startedAt: iso(runAgoMin), endedAt: null }],
   }]])
   const records = []
@@ -24,7 +24,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
     async appendRecord(id, entry) { records.push({ id, ...entry }) },
   }
   const calls = { post: [], stop: [], approval: [], ended: [], sent: [] }
-  const handlers = { session: [], round: [], line: [], approval: [] }
+  const handlers = { session: [], round: [], line: [], approval: [], tool: [] }
   const state = { quiet: false }
   const sub = (list) => (fn) => { list.push(fn); return () => list.splice(list.indexOf(fn), 1) }
   const botlayer = {
@@ -33,6 +33,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
     isQuiet: () => state.quiet,
     answerApproval(id, choice) { calls.approval.push([id, choice]) },
     onSessionEvent: sub(handlers.session),
+    onToolResult: sub(handlers.tool),
     onRoundEnd: sub(handlers.round),
     onGroupLine: sub(handlers.line),
     onApproval: sub(handlers.approval),
@@ -40,7 +41,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
   }
   const warnings = []
   const monitor = createMonitor({
-    store, botlayer, limits: LIMITS, language, now: () => clock.t, warn: (...a) => warnings.push(a),
+    store, botlayer, limits: { ...LIMITS, ...limits }, language, now: () => clock.t, warn: (...a) => warnings.push(a),
     end: async (id, st, reason) => { calls.ended.push([id, st, reason]); tasks.get(id).state = st },
     send: withSend ? async (origin, text, kind) => { if (sendFails) throw new Error('slack down'); calls.sent.push({ origin, text, kind }) } : undefined,
   })
@@ -49,7 +50,9 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
   return { monitor, tasks, records, calls, handlers, state, clock, advance, settle, warnings }
 }
 const limitRecords = (s) => s.records.filter((r) => r.type === 'limit')
-const sessionEvent = (s, type, id = 'bc') => s.handlers.session[0]({ sessionId: id, botId: id, type, event: {}, at: '' })
+const sessionEvent = (s, type, id = 'bc', data = {}) => s.handlers.session[0]({ sessionId: id, botId: id, type, event: { type, data }, at: '' })
+const toolCall = (s, name, id = 'bc') => sessionEvent(s, 'tool/call', id, { name })
+const toolResult = (s, tool, id = 'bc') => s.handlers.tool[0]({ sessionId: id, botId: id, tool, ok: true, text: '', ms: 1, at: '' })
 
 test('total task time ends the run as timed_out / task_timeout', async () => {
   const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 81 })
@@ -127,7 +130,7 @@ test('idle-relay pause notice ends the task as failed / idle_relay', async () =>
   assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'idle_relay']])
 })
 
-test('Claude Code silent: first stop and ask again, second silence ends failed / engine_silent', async () => {
+test('the Coding bot silent: first stop and ask again, second silence ends failed / engine_silent', async () => {
   const s = setup({ step: 'code', stepAgoMin: 1 })
   s.monitor.watch('T-1'); await s.settle()
   sessionEvent(s, 'turn/start')
@@ -144,6 +147,42 @@ test('Claude Code silent: first stop and ask again, second silence ends failed /
   sessionEvent(s, 'turn/start')
   s.advance(10.5); await s.monitor.tick()
   assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'engine_silent']])
+})
+
+test('a test run or a review in flight is not silence; once it returns, the silence counts again', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1 })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  toolCall(s, 'request_review')
+  s.advance(14); await s.monitor.tick()
+  assert.equal(s.calls.stop.length, 0, 'the review runs for 14 minutes without an event of the Coding bot')
+  toolResult(s, 'request_review')
+  s.advance(10.5); await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'], 'silent after the review returned')
+  // another tool does not hold the check off
+  sessionEvent(s, 'turn/start')
+  toolCall(s, 'read')
+  s.advance(10.5); await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'engine_silent']])
+})
+
+test('more tool calls in one turn than codingMaxSteps stop the Coding bot and end the task failed / coding_max_steps', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1 })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  for (let i = 0; i < 5; i++) toolCall(s, 'read')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [], 'five calls are within the limit')
+  sessionEvent(s, 'turn/start') // a new turn counts afresh
+  for (let i = 0; i < 5; i++) toolCall(s, 'edit')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [])
+  toolCall(s, 'edit')
+  toolCall(s, 'read', 'bm') // another bot's calls do not count
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'])
+  assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'coding_max_steps']])
+  assert.match(limitRecords(s).at(-1).text, /coding_max_steps at step code: stopped the Coding bot after 6 tool calls in one turn/)
 })
 
 test('a finished turn is not counted as silence; other bots are ignored', async () => {
@@ -216,7 +255,7 @@ test('a failing task does not stop the pass over the others', async () => {
 test('notify: the notice kinds carry the task id, Jira key and branch', async () => {
   const s = setup()
   const task = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' } }
-  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'ci_fix_pushed', 'expired', 'failed', 'in_progress', 'jira_created', 'mr_opened', 'needs_info_resubmit', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
+  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'ci_fix_pushed', 'expired', 'failed', 'in_progress', 'interrupted', 'jira_created', 'mr_opened', 'needs_info_resubmit', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
   for (const kind of ['in_progress', 'timed_out', 'failed', 'expired', 'stopped']) {
     s.calls.sent.length = 0
     await s.monitor.notify(task, kind)
@@ -250,15 +289,15 @@ test('notify in Chinese (language zh): failed with note, needs_person with note 
   const sent = async (task, kind) => { s.calls.sent.length = 0; await s.monitor.notify(task, kind); return s.calls.sent[0].text }
   assert.equal(
     await sent({ ...base, state: 'failed', endReason: '评审没通过', closeNote: '评审没通过' }, 'failed'),
-    '任务 T-1 没能自动修好：评审没通过。Jira：DEMO-7，分支：ai/DEMO-7。补充信息后可以用 /fix 重新提交。',
+    '任务 T-1 没能自动修好：评审没通过。补充信息后可以用 /fix 重新提交。\nJira：DEMO-7\n分支：ai/DEMO-7',
   )
   const person = await sent({ ...base, state: 'failed', endReason: 'needs_person', closeNote: '改动太大，不适合自动提交。', mr: { url: 'https://gl/mr/1' } }, 'failed')
-  assert.equal(person, '任务 T-1 需要人来处理：改动太大，不适合自动提交。Jira：DEMO-7，分支：ai/DEMO-7，Draft MR：https://gl/mr/1。')
+  assert.equal(person, '任务 T-1 需要人来处理：改动太大，不适合自动提交。\nJira：DEMO-7\n分支：ai/DEMO-7\nDraft MR： https://gl/mr/1')
   assert.doesNotMatch(person, /@ 我/)
   assert.equal(s.calls.sent[0].kind, 'needs_person', 'the Slack side gets "needs a person" as its own kind')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null, state: 'failed', endReason: 'needs_person' }, 'failed'), '任务 T-1 需要人来处理。')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'resumed'), '收到补充信息，任务 T-1 重新开始处理。')
-  assert.equal(await sent({ ...base, endReason: 'task_timeout' }, 'timed_out'), '任务 T-1 超时了（任务总时长超限），已结束。Jira：DEMO-7，分支：ai/DEMO-7。')
+  assert.equal(await sent({ ...base, endReason: 'task_timeout' }, 'timed_out'), '任务 T-1 超时了（任务总时长超限），已结束。\nJira：DEMO-7\n分支：ai/DEMO-7')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'stopped'), '任务 T-1 已停止。')
   assert.match(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'expired'), /^任务 T-1 在队列里等太久，已过期。想继续的话，请用 \/fix 重新提交。/)
   assert.equal(await sent({ id: null, origin: {} }, 'no_open_task'), '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。')
@@ -300,18 +339,142 @@ test('notify: the progress and resubmit notices, texts in Chinese and English', 
     return out
   }
   const zh = await texts('zh', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
-  assert.equal(zh.jira_created, '任务 T-1：Jira 单已建好：DEMO-7（https://j.example.com/browse/DEMO-7）。')
-  assert.equal(zh.mr_opened, '任务 T-1：Draft MR 已开：https://g.example.com/p/-/merge_requests/3。')
-  assert.equal(zh.ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234（https://g.example.com/p/-/commit/abc1234def5678）。')
+  assert.equal(zh.jira_created, '任务 T-1：Jira 单已建好：DEMO-7 https://j.example.com/browse/DEMO-7')
+  assert.equal(zh.mr_opened, '任务 T-1：Draft MR 已开： https://g.example.com/p/-/merge_requests/3')
+  assert.equal(zh.ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234 https://g.example.com/p/-/commit/abc1234def5678')
   assert.equal(zh.needs_info_resubmit, '任务 T-1 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。')
   const en = await texts('en', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
-  assert.equal(en.jira_created, 'Task T-1: Jira issue DEMO-7 created (https://j.example.com/browse/DEMO-7).')
-  assert.equal(en.mr_opened, 'Task T-1: Draft MR opened: https://g.example.com/p/-/merge_requests/3.')
-  assert.equal(en.ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234 (https://g.example.com/p/-/commit/abc1234def5678).')
+  assert.equal(en.jira_created, 'Task T-1: Jira issue DEMO-7 created: https://j.example.com/browse/DEMO-7')
+  assert.equal(en.mr_opened, 'Task T-1: Draft MR opened: https://g.example.com/p/-/merge_requests/3')
+  assert.equal(en.ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234: https://g.example.com/p/-/commit/abc1234def5678')
   assert.equal(en.needs_info_resubmit, 'Task T-1 needs more information; please submit it again with /fix, with the original description and the missing details together.')
   // without url and without commit link the bracket part is left out
   assert.equal((await texts('zh', noUrl)).jira_created, '任务 T-1：Jira 单已建好：DEMO-7。')
   assert.equal((await texts('en', noUrl)).jira_created, 'Task T-1: Jira issue DEMO-7 created.')
   assert.equal((await texts('zh', task)).ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234。')
   assert.equal((await texts('en', task)).ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234.')
+})
+
+// ---- soft and hard limits (time, spend) -----------------------------------------------------------------------------
+const SOFT = { softTaskMinutes: 20, softTaskUsd: 2.5 }
+
+test('soft limits: nothing fires below them', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 19, usd: 2.4, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 0)
+  assert.deepEqual(s.calls.ended, [])
+  assert.equal(limitRecords(s).length, 0)
+})
+
+test('soft time: one wrap-up message to the Main bot, once, the task goes on', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 21, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.equal(s.calls.post[0].g, 'g1')
+  assert.match(s.calls.post[0].text, /^\[system\] The task has run for more than 20 minutes/)
+  assert.match(s.calls.post[0].text, /needs_person/)
+  assert.match(s.calls.post[0].text, /Jira bot/)
+  assert.match(s.calls.post[0].text, /Draft MR/)
+  assert.deepEqual(s.calls.ended, [])
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time'])
+  await s.monitor.tick(); s.advance(2); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.equal(limitRecords(s).length, 1)
+})
+
+test('soft time: a running Coding turn is stopped', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 21, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'])
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(s.calls.ended, [])
+})
+
+test('soft spend: fires once and sends the wrap-up message', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.match(s.calls.post[0].text, /spent \$2\.6, more than its soft budget of \$2\.5/)
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_budget'])
+  await s.monitor.tick(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(s.calls.ended, [])
+})
+
+test('both soft limits: two records, one message', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, runAgoMin: 21, usd: 2.6, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time', 'soft_budget'])
+})
+
+for (const step of ['writeback', 'close']) {
+  test(`soft limits: no wrap-up in step ${step} (the work is delivered)`, async () => {
+    const s = setup({ step, stepAgoMin: 1, runAgoMin: 31, usd: 2.6, limits: SOFT })
+    s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+    assert.equal(s.calls.post.length, 0)
+    assert.equal(limitRecords(s).length, 0)
+  })
+}
+
+test('soft limits: no wrap-up once the CI step is settled', async () => {
+  const s = setup({ step: 'ci', stepAgoMin: 1, runAgoMin: 31, usd: 2.6, limits: SOFT })
+  ;(s.tasks.get('T-1') as any).ci = { status: 'pending', settled: true, outcome: 'no_pipeline', mainNotified: true, waitedMs: 0, since: new Date(T0).toISOString(), phaseAt: new Date(T0).toISOString() }
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(limitRecords(s).length, 0)
+})
+
+for (const outcome of ['passed', 'no_pipeline']) {
+  test(`soft time: CI waiting (${outcome}) stays out of the run time after the step has moved on`, async () => {
+    // 31 minutes since the run started, 30 of them waiting for CI: 1 minute of task time, in step writeback and in step mr
+    for (const step of ['writeback', 'mr']) {
+      const s = setup({ step, stepAgoMin: 1, runAgoMin: 31, limits: SOFT })
+      ;(s.tasks.get('T-1') as any).ci = { status: 'pending', settled: true, outcome, mainNotified: true, waitedMs: 30 * MIN, since: new Date(T0 - 30 * MIN).toISOString() }
+      s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+      assert.equal(limitRecords(s).length, 0, step)
+    }
+  })
+}
+
+test('soft time: still fires before CI when the run is long, and a later step counts only non-CI time', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, runAgoMin: 51, limits: SOFT })
+  ;(s.tasks.get('T-1') as any).ci = { status: 'failed', settled: false, waitedMs: 30 * MIN, since: new Date(T0 - 30 * MIN).toISOString() }
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time'])
+})
+
+test('the limits are configurable: a higher soft budget does not fire', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: { ...SOFT, softTaskUsd: 5 } })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 0)
+})
+
+test('no notice text puts punctuation directly after a link (zh and en, every kind)', () => {
+  const task = {
+    id: 'T-3', endReason: 'needs_person', closeNote: '改动太大', jira: { key: 'F2PGBA-404', url: 'https://x.example.com/browse/F2PGBA-404' },
+    repo: { branch: 'ai/F2PGBA-404' }, mr: { url: 'https://g.example.com/p/-/merge_requests/375', sha: 'abc1234def5678' }, ci: { round: 2 }, commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678',
+  }
+  const ci = {
+    round: 2, pipelineUrl: 'https://g.example.com/p/-/pipelines/7', waitTimedOut: false,
+    failedJobs: [{ name: 'lint', url: 'https://g.example.com/p/-/jobs/1' }, { name: 'test', url: 'https://g.example.com/p/-/jobs/2' }],
+  }
+  const texts = []
+  for (const lang of ['zh', 'en']) {
+    for (const kind of NOTICE_KINDS) {
+      texts.push(noticeText(lang, kind, task))
+      texts.push(noticeText(lang, kind, { ...task, endReason: 'task_timeout', closeNote: undefined }))
+    }
+    for (const kind of CI_NOTICE_KINDS) texts.push(ciNoticeText(lang, kind, task, ci), ciNoticeText(lang, kind, task, { ...ci, round: 0 }))
+  }
+  let urls = 0
+  for (const text of texts) {
+    for (const m of text.matchAll(/https?:\/\/\S*/g)) {
+      urls++
+      assert.doesNotMatch(m[0], /[）。，、；：！？)\].,;:!?]$/, text)
+      assert.doesNotMatch(m[0], /[）。，、；：！？]/, text)
+    }
+  }
+  assert.ok(urls > 20, 'the sample covers many links')
 })

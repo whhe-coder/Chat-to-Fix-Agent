@@ -1,10 +1,15 @@
 // A minimal Anthropic-Messages mock for the smoke run (scripts/smoke.ts): every request is
-// answered with one fixed text, streamed the way the real API streams it, and logged as one JSON
+// answered with one text, streamed the way the real API streams it, and logged as one JSON
 // line with what the smoke run checks: the session the request belongs to, the tool names offered,
-// the system prompt's first characters and the last user message. No tool calls, no state.
+// the system prompt's first characters and the last user message. No tool calls.
 // Smaller than bot/dev/mock-llm.mjs, which scripts the whole DS Bot team.
 //
 //   MOCK_LOG=<file> MOCK_REPLY=<text> node scripts/mock-llm.ts     (MOCK_PORT, default 0 = any)
+//
+// MOCK_RULES (optional): a JSON list of { tool, reply, times? }. A request that offers the tool `tool` is
+// answered with `reply`, at most `times` times (default: always); the first rule that applies wins, else
+// MOCK_REPLY. The smoke run uses it to have the Main bot call the Coding bot once (a role tool tells the
+// bots apart: the pi-ai route sends no session header).
 //
 // It also serves as the HTTP(S) proxy of the smoke run, refusing and logging every request for
 // another host (`proxyRequest` / `proxyConnect` log lines).
@@ -19,6 +24,13 @@ if (!LOG) { console.error('mock-llm: set MOCK_LOG'); process.exit(2) }
 mkdirSync(dirname(LOG), { recursive: true })
 const REPLY = process.env.MOCK_REPLY ?? 'MOCK-REPLY: received.'
 const DELAY = Number(process.env.MOCK_DELAY_MS ?? 100)
+const RULES = (JSON.parse(process.env.MOCK_RULES ?? '[]') as any[]).map((rule) => ({ ...rule, left: rule.times ?? Infinity }))
+const replyFor = (toolNames) => {
+  const rule = RULES.find((r) => r.left > 0 && toolNames.includes(r.tool))
+  if (rule === undefined) return REPLY
+  rule.left -= 1
+  return String(rule.reply)
+}
 let seq = 0
 
 const textOf = (content) => typeof content === 'string' ? content
@@ -60,6 +72,8 @@ const server = createServer((req, res) => {
     }
     const system = Array.isArray(body.system) ? body.system.map((b) => b.text ?? '').join('\n') : String(body.system ?? '')
     const messages = body.messages ?? []
+    const toolNames = (body.tools ?? []).map((t) => t.name ?? t.type)
+    const reply = replyFor(toolNames)
     log({
       id,
       model: body.model,
@@ -67,24 +81,24 @@ const server = createServer((req, res) => {
       session: req.headers['x-deepseek-harness-session-id'] ?? null,
       // Header names only (never values): shows which attribution headers the adapter sends.
       headers: Object.keys(req.headers).filter((h) => !/^(authorization|x-api-key|cookie)$/i.test(h)).sort(),
-      toolNames: (body.tools ?? []).map((t) => t.name ?? t.type),
+      toolNames,
       system: system.slice(0, 200),
       messages: messages.length,
       allUserText: messages.filter((m) => m.role === 'user').map((m) => textOf(m.content)).join('\n----\n').slice(-4000),
       last: textOf(messages.at(-1)?.content).slice(0, 2000),
-      reply: REPLY,
+      reply,
     })
     const usage = { input_tokens: Math.ceil(raw.length / 4), output_tokens: 0 }
     if (body.stream !== true) {
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ id: `mock-${id}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [{ type: 'text', text: REPLY }], stop_reason: 'end_turn', stop_sequence: null, usage: { ...usage, output_tokens: 10 } }))
+      res.end(JSON.stringify({ id: `mock-${id}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', stop_sequence: null, usage: { ...usage, output_tokens: 10 } }))
       return
     }
     setTimeout(() => {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       sse(res, { type: 'message_start', message: { id: `mock-${id}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], stop_reason: null, stop_sequence: null, usage } })
       sse(res, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
-      sse(res, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: REPLY } })
+      sse(res, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: reply } })
       sse(res, { type: 'content_block_stop', index: 0 })
       sse(res, { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 10 } })
       sse(res, { type: 'message_stop' })
