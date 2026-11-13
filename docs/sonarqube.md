@@ -1,6 +1,6 @@
 # SonarQube 接入
 
-本仓库的 GitHub Actions 工作流在 `main` push、同仓库 PR 和手动触发时运行。`unit-test` job 执行类型检查和全部测试，并生成 `coverage/lcov.info`。`sonar` job 读取这份覆盖率，再提交 SonarQube 分析。Quality Gate 最多等待 600 秒。`sonar` job 允许失败；失败原因保留在 job 日志中，但不会使整个工作流失败。
+本仓库的 GitHub Actions 工作流在 `main` push、同仓库 PR 和手动触发时运行。`unit-test` 与 `sonar` 两个 job 并行启动。`unit-test` 执行类型检查和全部测试。`sonar` 自行运行全部测试，生成 `coverage/lcov.info`，再提交 SonarQube 分析。两个 job 因此各运行一次测试。Quality Gate 最多等待 600 秒。`sonar` job 允许失败；失败原因保留在 job 日志中，但不会使整个工作流失败。
 
 ## 启用
 

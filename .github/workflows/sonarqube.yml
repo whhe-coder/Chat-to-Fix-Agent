@@ -1,4 +1,4 @@
-name: SonarQube
+name: CI
 
 on:
   push:
@@ -22,17 +22,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run test:coverage
-      - name: Save coverage for SonarQube
-        uses: actions/upload-artifact@v7
-        with:
-          name: unit-test-coverage
-          path: coverage/lcov.info
-          if-no-files-found: error
-          retention-days: 7
+      - run: npm test
 
   sonar:
-    needs: unit-test
     continue-on-error: true
     if: >-
       ${{ vars.SONAR_HOST_URL != '' &&
@@ -48,12 +40,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - name: Load unit-test coverage
-        uses: actions/download-artifact@v8
-        with:
-          name: unit-test-coverage
-          path: coverage
       - name: Check SonarQube token
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -62,6 +48,8 @@ jobs:
             echo 'SONAR_TOKEN repository secret is required.' >&2
             exit 1
           fi
+      - run: npm ci
+      - run: npm run test:coverage
       - name: SonarQube scan and quality gate
         uses: SonarSource/sonarqube-scan-action@v8.3.0
         env:
