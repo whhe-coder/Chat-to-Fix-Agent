@@ -3,10 +3,12 @@
 // token 可以是字符串，也可以是每次请求时调用的函数（Agent 重启后令牌会变）。
 
 export class ChatToFixApiError extends Error {
-  constructor(code, message) {
+  // reason：底层网络错误码（如 ECONNREFUSED：请求没到对方），没有时为 null。
+  constructor(code, message, reason = null) {
     super(message);
     this.name = 'ChatToFixApiError';
     this.code = code;
+    this.reason = reason;
   }
 }
 
@@ -43,7 +45,8 @@ export function createChatToFixApi({
       if (controller.signal.aborted) {
         throw new ChatToFixApiError('CHAT_TO_FIX_TIMEOUT', 'Chat-to-Fix 接口超时');
       }
-      throw new ChatToFixApiError('CHAT_TO_FIX_NETWORK', 'Chat-to-Fix 接口连不上');
+      const reason = error?.cause?.code ?? error?.code ?? null;
+      throw new ChatToFixApiError('CHAT_TO_FIX_NETWORK', 'Chat-to-Fix 接口连不上', typeof reason === 'string' ? reason : null);
     } finally {
       clearTimeout(timer);
     }

@@ -62,9 +62,15 @@ test('连不上和超时抛带 code 的错误，错误信息不含令牌', async
   const slow = createChatToFixApi({ baseUrl: stub.url, token: 'secret-token', timeoutMs: 50 });
   await assert.rejects(slow.health(), (error) => error.code === 'CHAT_TO_FIX_TIMEOUT'
     && !JSON.stringify(error).includes('secret-token') && !error.message.includes('secret-token'));
-  const dead = createChatToFixApi({ baseUrl: 'http://127.0.0.1:1', token: 'secret-token' });
+  // 起一个服务拿到端口后马上关掉，这个端口上的连接会被拒绝（ECONNREFUSED）。
+  const closed = createServer();
+  closed.listen(0, '127.0.0.1');
+  await once(closed, 'listening');
+  const { port } = closed.address();
+  await new Promise((resolve) => { closed.close(resolve); });
+  const dead = createChatToFixApi({ baseUrl: `http://127.0.0.1:${port}`, token: 'secret-token' });
   await assert.rejects(dead.health(), (error) => error.code === 'CHAT_TO_FIX_NETWORK'
-    && !error.message.includes('secret-token'));
+    && error.reason === 'ECONNREFUSED' && !error.message.includes('secret-token'));
 });
 
 test('token 可以是函数：每次请求时读取，空值不带令牌头', async (t) => {
