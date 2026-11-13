@@ -1,0 +1,50 @@
+image: registry.srv.local/dh-proxy/library/node:24
+
+stages:
+  - test
+  - analysis
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "external_pull_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - when: never
+
+include:
+  - component: $CI_SERVER_FQDN/sre/ci-cd-components/sonarqube/gitlab-ci-sonar@0.2.6
+    inputs:
+      stage: analysis
+      host-url: https://sonarqube.nl-k8s-systools.srv.local
+      quality-gate-enabled: true
+      # Keep the first baseline non-blocking until the results are reviewed.
+      allow_failure: true
+      rules:
+        - if: '$CI_PIPELINE_SOURCE == "external_pull_request_event"'
+        - if: '$CI_COMMIT_BRANCH == "main"'
+      needs:
+        - job: coverage
+          artifacts: true
+
+coverage:
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "external_pull_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - npm ci
+    - npm run typecheck
+    - npm run test:coverage
+  artifacts:
+    paths:
+      - coverage/lcov.info
+    expire_in: 7 days
+
+# The shared component recognizes GitLab MRs, while this project receives
+# GitHub external pull requests. Export the matching scanner arguments first.
+sonar:
+  before_script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "external_pull_request_event" ]; then
+        export CI_MERGE_REQUEST_IID="$CI_EXTERNAL_PULL_REQUEST_IID"
+        export SONAR_MR_ARGS="-Dsonar.pullrequest.key=$CI_EXTERNAL_PULL_REQUEST_IID -Dsonar.pullrequest.branch=$CI_EXTERNAL_PULL_REQUEST_SOURCE_BRANCH_NAME -Dsonar.pullrequest.base=$CI_EXTERNAL_PULL_REQUEST_TARGET_BRANCH_NAME"
+      fi

@@ -1,18 +1,22 @@
 # SonarQube 接入
 
-本仓库的 GitHub Actions 工作流在 `main` push、同仓库 PR 和手动触发时运行。`unit-test` 与 `sonar` 两个 job 并行启动。`unit-test` 执行类型检查和全部测试。`sonar` 自行运行全部测试，生成 `coverage/lcov.info`，再提交 SonarQube 分析。两个 job 因此各运行一次测试。Quality Gate 最多等待 600 秒。`sonar` job 允许失败；失败原因保留在 job 日志中，但不会使整个工作流失败。
+GitHub 保存源代码。公司 GitLab 以“Run CI/CD for external repository”连接这个 GitHub 仓库，并运行内部 SonarQube 组件。GitHub Actions 继续运行现有单元测试。
 
-## 启用
+## 仓库配置
 
-1. 在 SonarQube Server 创建项目。默认项目 key 为 `whhe-coder_chat-to-fix-agent`。已有项目可在 GitHub 仓库变量 `SONAR_PROJECT_KEY` 中填写其 key。
-2. 在 GitHub 仓库变量中设置 `SONAR_HOST_URL`，例如 `https://sonarqube.example.com`。未设置时，`sonar` job 会跳过；`unit-test` 仍会运行。
-3. 在 GitHub 仓库 secret 中设置项目分析 token `SONAR_TOKEN`。已设置 URL 但缺少 token 时，检查步骤会报错；`sonar` job 仍按非阻断规则处理。
-4. 如果服务器使用私有 CA，在 GitHub 仓库 secret 中设置 PEM 格式的 `SONAR_ROOT_CERT`。
-5. 如果 GitHub 托管 runner 无法访问 SonarQube，在仓库变量 `SONAR_RUNNER` 中设置可访问该服务器的 Linux self-hosted runner 标签。该 runner 还需能下载 GitHub Actions、Node.js 和 npm 依赖。
-6. 触发一次 `main` 分析，核对 SonarQube 项目中的主分支和覆盖率。随后检查同仓库 PR 的分析；PR 分析需要 SonarQube 实例支持该功能并完成 GitHub 集成。
+- `.gitlab-ci.yml` 只为 `main` 和 GitHub PR 运行流水线。`coverage` job 使用 Node.js 24 执行类型检查和测试，并交付 `coverage/lcov.info`。
+- 内部 `gitlab-ci-sonar@0.2.6` 组件在 `coverage` 完成后扫描。仓库根目录的 `sonar-project.properties` 固定项目 key、扫描范围和覆盖率路径。
+- GitLab 对 GitHub PR 使用 `external_pull_request_event`。组件原本只识别 GitLab MR；同名 `sonar` job 的 `before_script` 把 GitHub PR 变量映射到组件需要的参数。
+- 首次接入时，Sonar job 的 Quality Gate 只报告结果，不阻断流水线。检查主分支基线和 PR 结果后，再决定是否改为阻断。
 
-若仓库的分支保护或 ruleset 将 `sonar`、`SonarQube` 或 SonarQube 服务发布的检查设为必需项，需在 GitHub 设置中移除该要求。必需检查在运行中仍可能阻止合并；`continue-on-error` 只处理工作流失败结果。`unit-test` 可独立设置为必需检查。
+## 服务端设置
 
-本机可用 Node.js 24 运行 `npm ci`、`npm run typecheck`、`npm run test:coverage`。LCOV 报告写入 `coverage/lcov.info`；该目录不会提交到 Git。扫描范围由仓库根目录的 `sonar-project.properties` 定义。
+1. 在 GitLab 选择 **New project/repository → Run CI/CD for external repository → GitHub**，连接 `whhe-coder/Chat-to-Fix-Agent`。GitLab 的此入口要求 GitHub classic PAT 具有 `repo` 和 `admin:repo_hook` 权限。该凭据供 GitLab 持续拉取代码并回写状态；撤销前须先替换连接凭据。
+2. 在 SonarQube 创建项目，key 使用 `whhe-coder_chat-to-fix-agent`，主分支使用 `main`。
+3. 为该 SonarQube 项目生成分析 token，并在新建的 GitLab 项目中设置 masked CI/CD 变量 `SONAR_TOKEN`。不要把 token 写进仓库。
+4. 确认 GitLab 项目能使用可访问公司 SonarQube 的 runner，且 runner 能拉取 Node.js 24 镜像并安装 npm 依赖。
+5. 将本配置合入 GitHub `main` 后，核对第一次主分支扫描、覆盖率和 Quality Gate。再打开或更新同仓库 PR，核对 GitLab 的 `external_pull_request_event` 流水线和 GitHub commit status。GitLab 不支持外部 fork PR 流水线。
 
-当前只完成仓库内配置和本机验证。SonarQube 项目、GitHub 变量与 secret、runner 网络连通性，以及远端 Quality Gate 结果仍需在对应服务中核对。
+如果 GitLab 项目启用了受保护变量，确认同仓库 PR 流水线能读取 `SONAR_TOKEN`。外部 fork PR 不运行此流水线。
+
+本机可用 Node.js 24 运行 `npm ci`、`npm run typecheck`、`npm run test:coverage`。覆盖率报告位于 `coverage/lcov.info`，不会提交到 Git。
