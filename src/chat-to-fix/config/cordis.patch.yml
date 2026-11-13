@@ -299,3 +299,9 @@
 - { id: schedule, disabled: true }
 - { id: mcp-resources, disabled: true }
 - { id: otel, disabled: true }
+
+# 8.4 web search and fetch (no preset has a web tool)
+- { id: web, disabled: true }
+- { id: web-search-deepseek, disabled: true }
+- { id: web-deepseek-api, disabled: true }
+- { id: web-fetch-http, disabled: true }
