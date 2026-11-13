@@ -70,6 +70,17 @@ const relay = createOutboxRelay({
   log,
 });
 
+// 启动时核对频道（architecture.md 4.3）：Agent 在线且绑定的频道里没有本频道，就不启动；Agent 没开或没有 channels 字段，照常启动。
+try {
+  const { status, body } = await api.health();
+  if (status === 200 && Array.isArray(body?.channels) && !body.channels.includes(fixChannelId)) {
+    console.error(`频道不一致：CHAT_TO_FIX_SLACK_CHANNEL 是 ${fixChannelId}，Agent 绑定的是 ${body.channels.join(', ') || '（无）'}。改成一致后再启动。`);
+    process.exit(1);
+  }
+} catch {
+  console.warn('启动时连不上 Chat-to-Fix，先照常启动；每次 /fix 仍会检查服务和频道。');
+}
+
 try {
   await app.start();
   relay.start();

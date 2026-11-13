@@ -1,7 +1,7 @@
 # Slack Bot 架构：`/fix` 怎么交给 Agent、进度怎么回来、出错怎么恢复
 
 - 日期：2026-11-13
-- 状态：草稿。“当前实现”指 PR #7（分支 `AIINITIATIVES-5729-slackbot_fix_entry`）的代码；“拟改”是本文定下、尚未实现的行为。
+- 状态：4.1–4.5 的“拟改”已在 PR #7（分支 `AIINITIATIVES-5729-slackbot_fix_entry`）的 Bot 代码里实现，只通过单元测试；“当前实现”一栏保留，说明改之前的行为。第 5 节的字段在 PR #8 加上；Bot 对没有这些字段的旧版 Agent 照旧运行。4.8 发起人身份：Zihui 11-13 回复 Agent 不需要 `users:read`，发起人只写进 Jira 和 MR 描述，用 `/fix` 带的用户 ID 和名字。
 - 范围：只讲 `src/slackBot/`（下文 **Bot**）和 Chat-to-Fix 服务（下文 **Agent**）之间怎么协作。入口文案和情况表见 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，接口字段见 [slackbot.md](slackbot.md) 4.2。
 
 ## 1. 前提
