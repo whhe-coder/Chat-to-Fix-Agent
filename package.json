@@ -23,6 +23,7 @@
     "prepare:agent-connections": "sh -c '. src/chat-to-fix/scripts/dev-env.sh; exec node src/chat-to-fix/scripts/connected.ts'",
     "smoke:agent": "cd src/chat-to-fix && node scripts/smoke.ts",
     "test": "npm run test:connections && npm run test:slack-bot && npm run test:agent && npm run test:agent-layer && npm run test:agent-bot",
+    "test:coverage": "c8 npm test",
     "test:connections": "node --test \"src/gitlab/test/*.test.js\" \"src/jira/test/*.test.js\"",
     "test:slack-bot": "node --test \"src/slackBot/test/*.test.js\"",
     "test:agent": "cd src/chat-to-fix && node --test \"test/*.test.ts\"",
@@ -40,8 +41,27 @@
     "deep-view": "0.1.2",
     "jsdom": "29.1.1"
   },
+  "c8": {
+    "include": [
+      "src/**"
+    ],
+    "exclude": [
+      "src/**/test/**",
+      "src/**/fixtures/**",
+      "src/chat-to-fix/scripts/e2e/cases/**",
+      "src/chat-to-fix/.data/**",
+      "**/*.test.js",
+      "**/*.test.ts"
+    ],
+    "reporter": [
+      "lcov",
+      "text"
+    ],
+    "reports-dir": "coverage"
+  },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "c8": "10.1.3",
     "typescript": "^7.0.2"
   }
 }
