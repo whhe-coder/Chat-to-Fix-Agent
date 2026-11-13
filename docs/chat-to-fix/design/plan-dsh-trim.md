@@ -1,7 +1,7 @@
 # DSH 瘦身方案（Chat-to-Fix）
 
 - 日期：2026-11-13
-- 状态：**第 0–10 步已在本分支实施（2026-11-13）**，开着的行正好是白名单 57 行；三个没用的依赖已删。只剩 `zod` 的 `overrides`（改 Logan 的根 `package.json`，等他同意）。实施记录见本文末“实施记录”一节。下文各节仍是方案原文。
+- 状态：**第 0–10 步已在本分支实施（2026-11-13）**，开着的行正好是白名单 57 行；`oxlint`、`dsh-agent-loop-testkit` 已删；`jsdom` 删后又加回（Logan 的 Slack 测试 `mock-channel-client.test.js` 要用）。只剩 `zod` 的 `overrides`（改 Logan 的根 `package.json`，等他同意）。实施记录见本文末“实施记录”一节。下文各节仍是方案原文。
 - 依据：分支 `AIINITIATIVES-5733_dsh-coding`（PR #8），提交 `ae603a8`；根目录 `node_modules/@deepseek-ai/*`（DSH 0.2.2-rc.1）的实际文件；用当前检出重新跑的 `dsh --profile chat-to-fix --patch config/cordis.patch.yml --dump-config`（不启动、不执行 `!!js`，0.3 秒）。
 - 规矩（Zihui 定）：DSH 的包不改。瘦身只通过我们的补丁行（`src/chat-to-fix/config/cordis.patch.yml`）和我们的根目录依赖做。
 - 关联：[plan-dsh-coding.md](plan-dsh-coding.md)（五个 bot 都在 DSH 里跑、`request_review`、费用估计）、`src/chat-to-fix/config/README.md`（补丁行逐行说明）。
