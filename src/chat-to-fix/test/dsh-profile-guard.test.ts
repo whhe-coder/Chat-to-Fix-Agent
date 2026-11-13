@@ -108,14 +108,14 @@ const REMOVED: string[] = [
   'account-controller', 'settings-controller', 'workspace-controller', 'plugin-inventory',
   'message-feedback', 'command-feedback', 'session-turn-outline', 'session-reference',
   'cordis-host-runner', 'cordis-inspect-providers',
+  // step 3
+  'goal', 'goal-round-driver', 'schedule', 'mcp-resources',
+  'otel',
 ]
 
 // Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
 // (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
 const PENDING: string[] = [
-  // step 3
-  'goal', 'goal-round-driver', 'schedule', 'mcp-resources',
-  'otel',
   // step 4
   'web', 'web-search-deepseek', 'web-deepseek-api', 'web-fetch-http',
   // step 5

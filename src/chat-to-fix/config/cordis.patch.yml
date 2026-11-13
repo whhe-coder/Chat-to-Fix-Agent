@@ -292,3 +292,10 @@
 - { id: session-reference, disabled: true }
 - { id: cordis-host-runner, disabled: true }
 - { id: cordis-inspect-providers, disabled: true }
+
+# 8.3 goal, schedule, MCP resources, OpenTelemetry
+- { id: goal, disabled: true }
+- { id: goal-round-driver, disabled: true }
+- { id: schedule, disabled: true }
+- { id: mcp-resources, disabled: true }
+- { id: otel, disabled: true }
