@@ -163,7 +163,7 @@
 | 检查 | 条件 | 动作 | 结束原因 |
 |---|---|---|---|
 | 任务总时限 | 本次运行超过 `taskMinutes`（等 CI 的时间不计） | 结束任务，状态 `timed_out` | `task_timeout` |
-| 软时限、软预算 | 运行时长超过 `softTaskMinutes`，或 `totalUsd` 超过 `softTaskUsd` | 不结束任务。写一条 `limit` 记录（`soft_time` / `soft_budget`）；给主 bot 发一条 `[system]` 消息：停止工作、不再叫 coding bot、不开新一轮修复，以 `needs_person` 收尾，说明写给提问人看（讨论是中文就写中文：太难或不适合自动改、原因、试过什么），有 Jira 单让 Jira bot 留一条同样原因的评论，有 Draft MR 就提一句；coding bot 的回合在跑就先停掉。每个软上限每次运行只触发一次；CI 步骤已定论（settled），或任务在 `writeback` / `close` 步骤时不触发（成果已交付，走完流程就是收尾；之前已发出的收尾消息不受影响）；等 CI 的时间（`ci.waitedMs`）在 CI 步骤之后仍从运行时长里扣除；已经在收尾时第二个软上限只记录，不重复发消息。收尾后的 `needs_person` 结束通知照常经 outbox 发到 Slack | 无（主 bot 以 `needs_person` 收尾；收尾不及时则被任务总时限或步骤时限结束） |
+| 软时限、软预算 | 运行时长超过 `softTaskMinutes`，或 `totalUsd` 超过 `softTaskUsd` | 不结束任务。写一条 `limit` 记录（`soft_time` / `soft_budget`）；给主 bot 发一条 `[system]` 消息：停止工作、不再叫 coding bot、不开新一轮修复，以 `needs_person` 收尾，说明写给提问人看（讨论是中文就写中文：太难或不适合自动改、原因、试过什么），有 Jira 单让 Jira bot 留一条同样原因的评论，有 Draft MR 就提一句；coding bot 的回合在跑就先停掉。每个软上限每次运行只触发一次，已在收尾时第二个只记录。CI 已定论（settled）或任务在 `writeback` / `close` 步骤时不触发，等 CI 的时间（`ci.waitedMs`）不计入运行时长。收尾后的 `needs_person` 结束通知照常经 outbox 发到 Slack | 无（主 bot 以 `needs_person` 收尾；收尾不及时则被任务总时限或步骤时限结束） |
 | 步骤时限（编码以外） | 进入当前步骤超过 `stepMinutes`。适用于 `fetch`、`issue`、`prepare`、`mr`、`ci`、`writeback`；`ci` 的规则见下面的“CI”行；第八步 `close` 没有自己的时限 | 第一次：给主 bot 补一条消息，说明哪一步超时。再超过一个时限：结束任务，状态 `failed`。`prepare` 也是这样，共 2 个 10 分钟 | `step_timeout` |
 | 编码时限 | 进入 `code` 超过 `stepMinutes.code` | 不催：直接停止 coding bot 的回合并结束任务，状态 `timed_out` | `coding_timeout` |
 | 群安静 | 群连续 `quietMinutes` 没有任何动静，任务没结束 | 给主 bot 补一条消息，最多 `quietNudges` 次；再发生则结束任务，状态 `failed` | `stalled` |
@@ -199,6 +199,8 @@
 | 已停止 | 有人调用了停止 |
 
 通知的文字是固定模板，带任务编号；有 Jira 单号和分支时一并带上。上面这七种通知和发给 bot 的催促消息只有英文，不管配置项 `language` 是什么。每条属于某个任务的通知也会作为 `system` 类型写进该任务的执行记录（“队列已满”和“频道未绑定”没有任务，不记录）。以 `needs_person` 结束的任务状态是 `failed`，所以发的是“未能完成”。
+
+通知和 bot 消息里的链接后面一律跟空格或换行，不跟标点（否则 Slack 会把标点算进链接）；Slack bot 的确认收到（`ack`）用讨论的语言。
 
 CI 通知另算（`monitor.ts` 的 `ciNoticeText`，不在上表里）：在 `ci` 步发到原讨论，只带链接和 job 名，不带日志。文字跟配置项 `language`：`zh` 发中文，其他发英文。种类：`ci_passed`（CI 通过）、`ci_failed`（第几轮失败，附没过的 job）、`ci_rounds_exhausted`（修满轮数仍未通过）、`ci_no_pipeline`（没拿到 CI 结果：没触发或等超时）。同一次定案只发一次。发给主 bot 和 Git Pipeline bot 的 CI 催促消息仍是英文。细节见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 

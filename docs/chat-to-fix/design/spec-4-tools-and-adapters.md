@@ -121,7 +121,7 @@
 
 | 工具 | 参数 | 规则 | 写入任务 |
 |---|---|---|---|
-| `jira_assess_request` | `sourceQuote`、`problem`、`outcome` | 写工具。引用 Slack 讨论中的原文，登记具体问题和可检查的结果。只有问候或测试字样的内容，以及找不到引用原文的内容，不能通过 | `issueAssessment` |
+| `jira_assess_request` | `sourceQuote`、`problem`、`outcome` | 写工具。引用 Slack 讨论中的原文，登记具体问题和可检查的结果。只有问候或测试字样的内容，以及找不到引用原文的内容，不能通过。只有 Jira bot 确认过信息不足（主 bot 没有）时可以再次调用，通过后撤回 `needsInfo.jira`；两方都确认后拒绝 | `issueAssessment` |
 | `jira_create_issue` | `title`、`description`、`acceptance` | 写工具。任务已有 `jira.key` 时直接返回它；否则必须先通过 `jira_assess_request`。项目、类型、标签取自 `binding`。描述末尾由工具附上 Slack 讨论的链接。三个参数都不能为空 | `jira.key`、`jira.url` |
 | `jira_get_issue` | 无 | 读本任务的单：标题、状态、描述、评论。文字超过 6000 个字符时截断，评论只显示最近 20 条 | — |
 | `jira_add_comment` | `text` | 写工具。在步骤 `writeback` 调用时，工具在文字后附上 MR 链接（任务还没有 MR 时失败） | `jira.commentedMr` 为真 |
@@ -137,7 +137,7 @@ Jira 的工具只能访问 `jira.key` 那一张单。新建的单不带现有自
 | `repo_diff` | 无 | 返回改动的文件列表、增删行数和补丁；补丁过长（超过 12000 个字符）时截断并注明；最多列出 100 个文件 | — |
 | `repo_read_file` | `path`、`ref`（可选） | `path` 必须是仓库内的相对路径，不能跳出仓库。`ref` 必须是普通的分支、标签或提交名。内容过长（超过 12000 个字符）时截断并注明；适配器拒绝超过 5 MB 的文件 | — |
 | `repo_log` | `path`（可选）、`n`（默认 20，最多 50） | 返回提交列表 | — |
-| `mr_open_draft` | `title`、`description`、`commit_message`（可选） | 写工具。`allow` 只检查步骤、审查是否通过、改动规模（`diffMaxFiles`、`diffMaxLines`），别的不查。`commit_message` 是一行 Conventional Commit（`type(scope): summary`，scope 可省，后面可带 `!`，type 取 feat、fix、chore、refactor、test、docs、perf、build、ci、style、revert，没有正文）；默认是 `fix: <title>`（按下面的长度上限截断）。工具在末尾加上任务的 Jira 单号，实际提交信息是 `<type(scope): summary> (<KEY>)`（例如 `fix(price): subtract the discount instead of adding it (F2PGBA-12)`）。单号放末尾的原因：公司 GitLab 的推送规则要求带单号，而 CI 的 commitlint 要求 type 在最前面，单号在前面时 commitlint 解析不出 type 和 subject（F2PGBA-404 的 MR !375 实测）。整行含 ` (KEY)` 不超过 100 个字符（commitlint 默认 header-max-length），所以机器人给的信息最多 `100 − len(" (KEY)")` 个字符，超出时拒绝并给出这个数；机器人自己在前面写了本任务单号（旧格式 `KEY: `）或在末尾写了 ` (KEY)` 会先去掉再加，不会重复；信息里带别的 Jira 单号时拒绝；任务没有单号时拒绝，不推送；适配器接受带或不带末尾 ` (KEY-n)` 的 Conventional Commit，整行 ≤ 100，并按给定的信息原样提交。标题和描述里都没有 Jira 单号时，工具在描述末尾附上 `Jira: <单号>`。任务已有 `mr.url` 时复用并返回它，新改动作为又一个提交加到分支上；推送被拒时失败（`push_rejected`），提示向人报告（`task_close needs_person`）。`mr.iid` 和 `mr.sha` 也一并记下，给 CI 步骤读 | `mr.url`、`mr.iid`、`mr.sha` |
+| `mr_open_draft` | `title`、`description`、`commit_message`（可选） | 写工具。`allow` 只检查步骤、审查是否通过、改动规模（`diffMaxFiles`、`diffMaxLines`），别的不查。`commit_message` 是一行 Conventional Commit（`type(scope): summary`，scope 可省，后面可带 `!`，type 取 feat、fix、chore、refactor、test、docs、perf、build、ci、style、revert，没有正文）；默认是 `fix: <title>`（按下面的长度上限截断）。工具在末尾加任务的 Jira 单号，提交信息是 `<type(scope): summary> (<KEY>)`（例如 `fix(price): subtract the discount instead of adding it (F2PGBA-12)`），整行不超过 100 个字符；超长、带别的单号或任务没有单号时拒绝，自己写了本任务单号会先去掉。单号放末尾是因为公司 GitLab 推送规则要带单号，而 commitlint 要 type 在最前面。适配器接受带或不带末尾 ` (KEY-n)` 的 Conventional Commit，整行 ≤ 100，并按给定的信息原样提交。标题和描述里都没有 Jira 单号时，工具在描述末尾附上 `Jira: <单号>`。任务已有 `mr.url` 时复用并返回它，新改动作为又一个提交加到分支上；推送被拒时失败（`push_rejected`），提示向人报告（`task_close needs_person`）。`mr.iid` 和 `mr.sha` 也一并记下，给 CI 步骤读 | `mr.url`、`mr.iid`、`mr.sha` |
 | `mr_get` | 无 | 返回本任务 MR 的状态和流水线状态；分支没有 MR 时直接说没有（适配器的 `mr_not_found` 是一个答案，不算失败） | — |
 | `ci_read_log` | `job`（失败 job 的 id 或名字） | 只读。读一个失败 job 的日志末尾（不超过 `limits.ciLogMaxChars`，默认 12000 个字符），按外来材料包装。读过日志是 `ci_stop` 的前提 | `ci.logRead` |
 | `mr_push_fix` | `commit_message` | 写工具。把代码目录的改动提成一个新提交、普通推送到任务分支。CI 没失败、轮数到 `limits.ciMaxRounds`（默认 3）、循环已结束时拒绝；没有改动时拒绝；推送被拒时不拉取、不覆盖，记 `branch_changed` 并结束 CI 循环 | `ci`（新一轮，待定）、`mr.sha` |

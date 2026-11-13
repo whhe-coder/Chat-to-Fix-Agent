@@ -131,7 +131,7 @@ coding bot 的定义另带一项 `reviewer`：审查者的说明文件（`review
 - `issue` 步骤由 `jira` 和 `main` 确认信息不足；其余步骤由 `coding` 和 `main` 确认。其他角色：记一条拒绝的执行记录并抛错。
 - 两条都有之后，`slack_reply`（用途 `question`）才放行。
 - 新的一次运行开始时清空 `needsInfo`。
-- Jira bot 使用模型判断讨论能否支持具体问题与可检查的结果；`jira_assess_request` 登记模型的肯定判断。它通过前不得调用 `jira_create_issue`。只有问候或测试字样的请求不能通过判断；信息不足时先追问，不产生 Jira 单。
+- Jira bot 使用模型判断讨论能否支持具体问题与可检查的结果；`jira_assess_request` 登记模型的肯定判断。它通过前不得调用 `jira_create_issue`。只有问候或测试字样的请求不能通过判断；信息不足时先追问，不产生 Jira 单。只有 Jira bot 确认、主 bot 不同意时，Jira bot 可以再判断一次，通过后撤回自己的确认并建单；两方都确认后判断和建单一律拒绝。
 
 ### 4.4 结束
 
