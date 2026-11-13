@@ -18,7 +18,7 @@
 
 - 流程和状态归系统，内容和判断归 bot。每一步要有记录在案的证据才能推进，没有评审通过就不能开 MR。
 - 提交是一行的 Conventional Commit；MR 一直是 Draft，bot 从不合并、批准或部署。
-- 运行在 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）上；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.zh.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
+- 运行在 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）上；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
 
 ## 现在做到哪（2026-11-12）
 

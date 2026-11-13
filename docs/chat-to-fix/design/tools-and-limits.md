@@ -1,7 +1,7 @@
 # 自动修复 Bot：工具清单与运行上限初值
 
 - 日期：2026-11-11
-- 前提：软件是什么见 [software-spec.zh.md](software-spec.zh.md)。
+- 前提：软件是什么见 [software-spec.md](software-spec.md)。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 - 上限的数值是初值，没有经过运行校准；第 5 节写了校准办法。每个任务的 token 和费用统计已提交（31b386d），见规格 3 第 3.1 节；价格表可用配置键 `pricing` 覆盖。
 
@@ -80,7 +80,7 @@ Jira bot 只能读写本任务的那一张单。
 | `mr_push_fix` | `commit_message` | CI 某一轮的修复：把目录里的改动提交成一个新 commit，普通推送到任务分支（不强推）。要求：CI 已失败、轮数没到 `ciMaxRounds`、审查通过、改动规模没超限。分支上被别人推过提交时推送被拒，不拉取不覆盖，CI 循环以 `branch_changed` 结束 | 写 |
 | `ci_stop` | 原因（`not_locatable`、`out_of_scope`、`not_fixable`）；说明 | 停止 CI 修复循环并记原因。要求本轮读过日志；`not_fixable` 还要求 Coding bot 在本轮记过审查结论 `cannot_fix` | 写 |
 
-CI 步骤由 Git Pipeline bot 负责，流程见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
+CI 步骤由 Git Pipeline bot 负责，流程见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 
 `mr_open_draft` 在执行前由代码检查：任务在 `mr` 步；任务上记有“审查通过”；改动规模没有超过第 4 节的上限。“有没有改动”不在这里检查，而是之后由仓库适配器在提交时拒绝（错误 `nothing_to_commit`）。因规模被拒不会让任务自己结束；系统要求主 bot 把任务以“需要人工处理”关闭（见第 4 节）。它不能合并、批准或关闭 MR。
 

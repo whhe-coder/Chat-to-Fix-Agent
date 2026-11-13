@@ -2,10 +2,10 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：D0（bot 注册表和流程定义）、B3（步骤把关）、C1（任务工具）。
-- 上位文档：[software-spec.zh.md](software-spec.zh.md) 3.2、5.2、6；[implementation-guide.zh.md](implementation-guide.zh.md)。
+- 上位文档：[software-spec.md](software-spec.md) 3.2、5.2、6；[implementation-guide.md](implementation-guide.md)。
 - 本文定下的名字（角色标识、步骤标识、任务字段名）在其余五份细分规格里通用。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
-- 流程是八步：CI 修复循环（提交 192a721）在“开 MR”和“回写”之间加了第 6 步“CI”。本文只写它在流程表、门禁和任务工具上的改动；循环本身（等 pipeline、轮次、三个新工具、结束原因的来历）见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
+- 流程是八步：CI 修复循环（提交 192a721）在“开 MR”和“回写”之间加了第 6 步“CI”。本文只写它在流程表、门禁和任务工具上的改动；循环本身（等 pipeline、轮次、三个新工具、结束原因的来历）见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 
 ## 1. 范围
 
@@ -121,7 +121,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 ### 4.2 写工具放行
 
 - 任务的当前步骤是 2.3 的 `writeTools` 里列了这个工具的步骤之一，才放行；拒绝的原因会列出工具所属的全部步骤。
-- `mr_open_draft` 和 `mr_push_fix` 另外要求 `review.verdict` 为 `pass`，并且改动规模不超过上限（[tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节）。超过上限时拒绝，原因写“改动超过规模上限”。`mr_push_fix` 的其他条件见规格 7。
+- `mr_open_draft` 和 `mr_push_fix` 另外要求 `review.verdict` 为 `pass`，并且改动规模不超过上限（[tools-and-limits.md](tools-and-limits.md) 第 4 节）。超过上限时拒绝，原因写“改动超过规模上限”。`mr_push_fix` 的其他条件见规格 7。
 - 不是已知写工具的，拒绝。
 - 读工具不经过放行。
 - 拒绝时把原因作为工具的错误结果返回给 bot，并记一条执行记录。

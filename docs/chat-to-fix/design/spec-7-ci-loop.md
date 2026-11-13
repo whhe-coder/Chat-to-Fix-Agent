@@ -2,8 +2,8 @@
 
 - 日期：2026-11-12
 - 状态：2026-11-12 已实现，按代码（提交 192a721）更新。测试全用假 Slack、Jira、GitLab（模拟 CI）和假 Claude Code 命令行。**还没在真实运行里见过的**：Git Pipeline bot 用 `message_bot` 叫 Coding bot、Coding bot 交回给它；系统发给 `@Pipeline-<任务号>` 的消息经群里的 @ 只送到 Git Pipeline bot。**没在真实 GitLab 上验证的**：`retryJobs` 用的重跑接口、下游 pipeline 的 `project_id` 字段和跨项目读取、同一提交多条 MR pipeline 时的取法。第 4.1 节是提交 31b386d 上做的调研，保留原样。
-- 上位文档：[software-spec.zh.md](software-spec.zh.md)；流程表和门禁见规格 1，任务字段见规格 2，监控见规格 3，工具和适配器见规格 4，Coding bot 的 Claude Code 驱动见规格 5，配置和提示词见规格 6。
-- 来源：研究笔记 `ci-loop-design.zh.md`（共享笔记目录 `local_ade7ee79…`）第 2.5 节"最小版"；Zihui 2026-11-12 的决定都已写进正文。
+- 上位文档：[software-spec.md](software-spec.md)；流程表和门禁见规格 1，任务字段见规格 2，监控见规格 3，工具和适配器见规格 4，Coding bot 的 Claude Code 驱动见规格 5，配置和提示词见规格 6。
+- 来源：研究笔记 `ci-loop-design.md`（共享笔记目录 `local_ade7ee79…`）第 2.5 节"最小版"；Zihui 2026-11-12 的决定都已写进正文。
 - 参考（只作接口格式参考，不对齐设计）：公司仓库 `whhe-coder/Chat-to-Fix-Agent` 的 `README.md`「目标流程」、`spec/gitlab-mr-client.md`、`src/gitlab/client.js` 的 `getMergeRequestChecks` 和 `getJobTrace`（这两个已用真实 GitLab 只读验证过）。
 
 ## 1. 问题
@@ -208,7 +208,7 @@ ci: null | {
 | 监控、配置 | `src/task/monitor.ts`、`src/config.ts`、`src/app.ts`、`config.example.json` |
 | 提示词 | `src/prompts/` 的六个文件 |
 | 空闲关闭 | `bot/src/host/local-agents/adapter.ts` |
-| 界面 | `scripts/watch.ts`、`scripts/flow-page.ts`、`scripts/debug-ui/` 加了步骤名 CI；`README.zh.md` 改了 bot 名 |
+| 界面 | `scripts/watch.ts`、`scripts/flow-page.ts`、`scripts/debug-ui/` 加了步骤名 CI；`README.md` 改了 bot 名 |
 
 测试见第 5 节。提交说明里的结果：`npm test` 601 个通过，`test:layer` 43，`test:bot` 505（2 个跳过），smoke 24/24，类型检查无错（这次更新没有重跑）。
 

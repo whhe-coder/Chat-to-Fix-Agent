@@ -4,7 +4,7 @@
 
 - 日期：2026-11-12
 - 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/core/task/outbox.ts`、`http.ts`、`core/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
-- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 [设计文档](../design/README.zh.md)。
+- 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 [设计文档](../design/README.md)。
 
 ## 1. 问题
 

@@ -1,6 +1,6 @@
 # Chat-to-Fix 交接文档
 
-> 历史快照：本文记录 2026-11-12 迁移前的目录和运行方式。当前代码位于仓库的 `src/chat-to-fix/`，文档位于 [根目录的文档区](../../docs/chat-to-fix/README.md)，依赖与命令由根目录 `package.json` 管理。请以 [当前上手说明](README.zh.md) 为准。
+> 历史快照：本文记录 2026-11-12 迁移前的目录和运行方式。当前代码位于仓库的 `src/chat-to-fix/`，文档位于 [根目录的文档区](../../docs/chat-to-fix/README.md)，依赖与命令由根目录 `package.json` 管理。请以 [当前上手说明](README.md) 为准。
 
 写于 2026-11-12。给接手的人和接手的 Claude 会话看：新会话看不到之前的对话，需要知道的都在这里。
 
@@ -13,10 +13,10 @@
 | 内容 | 位置 |
 |---|---|
 | 代码 | 本机 `~/Documents/mywork/chat-to-fix/chat-to-fix/`，git 分支 `main`，没有远程 |
-| 设计文档（工作副本） | 本机 `~/Documents/mywork/chat-to-fix/chat-to-fix-design-2026-11-11/`，从 `README.zh.md` 进；不在 git 里 |
-| 设计文档（随代码的快照） | `docs/design/`（中文版）和 `docs/notes/`（研究笔记：`ci-loop-design.zh.md`、`fix-slash-entry.zh.md`）。每次推送前从工作副本同步一次 |
-| 从 DS Bot 裁掉了什么 | `rewrite/INVENTORY.zh.md` |
-| 上手说明 | `README.zh.md` |
+| 设计文档（工作副本） | 本机 `~/Documents/mywork/chat-to-fix/chat-to-fix-design-2026-11-11/`，从 `README.md` 进；不在 git 里 |
+| 设计文档（随代码的快照） | `docs/design/`（中文版）和 `docs/notes/`（研究笔记：`ci-loop-design.md`、`fix-slash-entry.md`）。每次推送前从工作副本同步一次 |
+| 从 DS Bot 裁掉了什么 | `rewrite/INVENTORY.md` |
+| 上手说明 | `README.md` |
 | 公司仓库 | `whhe-coder/Chat-to-Fix-Agent`（公开），我们的代码在分支 `AIINITIATIVES-5450_chat-to-fix` 的 `chat-to-fix/` 子目录，PR #1 到 `main`，等 Logan review，**还没合并**。`main` 上是 Logan 的另一套实现（JavaScript，私信入口），只作参考 |
 | Jira | Epic AIINITIATIVES-5447（描述已改成 Chat-to-Fix）；任务 AIINITIATIVES-5450"first reviewable version"，正在进行。CI 循环和 `/fix` 还没单独开工单 |
 
@@ -34,7 +34,7 @@
 |---|---|
 | 七步主流程（真实模型 + 模拟三方） | 真实跑通多次 |
 | CI 修复循环（spec-7，最小版，Git Pipeline bot 专职负责） | 代码完成，模拟 CI 上 9 个端到端场景全过；**没在真实运行里看过** Git Pipeline bot 叫修复 bot 的交接和 `@Pipeline-N` 路由 |
-| `/fix` 斜杠命令主入口 | 已实现，只在本机模拟服务上测过（转发程序处理 `slash_commands`；服务端先开讨论串再建任务；拒绝只回临时消息）。@ 保留为讨论串里的补充信息入口。设计见 `docs/notes/fix-slash-entry.zh.md` |
+| `/fix` 斜杠命令主入口 | 已实现，只在本机模拟服务上测过（转发程序处理 `slash_commands`；服务端先开讨论串再建任务；拒绝只回临时消息）。@ 保留为讨论串里的补充信息入口。设计见 `docs/notes/fix-slash-entry.md` |
 | 真实 Slack / Jira / GitLab 适配器 | 代码已写，只在本机模拟服务上测过；等 token 和权限 |
 | 计费 | API bot 用 DSH 自带的 token 和速度统计 × 价目表；修复 bot 用 Claude Code 自报的花费。一次文案用例约 $0.30 |
 | 调试页 | `scripts/flow-page.ts`：左边时序图，右边竖屏群聊，页头花费和速度 |

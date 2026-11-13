@@ -2,10 +2,10 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：D1（配置）、D2（提示词和群公告）、D3（DSH 配置补丁）、E2（历史工单评测）、R1（真实接入）、F1（镜像）。
-- 上位文档：[software-spec.zh.md](software-spec.zh.md) 第 6、8.2、9、10 节；[tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4、5 节。
+- 上位文档：[software-spec.md](software-spec.md) 第 6、8.2、9、10 节；[tools-and-limits.md](tools-and-limits.md) 第 4、5 节。
 - 角色标识和步骤见规格 1；上限的配置键见规格 3；适配器见规格 4；Claude Code 驱动见规格 5。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
-- 提交 31b386d 起有按任务统计费用（`pricing` 配置，见 2.1；统计本身见规格 2、5）；192a721 起有 CI 修复循环（流程八步，细节见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)，本文只写配置键和提示词的变化）。
+- 提交 31b386d 起有按任务统计费用（`pricing` 配置，见 2.1；统计本身见规格 2、5）；192a721 起有 CI 修复循环（流程八步，细节见 [spec-7-ci-loop.md](spec-7-ci-loop.md)，本文只写配置键和提示词的变化）。
 
 ## 1. 范围
 
@@ -253,7 +253,7 @@ DSH 以无界面方式运行，使用仓库根目录 `package.json` 安装的 DS
 ### 4.3b 本机路径和 README
 
 - 机器相关的路径已移出仓库（提交 3f6806a、db267ea）：`scripts/dev-env.sh` 不再写死任何路径。它先读 `scripts/dev-env.local.sh`（在 `.gitignore` 里，不进 git；可设 `CHAT_TO_FIX_NODE_BIN`、`CLAUDE_BIN`），Node 24 取自 `CHAT_TO_FIX_NODE_BIN` 或 `PATH`，`DSH_HARNESS` 默认指向仓库根目录安装的 DSH 包，`CLAUDE_BIN` 没设时取 `PATH` 上的 `claude`。项目根取 `CHAT_TO_FIX_ROOT`，否则从当前目录往上找含 `scripts/dev-env.sh` 的目录，所以在 `bot/` 等子目录也能用；启动脚本调用它时会带上 `CHAT_TO_FIX_ROOT`。
-- Agent 的运行说明见 `src/chat-to-fix/README.zh.md`；仓库入口是根目录的 `README.md`。
+- Agent 的运行说明见 `src/chat-to-fix/README.md`；仓库入口是根目录的 `README.md`。
 
 ### 4.4 历史工单评测（E2）
 
@@ -273,7 +273,7 @@ DSH 以无界面方式运行，使用仓库根目录 `package.json` 安装的 DS
 
 ### 4.5 真实接入（R1）
 
-[questions-for-colleagues.zh.md](questions-for-colleagues.zh.md) 里同事的问题仍没有答复。适配器是在他们答复之前写的。
+[questions-for-colleagues.md](questions-for-colleagues.md) 里同事的问题仍没有答复。适配器是在他们答复之前写的。
 
 1. 已做：三个适配器的真实实现（`src/adapters/slack-http.ts`、`jira-http.ts`、`gitlab-http.ts`），接口不变（规格 4 的 2.2）。只对着本地的桩服务测过（提交 e50ff17），没有对着任何真实服务运行过。
 2. 已做：@ 事件由一个单独的进程 `scripts/slack-forwarder.ts` 接入，它保持一条 Slack Socket Mode 连接，把转换后的事件带控制接口的令牌发到 `POST /events`。监听口本身没变，任务层的形状也没变。转发器没有在真实工作区里运行过。

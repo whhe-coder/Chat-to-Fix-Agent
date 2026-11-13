@@ -2,10 +2,10 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：B4（监听口和控制接口）、B2（队列）、B5（运行器）、B7（监控）。
-- 上位文档：[software-spec.zh.md](software-spec.zh.md) 5.8、5.9、5.10、7.1 至 7.3、7.7、7.8；[tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节。
+- 上位文档：[software-spec.md](software-spec.md) 5.8、5.9、5.10、7.1 至 7.3、7.7、7.8；[tools-and-limits.md](tools-and-limits.md) 第 4 节。
 - 角色标识、步骤标识见规格 1；任务字段、结束原因见规格 2；bot 层门面见规格 5。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
-- CI 修复循环（提交 192a721）：流程现在是八步，监控多了等 pipeline 的检查和“CI”这一步的计时与通知。本文只写监控的接口和各项检查；CI 循环本身（轮次、判定、工具、通知细节）见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
+- CI 修复循环（提交 192a721）：流程现在是八步，监控多了等 pipeline 的检查和“CI”这一步的计时与通知。本文只写监控的接口和各项检查；CI 循环本身（轮次、判定、工具、通知细节）见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 
 ## 1. 范围
 
@@ -194,7 +194,7 @@
 
 通知的文字是固定模板，带任务编号；有 Jira 单号和分支时一并带上。上面这七种通知和发给 bot 的催促消息只有英文，不管配置项 `language` 是什么。每条属于某个任务的通知也会作为 `system` 类型写进该任务的执行记录（“队列已满”和“频道未绑定”没有任务，不记录）。以 `needs_person` 结束的任务状态是 `failed`，所以发的是“未能完成”。
 
-CI 通知另算（`monitor.ts` 的 `ciNoticeText`，不在上表里）：在 `ci` 步发到原讨论，只带链接和 job 名，不带日志。文字跟配置项 `language`：`zh` 发中文，其他发英文。种类：`ci_passed`（CI 通过）、`ci_failed`（第几轮失败，附没过的 job）、`ci_rounds_exhausted`（修满轮数仍未通过）、`ci_no_pipeline`（没拿到 CI 结果：没触发或等超时）。同一次定案只发一次。发给主 bot 和 Git Pipeline bot 的 CI 催促消息仍是英文。细节见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
+CI 通知另算（`monitor.ts` 的 `ciNoticeText`，不在上表里）：在 `ci` 步发到原讨论，只带链接和 job 名，不带日志。文字跟配置项 `language`：`zh` 发中文，其他发英文。种类：`ci_passed`（CI 通过）、`ci_failed`（第几轮失败，附没过的 job）、`ci_rounds_exhausted`（修满轮数仍未通过）、`ci_no_pipeline`（没拿到 CI 结果：没触发或等超时）。同一次定案只发一次。发给主 bot 和 Git Pipeline bot 的 CI 催促消息仍是英文。细节见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 
 ### 4.7 手工停止
 

@@ -1,7 +1,7 @@
 # 自动修复 Bot：开工方案
 
 - 日期：2026-11-11
-- 前提：方案和选型依据见 [decision-record.zh.md](decision-record.zh.md)。
+- 前提：方案和选型依据见 [decision-record.md](decision-record.md)。
 - 状态：本文的文件清单、函数签名和行号来自阅读 DS Bot 0.3.1 源码（`~/Documents/mywork/ds-bot/upstream/DS-Bot-0.3.1`），没有运行过。第 9 节列出需要运行确认的项。
 - 2026-11-12 注：本文已是历史文档，记录开工前的计划。之后代码改成了 TypeScript，bot 层放在 `bot/`，结构和本文不同；现状以 software-spec 和 spec-1 至 spec-6 为准。第 6 节的容器镜像还没做，仍可当部署待办看。
 
@@ -128,7 +128,7 @@
 ### 5.4 步骤把关
 
 - 步骤写在任务上，只有 `推进步骤` 这个工具能改。
-- 每一步有完成条件，由代码检查：有摘要才能进入建单；有 Jira 单号才能进入备代码；代码目录里有改动并且记有“审查通过”才能进入开 MR；有 MR 链接才能进入回写。完整的步骤表见 [software-spec.zh.md](software-spec.zh.md) 5.2 节。
+- 每一步有完成条件，由代码检查：有摘要才能进入建单；有 Jira 单号才能进入备代码；代码目录里有改动并且记有“审查通过”才能进入开 MR；有 MR 链接才能进入回写。完整的步骤表见 [software-spec.md](software-spec.md) 5.2 节。
 - “待补充信息”需要任务上同时记有主 bot 和coding bot 的确认。
 
 ### 5.5 各 bot 的专属工具
@@ -137,7 +137,7 @@
 - 工具是进程内函数，令牌由工具从配置里读取，不出现在任何 bot 的对话或环境里。
 - coding bot 走 Claude Code 线路时只能拿到团队工具（local-agents/index.js:96–100），这符合“coding bot 只调用 Claude Code”。
 
-工具清单的逐项评估见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节。
+工具清单的逐项评估见 [tools-and-limits.md](tools-and-limits.md) 第 2 节。
 
 ### 5.6 提示词
 
@@ -181,7 +181,7 @@
 | 第 4 天 | 接上同事的 Slack 事件和 Jira 接口；收尾和重启恢复；跑 5 到 10 张历史工单，改提示词 | 真实的 @ 能走完全程；重启后任务能接续或明确失败 |
 | 第 5 天 | 部署到公司机器，只开一个频道和一个仓库，观察 | 第一个真实任务产出 MR |
 
-Slack、Jira、GitLab 三边先用假响应，因为同事还没有给接入方案。第 4、5 天里接真实接口的部分，以方案到达为前提；方案没到时，这两天继续在假响应下跑历史工单和调提示词。工作包的并行拆解见 [implementation-guide.zh.md](implementation-guide.zh.md)。
+Slack、Jira、GitLab 三边先用假响应，因为同事还没有给接入方案。第 4、5 天里接真实接口的部分，以方案到达为前提；方案没到时，这两天继续在假响应下跑历史工单和调提示词。工作包的并行拆解见 [implementation-guide.md](implementation-guide.md)。
 
 第 2 天的做法是先全量拷入再逐个删除。最终留下的文件与第 2 节一致，区别是每一步都有测试对照。DS Bot 的集成测试依赖完整的模块列表和网页接口，直接挑文件搬的话这些测试用不上。
 
@@ -194,12 +194,12 @@ Slack、Jira、GitLab 三边先用假响应，因为同事还没有给接入方�
 
 | 事项 | 状态 |
 |---|---|
-| 和负责 Slack 的同事约定事件接口：谁把 @ 事件转给看门狗，字段有哪些，Slack 和 Jira 的 API 调用由谁封装 | 问题已整理在 [questions-for-colleagues.zh.md](questions-for-colleagues.zh.md)，由用户去问 |
+| 和负责 Slack 的同事约定事件接口：谁把 @ 事件转给看门狗，字段有哪些，Slack 和 Jira 的 API 调用由谁封装 | 问题已整理在 [questions-for-colleagues.md](questions-for-colleagues.md)，由用户去问 |
 | 试点用哪个频道和哪个仓库 | 同上 |
 | 部署机器 | 试用阶段用用户的这台 Mac；正式机器性能更好，另行安排（用户，2026-11-11） |
 | Claude Code 的版本 | 演示阶段用本机已安装的版本；部署到公司机器时锁定 |
-| 工具清单 | 评估见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节，当前基线 |
-| 运行上限 | 初值见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节，当前基线，跑过历史工单后校准；含一个手工停止任务的入口 |
+| 工具清单 | 评估见 [tools-and-limits.md](tools-and-limits.md) 第 2 节，当前基线 |
+| 运行上限 | 初值见 [tools-and-limits.md](tools-and-limits.md) 第 4 节，当前基线，跑过历史工单后校准；含一个手工停止任务的入口 |
 
 ## 9. 需要运行确认的项
 

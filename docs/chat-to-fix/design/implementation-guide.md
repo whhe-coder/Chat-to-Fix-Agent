@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 用途：把实现拆成可以并行开工的工作包。每个包写明目标、拥有的文件、依赖、要做的事、代码参考和完成标准。
-- 前提：软件是什么见 [software-spec.zh.md](software-spec.zh.md)；工具和上限见 [tools-and-limits.zh.md](tools-and-limits.zh.md)。
+- 前提：软件是什么见 [software-spec.md](software-spec.md)；工具和上限见 [tools-and-limits.md](tools-and-limits.md)。
 - 状态：初稿。包的划分和接口约定是提案；下一步是给每个子架构写详细的规格和实现清单。
 - 2026-11-12 注：本文已是历史文档，记录最初的工作包划分。包名和接口名（C0、B7、I5 等）仍出现在代码注释里，可以拿本文对照。第 2 节的语言（JavaScript）、目录和 `docker/` 已和代码不符；现状以 software-spec 和 spec-1 至 spec-6 为准。还没做的包：E2 历史问题评测、F1 镜像。
 - 代码参考的行号于 2026-11-11 对照源码逐个核实。
@@ -15,8 +15,8 @@
 | `DSH:` | DeepSeek Harness，提交 `fcc0ad46` | `github.com/deepseek-ai/deepseek-harness` |
 | `SA:` | dsh-superagent，提交 `8c32a9d` | `github.com/deepseek-ai/dsh-superagent` |
 | `CC:` | Claude Code 命令行参考 | `code.claude.com/docs/en/cli-reference` |
-| `规格` | 本目录的 software-spec.zh.md | 章节号 |
-| `工具` | 本目录的 tools-and-limits.zh.md | 章节号 |
+| `规格` | 本目录的 software-spec.md | 章节号 |
+| `工具` | 本目录的 tools-and-limits.md | 章节号 |
 
 例：`DSB:src/host/roster.js:140` 指 DS Bot 插件里 roster.js 的第 140 行。
 
@@ -508,7 +508,7 @@ steps: [{ no, name, roles, evidence, writeTools }]
 
 - **目标**：`slack_read_thread`、`slack_reply`，以及它们背后的适配器。
 - **拥有的文件**：`src/tools/slack.js`、`src/adapters/slack.js`。
-- **代码参考**：工具 2.3；[questions-for-colleagues.zh.md](questions-for-colleagues.zh.md) 消息一（接口还没约定）。
+- **代码参考**：工具 2.3；[questions-for-colleagues.md](questions-for-colleagues.md) 消息一（接口还没约定）。
 - **完成标准**：对着假适配器通过；每种用途在一个任务里只发一次。
 
 ### C3 Jira 适配器和工具
@@ -644,7 +644,7 @@ steps: [{ no, name, roles, evidence, writeTools }]
 
 - **目标**：同事给出接入方案后，把三个假适配器换成真的。
 - **拥有的文件**：`src/adapters/slack.js`、`jira.js`、`repo.js` 里的真实实现。
-- **依赖**：[questions-for-colleagues.zh.md](questions-for-colleagues.zh.md) 里的问题有了答复。
+- **依赖**：[questions-for-colleagues.md](questions-for-colleagues.md) 里的问题有了答复。
 - **代码参考**：接口 I5；`~/Documents/ChatGPT/ba-fix-bot/research/phase-1/README.md`（现有流程用的 GitLab 项目、分支命名和 Jira 规则）。
 - **完成标准**：换成真实适配器后，E1 的四个场景不改测试就能通过；一次真实的 @ 走完全程。
 
@@ -661,12 +661,12 @@ steps: [{ no, name, roles, evidence, writeTools }]
 
 | 序 | 细分规格 | 文件 | 覆盖的包 |
 |---|---|---|---|
-| 1 | 注册表和流程层 | [spec-1-registry-and-flow.zh.md](spec-1-registry-and-flow.zh.md) | D0、B3、C1 |
-| 2 | 状态和存储 | [spec-2-state-and-storage.zh.md](spec-2-state-and-storage.zh.md) | B1、B6 |
-| 3 | 看门狗 | [spec-3-watchdog.zh.md](spec-3-watchdog.zh.md) | B2、B4、B5、B7 |
-| 4 | 工具和适配器 | [spec-4-tools-and-adapters.zh.md](spec-4-tools-and-adapters.zh.md) | C0、C2、C3、C4、C5、E1 |
-| 5 | bot 层搬运 | [spec-5-bot-layer.zh.md](spec-5-bot-layer.zh.md) | A1、A2、A3、A4a–d、A5 |
-| 6 | 配置、提示词、验证 | [spec-6-config-prompts-verification.zh.md](spec-6-config-prompts-verification.zh.md) | D1、D2、D3、E2、R1、F1 |
+| 1 | 注册表和流程层 | [spec-1-registry-and-flow.md](spec-1-registry-and-flow.md) | D0、B3、C1 |
+| 2 | 状态和存储 | [spec-2-state-and-storage.md](spec-2-state-and-storage.md) | B1、B6 |
+| 3 | 看门狗 | [spec-3-watchdog.md](spec-3-watchdog.md) | B2、B4、B5、B7 |
+| 4 | 工具和适配器 | [spec-4-tools-and-adapters.md](spec-4-tools-and-adapters.md) | C0、C2、C3、C4、C5、E1 |
+| 5 | bot 层搬运 | [spec-5-bot-layer.md](spec-5-bot-layer.md) | A1、A2、A3、A4a–d、A5 |
+| 6 | 配置、提示词、验证 | [spec-6-config-prompts-verification.md](spec-6-config-prompts-verification.md) | D1、D2、D3、E2、R1、F1 |
 
 P0 的接口约定由这六份规格里的“接口”一节汇总而成。V0 是一次验证，不单独写规格。
 

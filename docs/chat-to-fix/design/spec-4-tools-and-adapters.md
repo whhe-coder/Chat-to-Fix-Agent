@@ -2,11 +2,11 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：C0（工具注册框架）、C2（Slack）、C3（Jira）、C4（代码仓库）、C5（`request_code`）、E1（假适配器和端到端测试台）、R1（真实适配器和 Slack 转发器）。
-- 上位文档：[tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节；[software-spec.zh.md](software-spec.zh.md) 5.6、7.5。
+- 上位文档：[tools-and-limits.md](tools-and-limits.md) 第 2 节；[software-spec.md](software-spec.md) 5.6、7.5。
 - 角色标识、步骤、放行规则见规格 1；任务字段见规格 2；bot 层门面见规格 5。任务工具（`task_read` 等六个）在规格 1 第 5 节。加上本规格的十六个工具（含 CI 的三个），注册表里共定义 22 个工具。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 - 2026-11-12 起入口改为 Slack 斜杠命令 `/fix`（设计已定，实现中，代码还没提交）：见第 2.2 节的 `startThread` 和第 4.9 节。
-- CI 修复循环（流程第 6 步 `ci`，由 Git Pipeline bot 负责）的细节在 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)；本文只写它在工具和适配器上的部分（4.5、4.7、4.9）。
+- CI 修复循环（流程第 6 步 `ci`，由 Git Pipeline bot 负责）的细节在 [spec-7-ci-loop.md](spec-7-ci-loop.md)；本文只写它在工具和适配器上的部分（4.5、4.7、4.9）。
 
 ## 1. 范围
 

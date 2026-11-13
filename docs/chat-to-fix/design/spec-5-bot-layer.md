@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：A1（全量拷入和基线测试）、A2（入口、安装顺序、门面）、A3（补位文件）、A4a 至 A4d（裁剪）、A5（Claude Code 驱动修正）。
-- 上位文档：[kickoff-plan.zh.md](kickoff-plan.zh.md) 第 2、3、4 节；[software-spec.zh.md](software-spec.zh.md) 5.5、6.5。
+- 上位文档：[kickoff-plan.md](kickoff-plan.md) 第 2、3、4 节；[software-spec.md](software-spec.md) 5.5、6.5。
 - 角色标识见规格 1；记录器、看门狗、工具对门面的用法见规格 2、3、4。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 - 用量和费用：门面有 `onUsage`（`src/task/botlayer.ts`）。API bot 的用量由门面每轮读 DSH 自己的会话统计，两次读数之差就是这一轮；Coding bot 的由适配器的 `reportUsage` 经 `index.ts` 交给门面的 `reportEngineUsage`，每个模型一条（审查子 agent 的模型单独一条），费用取命令行报的 `costUSD`。记账见 `src/task/usage.ts`、`pricing.ts`。
@@ -62,7 +62,7 @@ bot 层自己的状态文件、bot 记录、群记录、转交记录的形状都
 
 ### 4.1 搬哪些文件（A1）
 
-A1 先把 DS Bot 的 `src/host/` 和 `src/shared/` 全部拷入工程，连同测试和夹具，让 DS Bot 自己的测试在新工程里通过。拷贝没有放在 `src/bot/` 下，而是独立的目录 `bot/`（`bot/src/host`、`bot/src/shared`、`bot/test`），DS Bot 的模块就在那里原地修改。`src/bot/` 里只有 `index.ts`（入口）和 `stubs.ts`（补位）。没用到的文件随后从 `bot/` 删掉了（338 个，提交 3963783；数量和测试情况见 `rewrite/INVENTORY.zh.md`）。拷贝的测试脚本是 `test:bot`：删除前 1828 项，删除后 136 项（134 过，2 跳过；少掉的是随模块一起删掉的测试）。
+A1 先把 DS Bot 的 `src/host/` 和 `src/shared/` 全部拷入工程，连同测试和夹具，让 DS Bot 自己的测试在新工程里通过。拷贝没有放在 `src/bot/` 下，而是独立的目录 `bot/`（`bot/src/host`、`bot/src/shared`、`bot/test`），DS Bot 的模块就在那里原地修改。`src/bot/` 里只有 `index.ts`（入口）和 `stubs.ts`（补位）。没用到的文件随后从 `bot/` 删掉了（338 个，提交 3963783；数量和测试情况见 `rewrite/INVENTORY.md`）。拷贝的测试脚本是 `test:bot`：删除前 1828 项，删除后 136 项（134 过，2 跳过；少掉的是随模块一起删掉的测试）。
 
 最终留下的文件：
 
@@ -301,7 +301,7 @@ A4a 至 A4d：
 - [ ] `roster.ts`：预设可指定、自动建 Chief 已去掉；头像、私密 bot、浏览器授权、复制没有去掉（4.6）。
 - [ ] `parts.ts`：调用点走补位已做；四个界面函数没有去掉（4.7）。
 - [x] 删掉不搬的文件（338 个）；改提示词文字。`btw` 和 `schedules` 留下（4.4）。
-- [x] 删除之后测试通过；随模块一起删掉的测试见 `rewrite/INVENTORY.zh.md`。
+- [x] 删除之后测试通过；随模块一起删掉的测试见 `rewrite/INVENTORY.md`。
 
 A5：
 

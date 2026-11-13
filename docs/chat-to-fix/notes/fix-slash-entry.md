@@ -157,7 +157,7 @@
 | `src/config.ts` | 可选：`slack.slashCommand`（默认 `/fix`）。选 4.3 的第 2 种时，绑定多一个 `alias` | 0～20 行 |
 | `scripts/fake-event.ts` | 加 `--slash` 模式，没有真 Slack 时也能走一遍 | 约 20 行 |
 | 测试 | `test/slack-forwarder.test.ts`：载荷转换、确认先于处理、各种状态码对应的临时消息、空正文。`test/http.test.ts`：去重、并发重试只发一条开头消息、没绑定或队列满时不往频道发、发不出时回 502、受理后 `findByThread` 能找到。`test/adapters-slack.test.ts`：`startThread` 的真实和假实现 | 约 12～15 个用例 |
-| 文档 | `software-spec.zh.md` 7.1 监听口、`spec-4` 的 Slack 适配器和权限、`README.zh.md` 入口说明 | 半小时到 1 小时 |
+| 文档 | `software-spec.md` 7.1 监听口、`spec-4` 的 Slack 适配器和权限、`README.md` 入口说明 | 半小时到 1 小时 |
 
 合计：本机加模拟测试约 1～1.5 天。拿到真 Bot token、注册好 `/fix` 后，在真 Slack 上验证约半天（主要是确认载荷字段、在私有频道和 Bot 不在的频道里的表现、`response_url` 的实际效果）。
 

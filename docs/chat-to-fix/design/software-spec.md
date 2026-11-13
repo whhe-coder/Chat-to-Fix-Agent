@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 本文讲清楚这个软件是什么、由哪些部分组成、一个任务怎么从头走到尾、各部分的边界和规格。
-- 相关文档：选型和依据见 [decision-record.zh.md](decision-record.zh.md)；工具和上限的逐项说明见 [tools-and-limits.zh.md](tools-and-limits.zh.md)；工作包拆解见 [implementation-guide.zh.md](implementation-guide.zh.md)。
+- 相关文档：选型和依据见 [decision-record.md](decision-record.md)；工具和上限的逐项说明见 [tools-and-limits.md](tools-and-limits.md)；工作包拆解见 [implementation-guide.md](implementation-guide.md)。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 
 ## 1. 一句话说明
@@ -178,7 +178,7 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 | 负责 Slack 和 Jira 接入的同事 | Slack 应用、Slack 和 Jira 的访问方式；真实的令牌和权限 |
 | 负责机器的同事 | 正式部署的机器 |
 
-和同事之间的接口还没有约定，问题列在 [questions-for-colleagues.zh.md](questions-for-colleagues.zh.md)。Slack、Jira、GitLab 的真实适配器已经写好（`src/adapters/`），但只对本地桩测过；约定之前默认用假响应。把 @ 事件转给监听口的活，原来留给同事，现在由 `scripts/slack-forwarder.ts` 做：它用 Slack 的 Socket Mode 收 @，再 POST 到 `/events`（没对真 Slack 跑过）。
+和同事之间的接口还没有约定，问题列在 [questions-for-colleagues.md](questions-for-colleagues.md)。Slack、Jira、GitLab 的真实适配器已经写好（`src/adapters/`），但只对本地桩测过；约定之前默认用假响应。把 @ 事件转给监听口的活，原来留给同事，现在由 `scripts/slack-forwarder.ts` 做：它用 Slack 的 Socket Mode 收 @，再 POST 到 `/events`（没对真 Slack 跑过）。
 
 ## 5. 运行流转
 
@@ -223,7 +223,7 @@ stateDiagram-v2
 | 7 | 回写 | Jira bot、Slack bot | `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | Jira 单上已写 MR 链接；“结果”已发出 |
 | 8 | 收尾 | 主 bot | `task_close` | 任务状态为已结束 |
 
-第 6 步（CI）简述：系统在监控里等 MR 当前提交的 pipeline，对第一次失败的 job 自动重跑一次，数修复轮次，往 Slack 发进度；某一轮失败就叫醒 Git Pipeline bot，它读失败日志、写摘要、直接叫 coding bot 修（只有这一步 bot 之间不经主 bot），审查通过后用 `mr_push_fix` 追加一个修复提交并普通推送；最多 3 轮。定位不了、超出工单范围、修不了或 3 轮后仍未通过，就停下并报告原因。CI 没过 MR 照样交付，任务仍以“完成”结束，结束原因带 CI 结论（`completed_ci_failed`、`completed_ci_stopped`、`completed_no_ci`）。细节见 [spec-7-ci-loop.zh.md](spec-7-ci-loop.zh.md)。
+第 6 步（CI）简述：系统在监控里等 MR 当前提交的 pipeline，对第一次失败的 job 自动重跑一次，数修复轮次，往 Slack 发进度；某一轮失败就叫醒 Git Pipeline bot，它读失败日志、写摘要、直接叫 coding bot 修（只有这一步 bot 之间不经主 bot），审查通过后用 `mr_push_fix` 追加一个修复提交并普通推送；最多 3 轮。定位不了、超出工单范围、修不了或 3 轮后仍未通过，就停下并报告原因。CI 没过 MR 照样交付，任务仍以“完成”结束，结束原因带 CI 结论（`completed_ci_failed`、`completed_ci_stopped`、`completed_no_ci`）。细节见 [spec-7-ci-loop.md](spec-7-ci-loop.md)。
 
 主 bot 用 `task_advance` 从一步进到下一步。证据不满足时，`task_advance` 返回缺什么，任务停在原步骤。
 
@@ -338,7 +338,7 @@ sequenceDiagram
 | 出现审批请求 | 监控 | 一律拒绝，并写进执行记录 |
 | 模型或网络瞬时失败 | bot 层 | 重试 3 次 |
 
-任务由系统结束（超时、失败、过期、队列已满）时，系统直接在原讨论里发一条说明，不经过 bot。数值见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节。
+任务由系统结束（超时、失败、过期、队列已满）时，系统直接在原讨论里发一条说明，不经过 bot。数值见 [tools-and-limits.md](tools-and-limits.md) 第 4 节。
 
 ### 5.9 启动和解散
 
@@ -456,7 +456,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 输出 | 新任务进入队列；或一个结果码，由转发程序用 `response_url` 给发起人发中文临时消息（`/fix`），或一条讨论串里的说明（@） |
 | 形式 | 一个只供内部调用的 HTTP 端口 |
 
-`/fix` 入口的设计已定、正在实现（代码还没提交），细节见 [spec-4-tools-and-adapters.zh.md](spec-4-tools-and-adapters.zh.md) 第 4.9 节和 decision-record 第 2.11 节第 5 条。命令名可配置（`slack.slashCommand`，默认 `/fix`）；命令正文为空或在和 bot 的私信里用时，转发程序直接回用法说明，第一版不支持私信。字段还要和负责 Slack 的同事确认。没有真 Slack 时，事件用 `scripts/fake-event.ts` 模拟；真 Slack 的事件由 `scripts/slack-forwarder.ts` 转进来（见 4.4）。
+`/fix` 入口的设计已定、正在实现（代码还没提交），细节见 [spec-4-tools-and-adapters.md](spec-4-tools-and-adapters.md) 第 4.9 节和 decision-record 第 2.11 节第 5 条。命令名可配置（`slack.slashCommand`，默认 `/fix`）；命令正文为空或在和 bot 的私信里用时，转发程序直接回用法说明，第一版不支持私信。字段还要和负责 Slack 的同事确认。没有真 Slack 时，事件用 `scripts/fake-event.ts` 模拟；真 Slack 的事件由 `scripts/slack-forwarder.ts` 转进来（见 4.4）。
 
 ### 7.2 队列
 
@@ -492,7 +492,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 令牌 | 从配置读取，只在工具内部使用 |
 | 参数 | 讨论、Jira 单、分支、代码目录都从任务里取，bot 不填 |
 | 重复调用 | 写工具返回已有结果，不重复建 |
-| 清单 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 2 节；192a721 起加了 `ci_read_log`、`mr_push_fix`、`ci_stop`，共 22 个（tools-and-limits 是否已更新未核对） |
+| 清单 | [tools-and-limits.md](tools-and-limits.md) 第 2 节；192a721 起加了 `ci_read_log`、`mr_push_fix`、`ci_stop`，共 22 个（tools-and-limits 是否已更新未核对） |
 
 ### 7.6 记录器
 
@@ -508,7 +508,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 |---|---|
 | 检查 | 各项时限、群是否安静、群是否因空转被暂停、Claude Code 是否有输出、审批事件；MR 的 pipeline（第 6 步，每 `ciPollSeconds` 秒一次，规格 7 第 4.4 节） |
 | 动作 | 催主 bot；中断 Claude Code；停止整群；结束任务；拒绝审批；重跑失败的 job、通知 Git Pipeline bot 或主 bot、往 Slack 发 CI 进度 |
-| 数值 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节，全部是配置项 |
+| 数值 | [tools-and-limits.md](tools-and-limits.md) 第 4 节，全部是配置项 |
 
 ### 7.8 控制接口
 
@@ -552,7 +552,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | 群公告 | 步骤顺序和协作规范 |
 | 频道绑定 | 每个频道对应的仓库、默认分支、Jira 项目、单的类型和标签；本地仓库路径（`localRepo`）和远端（`remote`）；测试命令 `testCommands`（coding bot 可以运行的命令）；准备命令 `setupCommands`（本意是新建代码目录后运行一次；现在只做校验，没有地方运行它们：未实现） |
 | 适配器 | Slack、Jira、GitLab 各自用假的还是真的实现 |
-| 上限 | [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节的全部数值；另有 `limits.ci*` 和 `stepMinutes.ci`（规格 6） |
+| 上限 | [tools-and-limits.md](tools-and-limits.md) 第 4 节的全部数值；另有 `limits.ci*` 和 `stepMinutes.ci`（规格 6） |
 | 价格表 | 可选 `pricing`，美元每百万 token，覆盖 `src/task/pricing.ts` 的默认价（规格 6） |
 | coding bot 模型和强度 | `codingModel`、`codingEffort`（`--effort`，默认 `high`） |
 | 并发 | 同时运行的任务数 |
@@ -593,4 +593,4 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 ## 11. 运行上限
 
-数值和依据见 [tools-and-limits.zh.md](tools-and-limits.zh.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟（CI 步骤 30 分钟，等 pipeline 的时间另算：单个提交 30 分钟、合计 90 分钟、最多 3 个修复提交）；coding bot 内部最多三轮修改和审查（只是提示词里的要求，代码不强制，见 5.5）；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。
+数值和依据见 [tools-and-limits.md](tools-and-limits.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟（CI 步骤 30 分钟，等 pipeline 的时间另算：单个提交 30 分钟、合计 90 分钟、最多 3 个修复提交）；coding bot 内部最多三轮修改和审查（只是提示词里的要求，代码不强制，见 5.5）；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。

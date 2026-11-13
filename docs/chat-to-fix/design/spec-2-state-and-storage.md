@@ -2,8 +2,8 @@
 
 - 日期：2026-11-11
 - 覆盖的工作包：B1（任务库）、B6（记录器）。
-- 上位文档：[software-spec.zh.md](software-spec.zh.md) 3.2、3.4、7.6、8.1。
-- 角色标识、步骤标识见 [spec-1-registry-and-flow.zh.md](spec-1-registry-and-flow.zh.md)。
+- 上位文档：[software-spec.md](software-spec.md) 3.2、3.4、7.6、8.1。
+- 角色标识、步骤标识见 [spec-1-registry-and-flow.md](spec-1-registry-and-flow.md)。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
 
 ## 1. 范围

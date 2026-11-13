@@ -2,7 +2,7 @@
 
 - 日期：2026-11-13
 - 状态：已实现并通过本地验证。
-- 关联规格：[流程与门禁](spec-1-registry-and-flow.zh.md)、[任务状态](spec-2-state-and-storage.zh.md)、[Jira 工具](spec-4-tools-and-adapters.zh.md)。
+- 关联规格：[流程与门禁](spec-1-registry-and-flow.md)、[任务状态](spec-2-state-and-storage.md)、[Jira 工具](spec-4-tools-and-adapters.md)。
 
 ## 当前问题
 

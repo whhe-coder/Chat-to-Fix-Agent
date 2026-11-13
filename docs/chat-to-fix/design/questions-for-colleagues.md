@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 用途：下面两段可以直接发出去。消息一给负责 Slack 和 Jira 接入的同事；消息二给决定试点范围和 GitLab 权限的同事。
-- 这些答案从开工第 3 天起要用（见 [kickoff-plan.zh.md](kickoff-plan.zh.md) 第 7 节）。
+- 这些答案从开工第 3 天起要用（见 [kickoff-plan.md](kickoff-plan.md) 第 7 节）。
 - 2026-11-12 注：真实的 Slack、Jira、GitLab 适配器和一个 Slack Socket Mode 转发程序已经按公开 API 写好（见 spec-4），没有等这些答案。这些问题仍可用来和同事核对接法和权限。
 
 ## 消息一：给负责 Slack 和 Jira 接入的同事
