@@ -21,7 +21,7 @@
 import { join } from 'node:path'
 import { AdapterError } from './errors.ts'
 import { fakeRoot, readJson, updateJson } from './fake/files.ts'
-import { COMMIT_MESSAGE_MAX, commitMessageFromTitle, createGit, isCommitMessageOptionallyKeyed as isCommitMessage } from './git.ts'
+import { COMMIT_MESSAGE_MAX, commitMessageFromTitle, createGit, isCommitMessageWithOptionalKey as isCommitMessage } from './git.ts'
 import { createFakeCi } from './fake/ci.ts'
 import { createRealGitlab } from './gitlab-http.ts'
 
@@ -79,7 +79,7 @@ export function createRepoAdapter(config, options: any = {}) {
       if (!isText(title)) throw new AdapterError('bad_title', 'the MR title is missing')
       const message = isText(commitMessage) ? commitMessage.trim() : commitMessageFromTitle(title)
       if (!isCommitMessage(message)) {
-        throw new AdapterError('bad_message', `the commit message must be one line "type(scope)?: summary" of at most ${COMMIT_MESSAGE_MAX} characters`)
+        throw new AdapterError('bad_message', `the commit message must be one line "type(scope)?: summary", optionally with " (KEY-1)" at the end, of at most ${COMMIT_MESSAGE_MAX} characters`)
       }
       const { branch: current } = await git.head(dir)
       if (current !== branch) throw new AdapterError('wrong_branch', `the directory is on ${current}, not on ${branch}`)
@@ -104,7 +104,7 @@ export function createRepoAdapter(config, options: any = {}) {
     async pushFix(binding, dir, branch, { message }: any = {}) {
       const b = complete(binding)
       if (!isCommitMessage(message)) {
-        throw new AdapterError('bad_message', `the commit message must be one line "type(scope)?: summary" of at most ${COMMIT_MESSAGE_MAX} characters`)
+        throw new AdapterError('bad_message', `the commit message must be one line "type(scope)?: summary", optionally with " (KEY-1)" at the end, of at most ${COMMIT_MESSAGE_MAX} characters`)
       }
       const { branch: current } = await git.head(dir)
       if (current !== branch) throw new AdapterError('wrong_branch', `the directory is on ${current}, not on ${branch}`)

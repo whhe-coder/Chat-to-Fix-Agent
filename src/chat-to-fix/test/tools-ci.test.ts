@@ -157,8 +157,8 @@ test('mr_push_fix: success appends one fix commit, starts a fresh pending ci for
   await failed(r)
   await pass(r)
   const text = await r.call('pipeline', 'mr_push_fix', PUSH)
-  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: DEMO-1: fix\(lint\): remove the unused import/)
-  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'DEMO-1: fix(lint): remove the unused import' }])
+  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: fix\(lint\): remove the unused import \(DEMO-1\)/)
+  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'fix(lint): remove the unused import (DEMO-1)' }])
   const after = await r.now()
   assert.equal(after.ci.status, 'pending')
   assert.equal(after.ci.sha, 'sha-fix-1')
@@ -239,7 +239,7 @@ test('mr_push_fix: commit_message must be one Conventional Commit line, like mr_
   await failed(r)
   await pass(r)
   for (const bad of ['fix: a\n\nbody', 'bugfix: a', 'fix:a', 'fix: ', 'just a sentence', `fix: ${'x'.repeat(96)}`]) {
-    assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: bad }), /^tool failed: commit_message must/, JSON.stringify(bad))
+    assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: bad }), /^tool failed: commit_message (must|is too long)/, JSON.stringify(bad))
   }
   assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: '   ' }), /^tool failed: commit_message must not be empty/)
   assert.match(await r.call('pipeline', 'mr_push_fix', {}), /missing required argument commit_message/)
@@ -247,12 +247,16 @@ test('mr_push_fix: commit_message must be one Conventional Commit line, like mr_
   assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: 'refactor(core/api)!: drop v1' }), /Pushed the fix/)
 })
 
-test('mr_push_fix: the Jira key is put in front of the fix commit, not doubled, and a task without a key is refused', async () => {
+test('mr_push_fix: the Jira key is put at the end of the fix commit once, other keys and long lines are refused, a task without a key is refused', async () => {
   const r = await rig()
   await failed(r)
   await pass(r)
-  await r.call('pipeline', 'mr_push_fix', { commit_message: 'DEMO-1: fix(lint): remove the unused import' })
-  assert.equal(r.of('pushFix')[0].args[3].message, 'DEMO-1: fix(lint): remove the unused import')
+  assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): x (OTHER-2)' }), /^tool failed: .*another Jira key \(OTHER-2\)/)
+  const max = 100 - ' (DEMO-1)'.length
+  assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: `fix: ${'x'.repeat(max)}` }), new RegExp(`^tool failed: .*at most ${max} characters`))
+  assert.equal(r.of('pushFix').length, 0)
+  await r.call('pipeline', 'mr_push_fix', { commit_message: 'DEMO-1: fix(lint): remove the unused import' }) // old format: prefix stripped
+  assert.equal(r.of('pushFix')[0].args[3].message, 'fix(lint): remove the unused import (DEMO-1)')
   const r2 = await rig()
   await failed(r2)
   await pass(r2)

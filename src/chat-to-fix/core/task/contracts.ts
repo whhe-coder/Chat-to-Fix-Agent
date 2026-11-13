@@ -155,7 +155,7 @@ export function newCi(sha: string, at: string, carry: { round?: number, waitedMs
  *
  *   ci_read_log   pipeline  read   any step   job (name or id; must be in task.ci.failedJobs). Returns the log tail
  *                                              (limits.ciLogMaxChars) marked as material; sets ci.logRead = true.
- *   mr_push_fix   pipeline  write  ci         commit_message (one-line Conventional Commit, checkCommitMessage; the tool puts the Jira key in front).
+ *   mr_push_fix   pipeline  write  ci         commit_message (one-line Conventional Commit, checkCommitMessage; the tool puts the Jira key at the end in parentheses).
  *                                              Refuses unless ci.status == failed and ci.round < ciMaxRounds; extra evidence
  *                                              review.verdict == pass and diff.withinLimits. On success writes
  *                                              ci = newCi(newSha, now, {round: round + 1, waitedMs}) and mr.sha. A rejected

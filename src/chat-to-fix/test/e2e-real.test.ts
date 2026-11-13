@@ -36,8 +36,8 @@ function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = case
   const root = temp('e2e-sim-')
   const repo = createCaseRepo({ dir: join(root, 'repos'), files: caseDef.repoFiles })
   const branch = `ai/${key}`
-  // the company push rule: every commit message starts with the Jira key (keyed: false builds the old, key-less form)
-  const msg = (m: string) => (keyed ? `${key}: ${m}` : m)
+  // push rule + commitlint: every commit message ends with the Jira key in parentheses (keyed: false builds the key-less form)
+  const msg = (m: string) => (keyed ? `${m} (${key})` : m)
   const worktree = join(root, 'chat-to-fix', 'worktrees', 'T-1')
   gitIn(['worktree', 'add', '-q', '-b', branch, worktree, 'master'], repo.localRepo)
   writeTree(worktree, files)
@@ -413,9 +413,11 @@ test('checks: a change outside the allowed files, two commits and a prose commit
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { commits: 2 }))), ['one_commit', 'changed_files_allowed'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'Fixed the typo.' }))), ['commit_message'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'fix: x\n\nlong body here' }))), ['commit_message'])
-  // the Jira key of the task must be in front of every commit (company push rule): none, or another issue's, fails
+  // the Jira key of the task must be at the end of every commit (push rule + commitlint): none, another issue's, a key in front, or a line over 100 characters fails
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { keyed: false }))), ['commit_message'])
-  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `OTHER-9: fix(e2e): x`, keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `fix(e2e): x (OTHER-9)`, keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `${c.jiraProject}-1: fix(e2e): x`, keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `fix(e2e): ${'x'.repeat(100)}` }))), ['commit_message'])
 })
 
 test('checks: a run that fixed nothing fails the tests, the hidden test and the changed-files check', () => {

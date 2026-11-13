@@ -4,7 +4,7 @@
 // `evidence` holds the results of the commands that were run in copies of it (collectEvidence()). A check
 // returns { ok, detail }; runChecks() adds the id and the Chinese title. A missing piece of the context makes the
 // check fail with a reason, it never throws.
-import { isCommitMessage } from '../../core/adapters/git.ts'
+import { COMMIT_MESSAGE_MAX, isCommitMessage } from '../../core/adapters/git.ts'
 import { isAllowedFile } from './cases.ts'
 
 export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> ci', 'ci -> writeback', 'writeback -> close']
@@ -130,17 +130,17 @@ export const CHECKS = [
     },
   },
   {
-    id: 'commit_message', title: '每个提交信息都是一行 `<Jira 单号>: <Conventional Commit>`',
+    id: 'commit_message', title: '每个提交信息都是一行 `<Conventional Commit> (<Jira 单号>)`',
     run: (ctx) => {
       const w = needWs(ctx)
       if (w) return w
       if (ctx.ws.commits.length === 0) return fail('no commit')
-      // Company push rule: every commit starts with the task's Jira key, then one Conventional Commit line, no body.
+      // Push rule + commitlint: every commit is one Conventional Commit line with the task's Jira key at the end, whole line at most 100 characters, no body.
       const key = ctx.task?.jira?.key
       if (!key) return fail('the task has no Jira key, so the key in the commit messages cannot be checked')
-      const prefix = `${key}: `
-      const bad = ctx.ws.commits.filter((c) => !(typeof c.subject === 'string' && c.subject.startsWith(prefix) && isCommitMessage(c.subject.slice(prefix.length)) && c.body === ''))
-      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 120)}"${c.body ? ' (has a body)' : ''} (want "${key}: type(scope): summary")`).join(' | '))
+      const suffix = ` (${key})`
+      const bad = ctx.ws.commits.filter((c) => !(typeof c.subject === 'string' && c.subject.endsWith(suffix) && isCommitMessage(c.subject.slice(0, -suffix.length)) && c.subject.length <= COMMIT_MESSAGE_MAX && c.body === ''))
+      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 120)}"${c.body ? ' (has a body)' : ''} (want "type(scope): summary (${key})", at most ${COMMIT_MESSAGE_MAX} characters)`).join(' | '))
     },
   },
   {
