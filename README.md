@@ -6,7 +6,7 @@ Chat-to-Fix Agent 以指定频道的 `/fix` 命令为入口。Slack Bot 接收�
 
 ## 当前状态
 
-截至 2026-11-13，Slack 应用的 Bot scopes 为 `commands`、`chat:write`、`users:read`、`users:read.email`；消息事件已关闭。`/fix` 命令已创建，指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。本机模拟 Slack 频道已可把 `/fix` 和配置的发起人邮箱转发给 Agent，并显示其发件箱回复。真实 Slack Bot 的 `/fix` 处理和发件箱转发已实现（`npm run start:slack`），尚未连接真实 Slack；真实 Bot 的发起人邮箱读取尚未实现。旧私信入口只保留本机模拟（`npm run start:mock-dm`）。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但真实三方链路尚未验收。根目录的 `package.json` 统一管理 Agent 的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量。早期本地 Node.js 服务曾验证 Jira 工单和评论写入，现已删除；Agent 的真实 GitLab 写入尚未验证。下文描述目标流程，不代表功能已经上线。
+截至 2026-11-13，Slack 应用的 Bot scopes 为 `commands`、`chat:write`、`users:read`、`users:read.email`；消息事件已关闭。`/fix` 命令已创建，指定频道尚未配置。工作区及组织安装申请仍显示待审批，Bot OAuth token 尚未取得。本机模拟 Slack 频道已可把 `/fix` 和配置的发起人邮箱转发给 Agent，并显示其发件箱回复。真实 Slack Bot 的 `/fix` 处理和发件箱转发已实现（`npm run start:slack`），尚未连接真实 Slack；真实 Bot 的发起人邮箱读取尚未实现。旧私信入口只保留本机模拟（`npm run start:mock-dm`）。`src/chat-to-fix/` 已实现 `/fix` 入口和 CI 修复循环，但真实三方链路尚未验收。根目录的 `package.json` 统一管理 Agent 的依赖和命令。可用 [接入脚本](src/chat-to-fix/README.zh.md#接入现有-gitlabjira-slack-配置)复用现有 GitLab、Jira 和 Slack 变量。早期本地 Node.js 服务曾验证 Jira 工单和评论写入，现已删除；独立模拟任务已验证真实 GitLab 分支推送和 Draft MR 创建。T-1 的 MR pipeline 已通过，T-12 则暴露了 Smartcat push pipeline 误判；完整链路需修复后重新验收。下文描述目标流程，不代表功能已经上线。
 
 ## 代码目录
 

@@ -2,7 +2,7 @@
 
 目标工作流的最终指导版本见[从 Jira 到交付：工作流](from-jira-to-ship-workflow.zh.md)。本文记录当前实施路径和验收状态。开发应尽量遵循目标工作流；遇到无法避免的问题时，记录偏离原因、影响和实际做法，再更新本计划。目标工作流不代表当前代码已经具备相应能力。
 
-下列里程碑状态最后核对于 2026-11-12。**当时的当前里程碑是 M0：配置固定频道 `/fix` 入口。**权限调整已完成；命令、频道和审批当时尚未完成。整体功能尚未完成。
+下列里程碑状态最后核对于 2026-11-13。**当前里程碑仍是 M0：配置固定频道 `/fix` 入口。**权限调整和命令注册已完成；指定频道与安装审批仍未完成。整体功能尚未完成。
 
 ## 与目标工作流的待对齐项
 
@@ -44,9 +44,9 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。Chat-to-Fix Agent 
 | M0 固定频道 `/fix` 配置 | 进行中：权限已调整 | Bot scopes 仅有 `commands`、`chat:write`，无消息事件；注册 `/fix`；确定唯一允许的频道 ID；核对安装申请采用新 scopes。真实安装和调用在 M6 验收。 |
 | M1 Bot 与本地 agent 对接 | 本机模拟入口已通过接口验收；真实 Slack Bot 待 M6 | 模拟入口改为 `/fix` 任务输入；将问题正文、发送者和频道标识交给 agent；异步状态可追踪；相同命令不会重复启动任务。 |
 | M2 Jira 工单 | 写入能力已验证，任务联动未开始 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
-| M3 代码修改与 Draft MR | 未开始 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
-| M4 CI 观察与修复 | 模拟 CI 已实现，真实链路未验收 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
-| M5 模拟入口端到端验收 | 未开始 | 从模拟 `/fix` 到 Jira、Draft MR、CI 结果、thread/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
+| M3 代码修改与 Draft MR | 进行中：T-1 已真实推送、创建 Draft MR，并向模拟讨论串和 Jira 回写链接 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
+| M4 CI 观察与修复 | 进行中：T-12 将 Smartcat push pipeline 误判为 MR CI；来源筛选已修复并加载，端到端复测待完成 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
+| M5 模拟入口端到端验收 | 进行中：T-1 完成；T-12 误报 CI 通过，需修复后重新验收 | 从模拟 `/fix` 到 Jira、Draft MR、CI 结果、thread/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
 | M6 真实 Slack 切换与验收 | 待审批 | 工作区安装采用新 scopes 并取得 Bot token；真实 Bot 仅接受指定频道的 `/fix`，其他频道拒绝；验证命令到最终回报的链路。 |
 
 ## 当前里程碑 M0
@@ -80,8 +80,8 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。Chat-to-Fix Agent 
 - M1 已使用本机 HTTP `POST /events` 接收任务、`GET /outbox` 回传消息；模拟 Bot 一侧已通过本机接口测试，真实 Slack Bot 待 M6 接入。
 - 长任务状态与去重记录的存储位置。
 - M2 的 Jira 接口已用个人账号的新 token 验证：真实创建 `Task` 工单、新增并修改自身评论、回读评论，以及在目标 board 查到工单。`Work type` 必填，启动服务时需配置其字段 ID，任务输入需提供合适的值。M2 还需接入 Slack 任务去重、创建失败处理和工单链接回报。正式服务身份仍待确定。见 [Jira 接入记录](../config/jira/README.md)。
-- GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。M3 前仍需在安全的任务分支验证 Git push、Draft MR 创建和标题／描述更新；验证时不能合并 MR，见 [GitLab 接入记录](../config/gitlab/README.md)。
-- Agent 的连接准备脚本复用 `createGitlabConnection()` 做只读检查；任务运行时使用自己的 GitLab 适配器。真实 GitLab 写入链路仍待验证。
+- GitLab 项目 token 已配置，客户端已通过真实只读 MR／CI 验证。模拟任务 T-1 已在安全任务分支验证 Git push 和 Draft MR 创建；标题／描述更新仍待验证。验证 MR 保持 Draft，不合并，见 [GitLab 接入记录](../config/gitlab/README.md)。
+- Agent 的连接准备脚本复用 `createGitlabConnection()` 做只读检查；任务运行时使用自己的 GitLab 适配器。真实分支推送和 Draft MR 创建已验证，CI 修复提交仍待验证。
 - M4 前确认同一 commit 出现多条 pipeline 时如何选择最新一条，并验证失败日志读取、修复 commit 和新 pipeline 的完整循环。
 
 这些事项在对应里程碑开始前确定并验证。真实 Slack 的当前目标是 [固定频道 `/fix` 入口](../spec/slack-fix-command.md)。

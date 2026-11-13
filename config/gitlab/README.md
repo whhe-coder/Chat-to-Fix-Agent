@@ -26,7 +26,7 @@ Agent 执行任务时使用自己的 GitLab 适配器。此前用于验证连接
 
 2026-11-11 已在目标项目创建名为 `chat-to-fix-agent` 的项目 token：角色 `Developer`，scopes 为 `api`、`write_repository`，到期日为 2026-12-11。当前凭据保存位置见 [本地环境变量配置](../local-env/README.md)。
 
-首次保存时遗漏了 token 点号后的后缀，读取验证返回 `401`；随后已修正钥匙串条目。使用修正后的 token，仓库分支、MR 列表、pipeline 列表、jobs 列表及一条 job trace 的只读请求均返回 `200`。尚未尝试 Git push、创建 Draft MR 或修改 MR；这些写入能力仍待对应功能实施时验证。不要把 token 值写入仓库或聊天记录。
+首次保存时遗漏了 token 点号后的后缀，读取验证返回 `401`；随后已修正钥匙串条目。使用修正后的 token，仓库分支、MR 列表、pipeline 列表、jobs 列表及一条 job trace 的只读请求均返回 `200`。2026-11-13，独立模拟任务 T-1 使用该 token 推送 `ai/F2PGBA-407`，创建了 [Draft MR !376](https://gitlab.loc/account-platform/free-to-play-pc/-/merge_requests/376)，并读取到当前提交的 [pipeline 1935838](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1935838)。MR 更新和 CI 修复提交仍待真实验证。不要把 token 值写入仓库或聊天记录。
 
 已删除的过渡服务曾通过一个现有 MR 做只读验证：它能读取主 pipeline、下游 E2E pipeline 和失败 job。即使 pipeline 总状态为 `success`，失败 job 仍会使严格检查状态为 `failed`。详情见 [GitLab MR 客户端规格](../../spec/gitlab-mr-client.md)。
 
@@ -35,7 +35,7 @@ Agent 执行任务时使用自己的 GitLab 适配器。此前用于验证连接
 | 方法 | 用途 | 状态 |
 | --- | --- | --- |
 | 独立服务身份的 SSH 写入密钥 + Git push options | 推任务分支，并在首次 push 时创建 Draft MR。 | 备选方案；尚未配置或验证。 |
-| 项目级 access token，Developer 角色，`api` 与 `write_repository` | 通过 API 创建和修改 Draft MR、读取 CI；通过 Git-over-HTTPS 推送代码。 | 当前选择；token 已创建，客户端 MR 写入方法通过本地测试，真实写入待验证。 |
+| 项目级 access token，Developer 角色，`api` 与 `write_repository` | 通过 API 创建和修改 Draft MR、读取 CI；通过 Git-over-HTTPS 推送代码。 | 当前选择；真实分支推送和 Draft MR 创建已验证，MR 更新与 CI 修复提交待验证。 |
 
 GitLab 的 push options 支持 `merge_request.create`、`merge_request.target=master` 和 `merge_request.draft`。不能仅凭本次只读验证断言当前身份可推送或创建 MR。后续应使用独立服务身份，保留 Draft MR，由团队审查和合并。
 

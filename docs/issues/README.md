@@ -4,4 +4,5 @@
 
 | 问题 | 状态 |
 | --- | --- |
-| [GitLab 拒绝缺少 Jira key 的提交](gitlab-push-missing-jira-key.md) | 部分修复，待真实验证 |
+| [GitLab 拒绝缺少 Jira key 的提交](gitlab-push-missing-jira-key.md) | 修复已验证；后续 CI 误判单独跟踪 |
+| [Smartcat push pipeline 被误报为 MR CI 通过](gitlab-smartcat-pipeline-misclassified.md) | 修复已加载，端到端复测待完成 |
