@@ -146,10 +146,14 @@ export function runGit(args, { cwd, author, timeoutMs = DEFAULT_TIMEOUT_MS, netw
       if (error === null) { resolvePromise({ stdout, stderr }); return }
       if (error.code === 'ENOENT') { reject(new AdapterError('git_unavailable', 'git is not installed or not on PATH', { retryable: false })); return }
       if (error.killed || error.signal === 'SIGTERM') { reject(new AdapterError('git_timeout', `git ${args[0]} took longer than ${Math.round(timeoutMs / 1000)}s`, { retryable: true })); return }
-      const detail = String(stderr || error.message).trim().split('\n').slice(-3).join(' | ')
+      const lines = String(stderr || error.message).trim().split(/\r?\n/)
+      const remoteLines = args[0] === 'push' ? lines.filter((line) => /^\s*remote:\s*\S/i.test(line)) : []
+      const reasons = remoteLines.filter((line) => /^\s*remote:\s*(?:GitLab:|error:|rejected:|denied:)/i.test(line))
+      const serverDetail = (reasons.length > 0 ? reasons : remoteLines).slice(-3)
+      const detail = [...new Set([...serverDetail, ...lines.slice(-3)])].join(' | ')
       // With credentials in the environment the raw error object is not attached, and the text is cleaned.
       const failure: any = new AdapterError('git_failed', redactSecrets(`git ${args[0]} failed: ${detail}`, secrets), { retryable: network, cause: secrets.length > 0 ? undefined : error })
-      // The cleaned stderr (the message keeps only its last lines): lets a caller tell a rejected push from other failures.
+      // Keep cleaned stderr for rejection classification; the message also includes remote reasons for failed pushes.
       failure.stderr = redactSecrets(String(stderr ?? '').slice(-4000), secrets)
       reject(failure)
     })

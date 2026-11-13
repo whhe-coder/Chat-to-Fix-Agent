@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRepoAdapter } from '../core/adapters/repo.ts'
@@ -348,5 +348,27 @@ test('redaction in git errors: a token echoed by git is replaced', async () => {
   await assert.rejects(
     runGit([`no-such-command-${TOKEN}`], { cwd: tmp, credentials: { env: {}, secrets: [TOKEN] } }),
     (e: any) => e.code === 'git_failed' && !e.message.includes(TOKEN) && /redacted/.test(e.message),
+  )
+})
+
+test('a rejected push reports the GitLab hook reason after redacting credentials', async () => {
+  const made = await createTestRepo({ dir: join(tmp, 'rejected-push') })
+  const hook = join(made.remote, 'hooks', 'pre-receive')
+  await writeFile(hook, `#!/bin/sh\necho 'GitLab: No Jira issue found in commit message' >&2\necho 'credential: ${TOKEN}' >&2\nexit 1\n`)
+  await chmod(hook, 0o755)
+  await writeFile(join(made.localRepo, 'change.txt'), 'change')
+  const author = { name: 'Test Author', email: 'test@example.com' }
+  await runGit(['add', 'change.txt'], { cwd: made.localRepo, author })
+  await runGit(['commit', '-m', 'docs: change'], { cwd: made.localRepo, author })
+
+  await assert.rejects(
+    runGit(['push', '--quiet', 'origin', 'master'], { cwd: made.localRepo, network: true, credentials: { env: {}, secrets: [TOKEN] } }),
+    (error: any) => {
+      assert.equal(error.code, 'git_failed')
+      assert.match(error.message, /GitLab: No Jira issue found in commit message/)
+      assert.doesNotMatch(error.message, new RegExp(TOKEN))
+      assert.doesNotMatch(error.stderr, new RegExp(TOKEN))
+      return true
+    },
   )
 })
