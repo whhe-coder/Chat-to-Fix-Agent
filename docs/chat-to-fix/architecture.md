@@ -173,8 +173,8 @@ sequenceDiagram
 | `core/bot/` | bot 层入口：按顺序装 DS Bot 模块（`index.ts`），加少量替身（`stubs.ts`） | 很少 |
 | `bot/` | 从 DS Bot 0.3.1 裁来的代码，基本不改（`local-agents/` 已删） | 平时不用看 |
 | `config/cordis.patch.yml` | DSH 配置补丁：模型线路和 key、插件行、权限预设、`readonly` 和 `coding` 两个 agent 预设 | 改模型或 bot 的内置工具时看 |
-| `scripts/` | 启停（`start-chat-to-fix.sh` 等）、接真实服务（`connected.ts`）、调试页、端到端脚本；`dev-env.sh` 设本机路径 | 运行时用 |
-| `test/` | `npm run test:agent`、`test:agent-layer` | 改代码时跑 |
+| `scripts/` | 启停（`start-chat-to-fix.sh` 等）、接真实服务（`connected.ts`）、冒烟（`smoke.ts`）、调试页、端到端脚本（`e2e/`）；`dev-env.sh` 设本机路径 | 运行时用 |
+| `test/` | `npm run test:agent`、`test:agent-layer`（`bot/test/` 另有 `test:agent-bot`） | 改代码时跑 |
 | `rewrite/` | 从 DS Bot 裁掉了什么、为什么（`INVENTORY.md`） | 想知道 `bot/` 由来时 |
 | `docs/chat-to-fix/design/` | 设计和细分规格 1–7 | 改某一块之前 |
 | `docs/chat-to-fix/slack/`、`notes/` | 和 Slack Bot 的接口（`slack/slackbot.md`）、早期研究 | 按需 |
