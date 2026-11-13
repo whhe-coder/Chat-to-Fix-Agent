@@ -328,3 +328,20 @@
 - { id: preset-minimal, disabled: true }
 - { id: preset-cordis, disabled: true }
 - { id: ptc-runtime, disabled: true }
+
+# 8.8 subagent side rows: the reviewer is started by the system through `spawn`; nothing asks for the
+#     model-selection policy or the `fork` provider (their only user, the subagent tool, is off)
+- { id: subagent-model-selection-settings, disabled: true }
+- { id: subagent-fork-in-process, disabled: true }
+
+# 8.9 the "how to link and deliver files" paragraph DSH adds to every system prompt (for the web UI and
+#     the SDK; our output goes to Slack)
+- { id: deliverable-file-references, disabled: true }
+
+# 8.10 rows only switched-off tools or the UI used
+- { id: user-questions, disabled: true }
+- { id: jobs, disabled: true }
+- { id: shell-env, disabled: true }
+- { id: hmr, disabled: true }
+- { id: tool-working-directory, disabled: true }
+- { id: session-title-llm, disabled: true }   # the smoke run's mock log has no title request: the bot layer names every session

@@ -121,11 +121,6 @@ const REMOVED: string[] = [
   // step 7
   'preset-standard', 'preset-ptc', 'preset-minimal', 'preset-cordis',
   'ptc-runtime',
-]
-
-// Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
-// (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
-const PENDING: string[] = [
   // step 8
   'subagent-model-selection-settings', 'subagent-fork-in-process',
   // step 9
@@ -134,6 +129,10 @@ const PENDING: string[] = [
   'user-questions', 'jobs', 'shell-env', 'hmr',
   'tool-working-directory', 'session-title-llm',
 ]
+
+// Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
+// (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
+const PENDING: string[] = []
 
 // DSH services the code uses besides the required `inject` of core/bot/index.ts (plan section 2.1: `ctx.get(...)`).
 const SOFT_SERVICES = ['subagents', 'agents', 'agentPresets', 'permissionPresets', 'workingDirectory', 'sandboxPolicy', 'approval',
