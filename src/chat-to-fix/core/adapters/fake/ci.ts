@@ -51,12 +51,19 @@ function runCommand(command, { cwd, env, timeoutMs }) {
     let timedOut = false
     let child
     try {
-      child = spawn('sh', ['-c', command], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn('sh', ['-c', command], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' })
     } catch (error) {
       resolve({ code: 127, output: `could not start: ${error.message}\n`, timedOut: false })
       return
     }
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
+    const timer = setTimeout(() => {
+      timedOut = true
+      // Descendants can keep the output pipes open after the shell exits.
+      if (process.platform !== 'win32' && child.pid !== undefined) {
+        try { process.kill(-child.pid, 'SIGKILL') }
+        catch { child.kill('SIGKILL') }
+      } else child.kill('SIGKILL')
+    }, timeoutMs)
     child.stdout.on('data', keep)
     child.stderr.on('data', keep)
     child.on('error', (error) => { clearTimeout(timer); resolve({ code: 127, output: `${chunks.join('')}could not run: ${error.message}\n`, timedOut }) })

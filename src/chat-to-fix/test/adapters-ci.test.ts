@@ -453,9 +453,9 @@ test('fake CI: delaySeconds keeps the pipeline pending; allowFailure does not co
   assert.equal(done.status, 'passed', 'the allow_failure job failed but does not count')
   assert.deepEqual(done.failedJobs, [])
 
-  const t = await fakeSetup({ ciJobs: [{ name: 'hang', command: 'sleep 30', timeoutSeconds: 0.3 }] })
+  const t = await fakeSetup({ ciJobs: [{ name: 'hang', command: 'sleep 30 & wait', timeoutSeconds: 0.3 }] })
   const o = await t.open()
-  const timed = await poll(() => t.repo.getChecks(t.b, o.opened.iid), (c) => c.status !== 'pending', 5000)
+  const timed = await poll(() => t.repo.getChecks(t.b, o.opened.iid), (c) => c.status !== 'pending', 10000)
   assert.equal(timed.status, 'failed')
   assert.match(await t.repo.getJobLog(t.b, timed.failedJobs[0]), /timeout/)
 })
