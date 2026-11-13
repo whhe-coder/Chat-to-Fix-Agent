@@ -1,6 +1,6 @@
 # 固定频道 `/fix` 入口规格
 
-状态：Slack 应用权限已调整；Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；真实 Slack 的 `/fix` 命令、固定频道和真实调用尚未完成。本机模拟频道已可接收 `/fix` 并转发给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
+状态：Slack 应用权限已调整，`/fix` 命令已创建。Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；固定频道和真实 Slack 调用尚未完成。读取发起人邮箱的代码尚未实现。本机模拟频道已可接收 `/fix` 并转发给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
 
 ## 目标行为
 
@@ -56,15 +56,15 @@
 
 | 项目 | 目标 | 当前状态 |
 | --- | --- | --- |
-| Bot Token Scopes | `commands`、`chat:write` | 已在应用页面核对 |
+| Bot Token Scopes | `commands`、`chat:write`、`users:read`、`users:read.email` | 已在应用页面核对；读取发起人邮箱的代码尚未实现 |
 | User Token Scopes | 无 | 已核对 |
 | Event Subscriptions | 不订阅消息事件 | 已移除 `message.im`，页面显示 Off |
 | Socket Mode | 开启 | 已开启 |
-| Slash Commands | 注册 `/fix` | 未创建 |
+| Slash Commands | 注册 `/fix` | 已创建；说明与用法提示均为英文 |
 | 固定频道 | 确定频道 ID 并让 Bot 加入；代码只接受其 ID | 未完成 |
 | 工作区安装与 Bot token | 使用新权限完成审批和安装 | 待审批；新权限是否已进入待审记录尚未证实 |
 
-`commands` 接收命令载荷；`chat:write` 用于发布任务消息和长期进度。当前不申请频道历史读取权限。Slack App-level token 的 `connections:write` 保持不变。实际配置操作见 [Slack 配置记录](../config/slack/README.md)。
+`commands` 接收命令载荷；`chat:write` 用于发布任务消息和长期进度；`users:read` 与 `users:read.email` 为后续通过 `users.info` 获取发起人邮箱准备。当前不申请频道历史读取权限。Slack App-level token 的 `connections:write` 保持不变。实际配置操作见 [Slack 配置记录](../config/slack/README.md)。
 
 ## 验收
 
