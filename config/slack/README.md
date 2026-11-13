@@ -51,7 +51,7 @@
 
 1. 创建 `/fix` Slash Command，确定固定频道并让 Bot 加入。只允许该频道 ID 启动任务。
 2. 核对待审申请确实包含 `commands`、`chat:write`，如需重新提交则按新权限办理。等待管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
-3. 更新真实 Bot 的 `/fix` 处理代码；本机模拟入口已实现。`npm run start:slack` 仍运行旧私信测试代码，不能用于新入口验收。`npm start` 启动 Agent 和本机模拟页面，不连接真实 Slack。
+3. 真实 Bot 的 `/fix` 处理代码和发件箱转发已实现，`npm run start:slack` 启动它；取得 Bot token 后再做真实验收。`npm start` 启动 Agent 和本机模拟页面，不连接真实 Slack。
 4. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
 
 旧私信测试 Bot 的行为保留在 [历史规格](../../spec/slack-dm-entry.md)。

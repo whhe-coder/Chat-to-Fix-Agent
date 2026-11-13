@@ -19,7 +19,7 @@
 ## 凭据与运行
 
 - Socket Mode 使用 `SLACK_APP_TOKEN` 和 `SLACK_BOT_TOKEN`。变量来源和保存方式见 [本地环境变量配置](../config/local-env/README.md)。程序不主动输出 token，Git 历史不保存 token 值。
-- 旧代码的启动入口是 [`src/slackBot/slack-bot.js`](../src/slackBot/slack-bot.js)，当前命令为 `npm run start:slack`；`npm start` 启动 Agent 和本机模拟 Slack 页面。当前 Slack 应用已移除私信事件及权限；取得 Bot OAuth token 也不能让此旧入口按原规格工作。
+- 旧私信处理代码在 [`src/slackBot/slack-message.js`](../src/slackBot/slack-message.js)，只用于本机模拟 `npm run start:mock-dm`。`npm run start:slack`（`slack-bot.js`）已改为 `/fix` 入口，不再挂私信处理。当前 Slack 应用已移除私信事件及权限。
 
 ## 验收场景与状态
 
