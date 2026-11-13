@@ -15,18 +15,32 @@ const taskStates = {
   failed: '任务失败', timed_out: '已超时', stopped: '已停止', expired: '已过期',
 };
 
+function linkLength(candidate) {
+  let end = candidate.length;
+  while (end > 0) {
+    const last = candidate[end - 1];
+    const unmatchedClosingParen = last === ')' && candidate.slice(0, end).split(')').length > candidate.slice(0, end).split('(').length;
+    if (!/[.,!?;:，。！？；：、）】》”’]/u.test(last) && !unmatchedClosingParen) break;
+    end -= 1;
+  }
+  return end;
+}
+
 function addLinkedText(node, text) {
   for (const part of String(text).split(/(https?:\/\/[^\s<>]+)/g)) {
     if (!/^https?:\/\//.test(part)) { node.append(document.createTextNode(part)); continue; }
     try {
-      const url = new URL(part);
+      const end = linkLength(part);
+      const linkText = part.slice(0, end);
+      const url = new URL(linkText);
       if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
       const link = document.createElement('a');
       link.href = url.href;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = part;
+      link.textContent = linkText;
       node.append(link);
+      if (end < part.length) node.append(document.createTextNode(part.slice(end)));
     } catch { node.append(document.createTextNode(part)); }
   }
 }

@@ -52,3 +52,32 @@ test('页面加载默认身份，允许编辑，并把编辑后的身份随 /fix
   });
   dom.window.close();
 });
+
+test('消息中的链接不包含紧随其后的中英文标点', async () => {
+  const dom = new JSDOM(html, { url: 'http://127.0.0.1:4001/', runScripts: 'outside-only' });
+  const { window } = dom;
+  window.setInterval = () => 1;
+  window.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      channelId: 'CLOCAL', mockUser: { id: 'UMOCK', name: '模拟用户', email: 'default@example.com' },
+      agent: { online: true },
+      threads: [{ taskId: 'T-10', taskState: 'running', status: 'sent', messages: [
+        { from: 'agent', text: 'Jira 单已建好：F2PGBA-405（https://xsolla.atlassian.net/browse/F2PGBA-405）。' },
+        { from: 'agent', text: 'Draft MR opened (https://gitlab.example.com/team/repo/-/merge_requests/12).' },
+        { from: 'agent', text: 'Reference: https://example.com/wiki/Page_(test).' },
+      ] }],
+    }),
+  });
+  window.eval(script);
+  await tick();
+
+  const links = [...window.document.querySelectorAll('.message-text a')];
+  assert.deepEqual(links.map((link) => link.href), [
+    'https://xsolla.atlassian.net/browse/F2PGBA-405',
+    'https://gitlab.example.com/team/repo/-/merge_requests/12',
+    'https://example.com/wiki/Page_(test)',
+  ]);
+  assert.equal(links[0].parentNode.textContent, 'Jira 单已建好：F2PGBA-405（https://xsolla.atlassian.net/browse/F2PGBA-405）。');
+  dom.window.close();
+});
