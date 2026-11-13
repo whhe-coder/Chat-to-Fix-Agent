@@ -28,6 +28,8 @@ Agent 运行时的 Jira、GitLab 适配器位于 `src/chat-to-fix/core/adapters/
 
 测试放在对应模块的 `test/` 中。运行全部测试用 `npm test`；连接函数、Slack Bot（含本机模拟页面启动）、Agent 和 Bot 层可分别用 `npm run test:connections`、`npm run test:slack-bot`、`npm run test:agent`、`npm run test:agent-bot` 验证。Agent 与 Bot 层之间的测试用 `npm run test:agent-layer` 验证。
 
+运行 `npm run test:coverage` 可执行全部测试并生成 `coverage/lcov.info`。SonarQube 的 GitHub Actions 工作流、启用条件和远端待验证项见 [SonarQube 接入](docs/sonarqube.md)。
+
 ## 目标流程
 
 ```mermaid
