@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMonitor, NOTICE_KINDS } from '../core/task/monitor.ts'
+import { createMonitor, NOTICE_KINDS, noticeText, ciNoticeText, CI_NOTICE_KINDS } from '../core/task/monitor.ts'
 
 const LIMITS = {
   taskMinutes: 80,
@@ -289,15 +289,15 @@ test('notify in Chinese (language zh): failed with note, needs_person with note 
   const sent = async (task, kind) => { s.calls.sent.length = 0; await s.monitor.notify(task, kind); return s.calls.sent[0].text }
   assert.equal(
     await sent({ ...base, state: 'failed', endReason: '评审没通过', closeNote: '评审没通过' }, 'failed'),
-    '任务 T-1 没能自动修好：评审没通过。Jira：DEMO-7，分支：ai/DEMO-7。补充信息后可以用 /fix 重新提交。',
+    '任务 T-1 没能自动修好：评审没通过。补充信息后可以用 /fix 重新提交。\nJira：DEMO-7\n分支：ai/DEMO-7',
   )
   const person = await sent({ ...base, state: 'failed', endReason: 'needs_person', closeNote: '改动太大，不适合自动提交。', mr: { url: 'https://gl/mr/1' } }, 'failed')
-  assert.equal(person, '任务 T-1 需要人来处理：改动太大，不适合自动提交。Jira：DEMO-7，分支：ai/DEMO-7，Draft MR：https://gl/mr/1。')
+  assert.equal(person, '任务 T-1 需要人来处理：改动太大，不适合自动提交。\nJira：DEMO-7\n分支：ai/DEMO-7\nDraft MR： https://gl/mr/1')
   assert.doesNotMatch(person, /@ 我/)
   assert.equal(s.calls.sent[0].kind, 'needs_person', 'the Slack side gets "needs a person" as its own kind')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null, state: 'failed', endReason: 'needs_person' }, 'failed'), '任务 T-1 需要人来处理。')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'resumed'), '收到补充信息，任务 T-1 重新开始处理。')
-  assert.equal(await sent({ ...base, endReason: 'task_timeout' }, 'timed_out'), '任务 T-1 超时了（任务总时长超限），已结束。Jira：DEMO-7，分支：ai/DEMO-7。')
+  assert.equal(await sent({ ...base, endReason: 'task_timeout' }, 'timed_out'), '任务 T-1 超时了（任务总时长超限），已结束。\nJira：DEMO-7\n分支：ai/DEMO-7')
   assert.equal(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'stopped'), '任务 T-1 已停止。')
   assert.match(await sent({ id: 'T-1', origin: {}, jira: null, repo: null }, 'expired'), /^任务 T-1 在队列里等太久，已过期。想继续的话，请用 \/fix 重新提交。/)
   assert.equal(await sent({ id: null, origin: {} }, 'no_open_task'), '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。')
@@ -339,14 +339,14 @@ test('notify: the progress and resubmit notices, texts in Chinese and English', 
     return out
   }
   const zh = await texts('zh', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
-  assert.equal(zh.jira_created, '任务 T-1：Jira 单已建好：DEMO-7（https://j.example.com/browse/DEMO-7）。')
-  assert.equal(zh.mr_opened, '任务 T-1：Draft MR 已开：https://g.example.com/p/-/merge_requests/3。')
-  assert.equal(zh.ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234（https://g.example.com/p/-/commit/abc1234def5678）。')
+  assert.equal(zh.jira_created, '任务 T-1：Jira 单已建好：DEMO-7 https://j.example.com/browse/DEMO-7')
+  assert.equal(zh.mr_opened, '任务 T-1：Draft MR 已开： https://g.example.com/p/-/merge_requests/3')
+  assert.equal(zh.ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234 https://g.example.com/p/-/commit/abc1234def5678')
   assert.equal(zh.needs_info_resubmit, '任务 T-1 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。')
   const en = await texts('en', task, { commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678' })
-  assert.equal(en.jira_created, 'Task T-1: Jira issue DEMO-7 created (https://j.example.com/browse/DEMO-7).')
-  assert.equal(en.mr_opened, 'Task T-1: Draft MR opened: https://g.example.com/p/-/merge_requests/3.')
-  assert.equal(en.ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234 (https://g.example.com/p/-/commit/abc1234def5678).')
+  assert.equal(en.jira_created, 'Task T-1: Jira issue DEMO-7 created: https://j.example.com/browse/DEMO-7')
+  assert.equal(en.mr_opened, 'Task T-1: Draft MR opened: https://g.example.com/p/-/merge_requests/3')
+  assert.equal(en.ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234: https://g.example.com/p/-/commit/abc1234def5678')
   assert.equal(en.needs_info_resubmit, 'Task T-1 needs more information; please submit it again with /fix, with the original description and the missing details together.')
   // without url and without commit link the bracket part is left out
   assert.equal((await texts('zh', noUrl)).jira_created, '任务 T-1：Jira 单已建好：DEMO-7。')
@@ -449,4 +449,32 @@ test('the limits are configurable: a higher soft budget does not fire', async ()
   const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: { ...SOFT, softTaskUsd: 5 } })
   s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
   assert.equal(s.calls.post.length, 0)
+})
+
+test('no notice text puts punctuation directly after a link (zh and en, every kind)', () => {
+  const task = {
+    id: 'T-3', endReason: 'needs_person', closeNote: '改动太大', jira: { key: 'F2PGBA-404', url: 'https://x.example.com/browse/F2PGBA-404' },
+    repo: { branch: 'ai/F2PGBA-404' }, mr: { url: 'https://g.example.com/p/-/merge_requests/375', sha: 'abc1234def5678' }, ci: { round: 2 }, commitUrl: 'https://g.example.com/p/-/commit/abc1234def5678',
+  }
+  const ci = {
+    round: 2, pipelineUrl: 'https://g.example.com/p/-/pipelines/7', waitTimedOut: false,
+    failedJobs: [{ name: 'lint', url: 'https://g.example.com/p/-/jobs/1' }, { name: 'test', url: 'https://g.example.com/p/-/jobs/2' }],
+  }
+  const texts = []
+  for (const lang of ['zh', 'en']) {
+    for (const kind of NOTICE_KINDS) {
+      texts.push(noticeText(lang, kind, task))
+      texts.push(noticeText(lang, kind, { ...task, endReason: 'task_timeout', closeNote: undefined }))
+    }
+    for (const kind of CI_NOTICE_KINDS) texts.push(ciNoticeText(lang, kind, task, ci), ciNoticeText(lang, kind, task, { ...ci, round: 0 }))
+  }
+  let urls = 0
+  for (const text of texts) {
+    for (const m of text.matchAll(/https?:\/\/\S*/g)) {
+      urls++
+      assert.doesNotMatch(m[0], /[）。，、；：！？)\].,;:!?]$/, text)
+      assert.doesNotMatch(m[0], /[）。，、；：！？]/, text)
+    }
+  }
+  assert.ok(urls > 20, 'the sample covers many links')
 })

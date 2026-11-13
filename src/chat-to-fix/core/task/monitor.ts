@@ -45,9 +45,9 @@ export const NOTICE = Object.freeze({
   resumed: (task) => `Got the extra information; ${task?.id ? `task ${task.id}` : 'this request'} is queued again.`,
   no_open_task: () => 'There is no open task in this discussion; please submit a new problem with /fix.',
   // Progress facts, sent by the system right when they are written (src/tools: jira_create_issue, mr_open_draft, mr_push_fix).
-  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? ` (${task.jira.url})` : ''}.`,
-  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}.`,
-  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` (${task.commitUrl})` : ''}.`,
+  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? `: ${task.jira.url}` : '.'}`,
+  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}`,
+  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `: ${task.commitUrl}` : '.'}`,
   // Only with slack.mentions false: the requester cannot answer in the thread.
   needs_info_resubmit: (task) => `${ref(task)} needs more information; please submit it again with /fix, with the original description and the missing details together.`,
 })
@@ -59,10 +59,11 @@ export const NOTICE_KINDS = Object.freeze(Object.keys(NOTICE))
 const zhRef = (task) => (task?.id ? `任务 ${task.id}` : '这个请求')
 const zhWhere = (task) => {
   const extra = []
-  if (task?.jira?.key) extra.push(`Jira：${task.jira.key}${task.jira.url ? `（${task.jira.url}）` : ''}`)
+  if (task?.jira?.key) extra.push(`Jira：${task.jira.key}${task.jira.url ? ` ${task.jira.url}` : ''}`)
   if (task?.repo?.branch) extra.push(`分支：${task.repo.branch}`)
-  if (task?.mr?.url) extra.push(`Draft MR：${task.mr.url}`)
-  return extra.length > 0 ? `${extra.join('，')}。` : ''
+  if (task?.mr?.url) extra.push(`Draft MR： ${task.mr.url}`)
+  // One item per line: a link is always followed by a line break or the end, never by punctuation (Slack would link it too).
+  return extra.length > 0 ? `\n${extra.join('\n')}` : ''
 }
 const ZH_END_REASON = { task_timeout: '任务总时长超限', coding_timeout: '编码步骤超时', step_timeout: '某一步超时' }
 const zhReason = (task) => {
@@ -82,16 +83,16 @@ export const NOTICE_ZH = Object.freeze({
       return `${zhRef(task)} 需要人来处理${why ? `：${why}` : ''}。${zhWhere(task)}`
     }
     const why = zhReasonOf(task)
-    return `${zhRef(task)} 没能自动修好${why ? `：${why}` : ''}。${zhWhere(task)}补充信息后可以用 /fix 重新提交。`
+    return `${zhRef(task)} 没能自动修好${why ? `：${why}` : ''}。补充信息后可以用 /fix 重新提交。${zhWhere(task)}`
   },
   expired: (task) => `${zhRef(task)} 在队列里等太久，已过期。想继续的话，请用 /fix 重新提交。${zhWhere(task)}`,
   stopped: (task) => `${zhRef(task)} 已停止。${zhWhere(task)}`,
   interrupted: (task) => `${zhRef(task)} 已按新的信息重新开始。`,
   resumed: (task) => `收到补充信息，${zhRef(task)} 重新开始处理。`,
   no_open_task: () => '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。',
-  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? `（${task.jira.url}）` : ''}。`,
-  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开：${task?.mr?.url ?? ''}。`,
-  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `（${task.commitUrl}）` : ''}。`,
+  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? ` ${task.jira.url}` : '。'}`,
+  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开： ${task?.mr?.url ?? ''}`,
+  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` ${task.commitUrl}` : '。'}`,
   needs_info_resubmit: (task) => `${zhRef(task)} 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。`,
 })
 
@@ -110,8 +111,9 @@ export const noticeText = (language, kind, task) => {
 // ---------------------------------------------------------------------------------------------
 
 const jobNames = (ci) => (ci?.failedJobs ?? []).map((j) => j.name).join(', ') || '-'
-const jobLinks = (ci, sep) => (ci?.failedJobs ?? []).map((j) => (j.url ? `${j.name} (${j.url})` : j.name)).join(sep) || '-'
-const pipelineLink = (ci, zh) => (ci?.pipelineUrl ? `${zh ? 'Pipeline：' : 'Pipeline: '}${ci.pipelineUrl}` : '')
+// Links never sit directly before punctuation: each job link and the pipeline link is on its own line, after a label and a space.
+const jobLinks = (ci) => (ci?.failedJobs ?? []).map((j) => (j.url ? `${j.name} ${j.url}` : j.name)).join('\n') || '-'
+const pipelineLink = (ci, zh) => (ci?.pipelineUrl ? `\n${zh ? 'Pipeline： ' : 'Pipeline: '}${ci.pipelineUrl}` : '')
 
 // The audience of `failed` is the Pipeline bot, which leads a fix round (it reads the log, asks the Coding bot
 // through message_bot, pushes with mr_push_fix or stops with ci_stop). `settled` goes to the Main bot, which
@@ -136,15 +138,15 @@ export const CI_NUDGE = Object.freeze({
 const CI_NOTICE_TEXT = {
   zh: {
     ci_passed: (task, ci) => `${ref(task, true)}CI 通过${ci.round > 0 ? `（修复 ${ci.round} 轮后）` : ''}。${pipelineLink(ci, true)}`,
-    ci_failed: (task, ci) => `${ref(task, true)}CI 第 ${ci.round + 1} 轮失败：${jobLinks(ci, '、')}。${pipelineLink(ci, true)}`,
-    ci_rounds_exhausted: (task, ci) => `${ref(task, true)}CI 修了 ${ci.round} 轮后仍未通过，没过的 job：${jobLinks(ci, '、')}。Draft MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
+    ci_failed: (task, ci) => `${ref(task, true)}CI 第 ${ci.round + 1} 轮失败，没过的 job：\n${jobLinks(ci)}${pipelineLink(ci, true)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task, true)}CI 修了 ${ci.round} 轮后仍未通过，Draft MR 已开，需要人看一下。没过的 job：\n${jobLinks(ci)}${pipelineLink(ci, true)}`,
     ci_no_pipeline: (task, ci) => `${ref(task, true)}没有拿到 CI 结果（${ci.waitTimedOut ? '等待超时' : '没有触发 pipeline'}）。MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
   },
   en: {
-    ci_passed: (task, ci) => `${ref(task)}: CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}. ${pipelineLink(ci, false)}`,
-    ci_failed: (task, ci) => `${ref(task)}: CI failed in round ${ci.round + 1}: ${jobLinks(ci, ', ')}. ${pipelineLink(ci, false)}`,
-    ci_rounds_exhausted: (task, ci) => `${ref(task)}: CI still fails after ${ci.round} fix round(s): ${jobLinks(ci, ', ')}. The draft MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
-    ci_no_pipeline: (task, ci) => `${ref(task)}: no CI result (${ci.waitTimedOut ? 'the wait timed out' : 'no pipeline was triggered'}). The MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
+    ci_passed: (task, ci) => `${ref(task)}: CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}.${pipelineLink(ci, false)}`,
+    ci_failed: (task, ci) => `${ref(task)}: CI failed in round ${ci.round + 1}, failed jobs:\n${jobLinks(ci)}${pipelineLink(ci, false)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task)}: CI still fails after ${ci.round} fix round(s). The draft MR is open; a person needs to look. Failed jobs:\n${jobLinks(ci)}${pipelineLink(ci, false)}`,
+    ci_no_pipeline: (task, ci) => `${ref(task)}: no CI result (${ci.waitTimedOut ? 'the wait timed out' : 'no pipeline was triggered'}). The MR is open; a person needs to look.${pipelineLink(ci, false)}`,
   },
 }
 
