@@ -10,7 +10,7 @@ import { createFakeBotLayer } from './helpers/fake-botlayer.ts'
 
 const ORIGIN = { eventId: 'E1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'tester' }, text: 'the button does nothing', permalink: 'https://example.slack.com/archives/C1/p11' }
 const BINDING = { repo: 'group/project', defaultBranch: 'master', jiraProject: 'DEMO', issueType: 'Bug', labels: [] }
-const config = { apiModel: 'anthropic/test', codingPermission: 'workspace-write', limits: { worktreeKeepDays: 7 } }
+const config = { apiModel: 'anthropic/test', limits: { worktreeKeepDays: 7 } }
 
 async function rig({ fail, repo, nowMs, warnings = [], slack }: any = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-runner-'))
@@ -69,10 +69,12 @@ test('start: the five steps run in order and the run is written down', async () 
   assert.equal(bots[0].model, 'anthropic/test')
   assert.equal(bots[0].instructions, 'instructions of main.md')
   assert.equal(bots[0].permission, 'read-only')
-  assert.equal(bots[4].model, 'claude-code/default')
+  assert.equal(bots[4].model, 'anthropic/claude-sonnet-5-5', 'the registry default when the config names none')
+  assert.equal(bots[4].effort, 'high')
   assert.equal(bots[4].permission, 'workspace-write')
-  assert.equal(bots[4].preset, 'standard')
+  assert.equal(bots[4].preset, 'coding')
   assert.equal(bots[0].preset, 'readonly')
+  assert.equal(bots[0].effort, undefined)
   assert.deepEqual([...r.botlayer.bindings.values()].map((b) => b.role), allBotDefs().map((d) => d.role))
   assert.ok([...r.botlayer.bindings.values()].every((b) => b.taskId === r.id))
 
@@ -287,29 +289,6 @@ test('restore: a running task with a live group is watched again, one without is
   const order = kinds(r.log)
   assert.equal(order.at(-1), 'queue.dispatch')
   assert.equal(order.filter((n) => n === 'queue.release').length, 1)
-})
-
-test('codingOptions: the binding\'s commands are readable (synchronously) while the task runs and gone after it ends', async () => {
-  const r = await rig()
-  assert.equal(r.runner.codingOptions(r.id), undefined, 'nothing before the run starts')
-  assert.equal(r.runner.codingOptions('T-404'), undefined)
-  const withCommands = await r.store.createTask({ ...ORIGIN, eventId: 'E9', threadTs: '9.9', messageTs: '9.9' }, { ...BINDING, testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
-  await r.runner.start(withCommands.id)
-  assert.deepEqual(r.runner.codingOptions(withCommands.id), { testCommands: ['sh test.sh'], setupCommands: ['pnpm install'] })
-  await r.runner.start(r.id)
-  assert.deepEqual(r.runner.codingOptions(r.id), { testCommands: undefined, setupCommands: undefined }, 'a binding without commands leaves the caller to fall back')
-  await r.runner.end(withCommands.id, 'failed', 'test')
-  assert.equal(r.runner.codingOptions(withCommands.id), undefined)
-})
-
-test('codingOptions after a restart: restore keeps the binding of a task whose group survived', async () => {
-  const r = await rig()
-  const task = await r.store.createTask({ ...ORIGIN, eventId: 'E8', threadTs: '8.8', messageTs: '8.8' }, { ...BINDING, testCommands: ['make check'] })
-  const member = await r.botlayer.createBot({ name: 'y', label: 'y', instructions: 'y', model: 'y', permission: 'y' })
-  const groupId = await r.botlayer.createGroup({ name: 'g', memberIds: [member], adminId: member, notice: 'n' })
-  await r.store.startRun(task.id, { groupId, bots: { main: 'b1', slack: 'b2', jira: 'b3', pipeline: 'b4', coding: 'b5' } })
-  await r.runner.restore()
-  assert.deepEqual(r.runner.codingOptions(task.id)?.testCommands, ['make check'])
 })
 
 test('cleanupWorktrees: removes only directories of tasks that ended more than worktreeKeepDays ago', async () => {

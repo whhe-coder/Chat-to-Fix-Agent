@@ -27,6 +27,8 @@ export const NOT_RUN_PATTERNS = [
 export const CI_NOT_RUN = /\b(?:CI|pipelines?)\b[^。.;；,，]{0,20}?(?:has|have|had|was|were|is)?\s*(?:not|n't)\s*(?:yet\s*)?(?:been\s*)?(?:run|executed|started|triggered)(?:\s*yet)?|(?:CI|流水线|pipeline)[^。；，]{0,8}(?:还没|尚未|未|没有)(?:运行|跑|执行|触发)/gi
 
 /** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
+/** DSH's built-in file tools of the readonly and coding presets (config/cordis.patch.yml). */
+export const DSH_FILE_TOOLS = new Set(['read', 'read_image', 'write', 'edit', 'glob', 'grep'])
 export const REVIEWER_CLAUSE = /reviewer|评审者|审阅者|审查者|评审(?:子 ?agent)?自己|评审时/i
 
 const text = (v) => (typeof v === 'string' ? v : '')
@@ -169,12 +171,16 @@ export const CHECKS = [
     },
   },
   {
+    // request_review: the system records the reviewer's verdict (review.by 'reviewer'). Runs of the removed Claude Code
+    // route (before 2026-11-13) recorded it with review_report pass; their reports stay readable.
     id: 'review_pass', title: '评审已记录为通过',
     run: (ctx) => {
       const review = ctx.task?.review
-      const call = records(ctx).find((r) => r.type === 'tool_call' && r.tool === 'review_report')
-      const result = records(ctx).find((r) => r.type === 'tool_result' && r.tool === 'review_report')
-      return verdict(review?.verdict === 'pass' && (review?.rounds ?? 0) >= 1 && call !== undefined && result?.ok !== false, `pass, round ${review?.rounds}`, `review=${clip(JSON.stringify(review ?? null), 120)} review_report call=${call !== undefined} result ok=${result?.ok}`)
+      const tool = records(ctx).some((r) => r.type === 'tool_call' && r.tool === 'request_review') ? 'request_review' : 'review_report'
+      const call = records(ctx).find((r) => r.type === 'tool_call' && r.tool === tool)
+      const result = records(ctx).findLast((r) => r.type === 'tool_result' && r.tool === tool)
+      const byReviewer = tool === 'review_report' || review?.by === 'reviewer'
+      return verdict(review?.verdict === 'pass' && byReviewer && (review?.rounds ?? 0) >= 1 && call !== undefined && result?.ok !== false, `pass, round ${review?.rounds} (${tool})`, `review=${clip(JSON.stringify(review ?? null), 120)} ${tool} call=${call !== undefined} result ok=${result?.ok}`)
     },
   },
   {
@@ -199,11 +205,13 @@ export const CHECKS = [
     },
   },
   {
-    id: 'no_refusal_or_tool_errors', title: '没有 refusal / tool_error 记录，没有失败的工具调用',
+    // DSH's own file tools report a recoverable miss (an edit whose text was not found, a read of a wrong path) as a
+    // failed result; the bot corrects it in the next step, so those are not counted. Every task tool counts.
+    id: 'no_refusal_or_tool_errors', title: '没有 refusal / tool_error 记录，没有失败的任务工具调用（DSH 自带的文件工具除外）',
     run: (ctx) => {
       const rs = records(ctx)
       const refusals = rs.filter((r) => r.type === 'refusal')
-      const errors = rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false))
+      const errors = rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false && !DSH_FILE_TOOLS.has(r.tool)))
       return verdict(refusals.length + errors.length === 0, 'none', `refusals=${refusals.length}, tool errors=${errors.length}: ${clip([...refusals, ...errors].map((r) => r.text).join(' | '), 240)}`)
     },
   },

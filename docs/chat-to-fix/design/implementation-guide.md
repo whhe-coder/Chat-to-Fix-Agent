@@ -6,6 +6,7 @@
 - 状态：初稿。包的划分和接口约定是提案；下一步是给每个子架构写详细的规格和实现清单。
 - 2026-11-12 注：本文已是历史文档，记录最初的工作包划分。包名和接口名（C0、B7、I5 等）仍出现在代码注释里，可以拿本文对照。第 2 节的语言（JavaScript）、目录和 `docker/` 已和代码不符；现状以 software-spec 和 spec-1 至 spec-6 为准。还没做的包：E2 历史问题评测、F1 镜像。
 - 代码参考的行号于 2026-11-11 对照源码逐个核实。
+- 2026-11-13：Coding bot 改为 DSH 原生，五个 bot 共用一个 Anthropic API key，Claude Code 路线已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)。本文里关于 Claude Code、MCP 桥、`--agents` 审查子 agent 的部分都只是历史。
 
 ## 1. 代码参考的写法
 

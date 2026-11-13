@@ -12,6 +12,7 @@
 | [implementation-guide.md](implementation-guide.md) | （历史）开工实现初稿指南：31 个可并行的工作包、接口约定、每个包精确到行号的代码参考 | 想对照代码注释里包名和接口名（C0、I5 等）的人 |
 | `spec-1` 至 `spec-6`（六个文件，列表见 implementation-guide 第 6 节） | 六份细分规格：注册表和流程层、状态和存储、看门狗、工具和适配器、bot 层搬运、配置提示词验证。每份有数据形状、接口、行为规则、代码参考、实现清单、验收。2026-11-12 已按代码更新 | 改对应部分代码的人 |
 | [spec-7-ci-loop.md](spec-7-ci-loop.md) | 细分规格 7：CI 修复循环（最小版）。在"开 MR"和"回写"之间加 CI 步骤：系统在监控里等 pipeline、自动重跑一次不稳定的 job，CI 步骤由 Git Pipeline bot 专职负责：读日志、叫 Coding bot 修、追加修复提交，最多 3 轮。已实现（提交 192a721） | 改 CI 修复循环的人 |
+| [plan-dsh-coding.md](plan-dsh-coding.md) | Coding bot 从 Claude Code 改为 DSH 原生（2026-11-13）：问题、结论、DSH 自带什么、改了什么、删了什么、风险、验证 | 想知道 Coding bot 为什么、怎么换的人 |
 | [kickoff-plan.md](kickoff-plan.md) | （历史）开工方案：从 DS Bot 搬哪些文件、要改哪里、五天的顺序 | 想了解最初计划的人；第 6 节镜像仍是待办 |
 | [questions-for-colleagues.md](questions-for-colleagues.md) | 要问同事的问题，两段可以直接发的消息 | 用户 |
 
@@ -27,7 +28,7 @@
 |---|---|---|
 | 重启后接着跑的任务不重新绑定 bot，角色工具失效 | spec-3 第 4.8 节 | 本阶段不管 |
 | 代码目录的定期清理写好了没人调用 | spec-3 第 4.4 节 | 不是本阶段的任务 |
-| `reviewMaxRounds` 没人读，`setupCommands` 只校验不执行 | tools-and-limits 第 4 节、spec-6 | 先放着 |
+| `reviewMaxRounds` 没人读，`setupCommands` 只校验不执行 | tools-and-limits 第 4 节、spec-6 | `reviewMaxRounds` 2026-11-13 随 `request_review` 生效；`setupCommands` 先放着 |
 | 开 MR 的强推在重跑时可能冲掉别人推到 `ai/<单号>` 上的提交 | spec-4 第 4.5 节、spec-7 第 4.5 节 | 2026-11-12 定，已实现（提交 192a721）：只追加提交、普通推送，被拒就停 |
 | 入口：Slack 斜杠命令 `/fix 问题描述`；本期不接收讨论串里的二次修改 | software-spec 的监听口和入口、spec-4 的 Slack 适配器和权限表、decision-record 第 2.11 节第 5 条 | Agent 的 `/fix` 入口和本机模拟页面已实现；真实 Slack Bot 尚未接入。`@` 补充信息是历史方案，不属本期范围 |
 

@@ -35,9 +35,8 @@
 | 任务层 | 看门狗、bot 注册表、流程定义、任务库、步骤把关、工具、执行记录 | 新写，TypeScript，由 Node 24 直接运行 |
 | bot 层 | bot、群、轮次、bot 之间的转交、重启恢复 | 从 DS Bot 0.3.1 搬来的文件，只留运行时用到的（没用到的 338 个文件已删） |
 | 运行时 | 会话、模型调用、工具执行、会话日志 | DeepSeek Harness 0.2.2-rc.1，整体打包在项目的 `runtime/` 里，不改源码；无界面运行 |
-| 编码引擎 | Claude Code 命令行 | 已有，coding bot 把活原样转给它 |
 
-任务层、bot 层和运行时在同一个进程里。Claude Code 是 coding bot 启动的子进程。
+任务层、bot 层和运行时在同一个进程里。五个 bot 都是 DSH 会话，共用一个 Anthropic API key；没有子进程（2026-11-13 起，原先的 Claude Code 子进程已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)）。
 
 ```mermaid
 flowchart TB
@@ -67,7 +66,7 @@ flowchart TB
   tools --> jira[Jira]
   tools --> gitlab[GitLab]
   group -->|四个 bot 的模型调用| api[Anthropic API]
-  group -->|coding bot| cc[Claude Code 子进程]
+  group -->|coding bot| cc[代码目录：DSH 的读写改工具、run_tests、request_review]
   cc --> wt[任务的代码目录]
   tools --> wt
   runner --> store[(任务库)]
@@ -92,19 +91,19 @@ bot 是按它对应的服务来分的，一个 bot 对应一个服务：
 | Slack bot | Slack |
 | Jira bot | Jira |
 | Git Pipeline bot | GitLab |
-| coding bot | Claude Code |
+| coding bot | 代码目录（DSH 的读写改工具） |
 
 bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、怎么建、怎么在群里互相叫，这些原样搬来，不另外发明。注册表里每个 bot 一条：
 
 | 字段 | 来源 |
 |---|---|
 | 名字、角色标签、说明、权限 | DS Bot 原有 |
-| 引擎 | DS Bot 原有的“模型”字段：填 Claude 的线路是走 API，填 Claude Code 的线路是把活交给 Claude Code |
+| 引擎 | DS Bot 原有的“模型”字段：五个 bot 都填 API 线路（`anthropic/...`），由 DSH 调模型；工具集由 DSH 的 agent 预设定（四个流程 bot `readonly`，coding bot `coding`） |
 | 工具清单 | 新增。DS Bot 默认把同一套团队工具发给所有 bot；我们按 bot 分配 |
 
 要新写的只有流程层：一张步骤表，加上按这张表把关的代码。
 
-流程要分发到的每一方都是一个注册的 bot。一个 bot 内部怎么干是它自己的事：coding bot 内部的审查子 agent 不是注册的 bot，流程看不见它。
+流程要分发到的每一方都是一个注册的 bot。一个 bot 内部怎么干是它自己的事：coding bot 的审查者是系统按需启动的只读子 agent，不是注册的 bot，不在群里。
 
 ### 3.3 任务层的组成
 
@@ -121,7 +120,7 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 
 看门狗指监听口、队列、运行器、监控这四个。
 
-每个任务的 token 和费用统计（提交 31b386d）：每次模型调用或 Claude Code 的一轮在执行记录里记一条 `usage`，任务上的 `usage` 字段累加，控制接口列任务时带 `totalUsd`；价格表在 `src/task/pricing.ts`，可用配置 `pricing` 覆盖；见规格 2、5、6。
+每个任务的 token 和费用统计（提交 31b386d）：每个 bot 的每一轮（以及每次审查）在执行记录里记一条 `usage`，任务上的 `usage` 字段累加，控制接口列任务时带 `totalUsd`；价格表在 `src/task/pricing.ts`，可用配置 `pricing` 覆盖；见规格 2、5、6。
 
 ### 3.4 存储
 
@@ -131,7 +130,7 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 | 执行记录 | 同一目录下的逐行记录文件 | 记录器 |
 | bot、群、转交关系 | bot 层的状态文件 | bot 层 |
 | 每个 bot 的完整对话 | DSH 的会话日志 | DSH |
-| 代码 | 每个任务一个独立的代码目录（git worktree） | Git Pipeline bot 的工具、Claude Code |
+| 代码 | 每个任务一个独立的代码目录（git worktree） | Git Pipeline bot 的工具、coding bot（DSH 的写文件只能落在这个目录里） |
 
 ## 4. 分工边界
 
@@ -168,7 +167,6 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 | DSH | 上游项目，原样使用 |
 | bot 层 | 从 DS Bot 搬来，有少量改动；只留用到的文件 |
 | 任务层 | 我们自己写 |
-| Claude Code | 外部命令行，原样使用 |
 
 ### 4.4 人员
 
@@ -217,7 +215,7 @@ stateDiagram-v2
 | 1 | 取讨论 | Slack bot | `slack_read_thread`、`slack_reply`（已收到） | 读讨论成功；“已收到”已发出；任务上有摘要 |
 | 2 | 判断并建单 | Jira bot | `jira_assess_request`、`jira_create_issue`；信息不足时 `needs_info_confirm` | 任务上有 Jira 单号；无法生成有效工单时先追问，不建单 |
 | 3 | 备代码 | Git Pipeline bot | `repo_prepare` | 任务上有代码目录和分支 |
-| 4 | 编码 | coding bot | Claude Code、内置的审查子 agent、`request_code`、`review_report` | 代码目录相对基准提交有改动；任务上记有“审查通过” |
+| 4 | 编码 | coding bot | DSH 的读写改工具、`run_tests`、`request_review`、`request_code` | 代码目录相对基准提交有改动；任务上记有“审查通过”（由 `request_review` 记） |
 | 5 | 开 MR | Git Pipeline bot | `repo_diff`、`mr_open_draft` | 任务上有 MR 链接 |
 | 6 | CI | Git Pipeline bot（主 bot 只交过去、等系统说有结论） | `ci_read_log`、`mr_push_fix`、`ci_stop`；叫 coding bot 修时用 `message_bot`、`review_report` | CI 有结论：通过，或轮次用完、被停、分支被别人改了、没有 pipeline（`ci.settled`） |
 | 7 | 回写 | Jira bot、Slack bot | `jira_add_comment`、`jira_transition`、`slack_reply`（结果） | Jira 单上已写 MR 链接；“结果”已发出 |
@@ -266,7 +264,7 @@ sequenceDiagram
   M->>P: 进到第 3 步，@ 准备代码
   P-->>M: 代码目录和分支
   M->>C: 进到第 4 步，@ 编码
-  C->>C: Claude Code 定位、修改、内部审查
+  C->>C: 定位、修改、跑测试、request_review
   C-->>M: 改了什么，审查通过
   M->>P: 进到第 5 步，@ 开 MR
   P-->>M: MR 链接
@@ -296,14 +294,14 @@ sequenceDiagram
 
 ### 5.5 编码和审查是一个 bot 的两面
 
-编码和审查都在 coding bot 内部完成，对外只交一次结果。
+编码和审查都在 coding bot 这一步里完成，对外只交一次结果。
 
-1. Claude Code 在代码目录里定位问题并修改。
-2. Claude Code 调用内置的审查子 agent。审查子 agent 由系统在启动 Claude Code 时定义：它的说明是我们写的，它只有读和搜索的工具，它有自己独立的上下文，看不到修改过程中的思考，只看任务和改动。
-3. 审查不通过时，Claude Code 按审查意见再改，再审。最多三轮：这只是写在 coding bot 提示词里的要求，代码不计轮数、不强制（配置里的 `reviewMaxRounds` 没有被用到）。未实现。
-4. coding bot 调用 `review_report` 把审查结论、审查意见和轮数记到任务上，然后给出最终答复。
+1. coding bot 在代码目录里定位问题并修改（DSH 的 `read`、`glob`、`grep`、`edit`、`write`），用 `run_tests` 跑频道绑定里的测试命令。
+2. coding bot 调用 `request_review`，给一段改动说明。系统拼出审查者看到的材料：`reviewer.md` 的说明、Slack 原文和摘要、Jira 单、coding bot 的说明、代码目录对基准提交的真实 diff；用 DSH 的子 agent 起一个审查者（`readonly` 预设：只有读和搜索），和 coding bot 同模型同强度，有自己的上下文，看不到修改过程中的思考。系统等它答完，把结论（通过或不通过）、意见和轮数记到任务上（`review.by` 为 `reviewer`）。
+3. 审查不通过时，coding bot 按意见再改，再调用 `request_review`。轮数由系统数，`reviewMaxRounds`（默认 3）轮后再要审查直接被拒。CI 步每一轮失败后，监控清掉审查结论，重新从第 1 轮数。
+4. CI 步里修不了时，coding bot 用 `review_report` 记 `cannot_fix` 和原因（只在 CI 步可用）。
 
-这样返工在 Claude Code 的同一段对话里完成，不用经过主 bot 来回转交。
+这样返工在 coding bot 的同一轮里完成，不用经过主 bot 来回转交。
 
 三轮后审查仍不通过时，coding bot 报告“审查未通过”和原因，主 bot 以失败结束任务，分支保留。
 
@@ -333,7 +331,8 @@ sequenceDiagram
 | 群因 bot 之间来回空转被暂停 | 监控 | 任务记为失败 |
 | 群安静而任务没结束 | 监控 | 给主 bot 补一条消息，最多 2 次；第 3 次任务记为失败 |
 | 任务总时限到 | 监控 | 停止整群，任务记为超时 |
-| Claude Code 长时间无输出 | 监控 | 中断并重试一次；再发生则任务记为失败 |
+| coding bot 一轮里长时间无输出（测试或审查进行中不算） | 监控 | 中断并重试一次；再发生则任务记为失败 |
+| coding bot 一轮里工具调用超过 `codingMaxSteps`（默认 200） | 监控 | 停掉 coding bot，任务记为失败（`coding_max_steps`） |
 | 改动超过规模上限 | `mr_open_draft` | 不开 MR；主 bot 以“需要人工处理”结束任务，分支保留 |
 | 出现审批请求 | 监控 | 一律拒绝，并写进执行记录 |
 | 模型或网络瞬时失败 | bot 层 | 重试 3 次 |
@@ -422,28 +421,29 @@ Slack 讨论是不可信输入。读它的 bot 没有任何碰代码、Jira 和 
 
 | 项 | 规格 |
 |---|---|
-| 对应的服务 | Claude Code |
-| 职责 | 在代码目录里定位问题、修改，并在内部完成审查；CI 失败时应 Git Pipeline bot 的叫，在同一代码目录里修 |
-| 引擎 | Claude Code。coding bot 自己没有另外的模型，Claude Code 就是它 |
-| 权限 | 能读写本任务的代码目录；能跑 `git status`、`git diff` 和频道绑定里列的测试命令；Claude Code 以“不弹审批”的方式运行，不在放行范围内的操作直接被拒，不会变成审批 |
-| 工具 | Claude Code 自带的读、搜索、改文件和受限的命令行；内置的审查子 agent；经本机 MCP 桥递给它的 `task_read`、`request_code`、`review_report`（第 6 步还可登记 `cannot_fix`）、`needs_info_confirm` |
-| 输入 | 主 bot 的调用；任务上的摘要和 Jira 单；第 6 步里 Git Pipeline bot 的失败摘要 |
-| 产出 | 代码目录里的改动；审查结论；说明：原因是什么、改了哪些文件、没有验证什么 |
-| 不做 | 不推分支；不开 MR；不碰 Slack 和 Jira |
-| 说明要点 | 只做任务要求的改动；改完必须交给审查子 agent 审，通过后才交结果；信息不够时不猜，调用 `needs_info_confirm`；沿用仓库自己的指令文件；CI 修复不许放宽 CI 配置、阈值、基线，不许跳过或删测试，只有这些办法能过就报 `cannot_fix` |
+| 对应的服务 | 本任务的代码目录 |
+| 职责 | 在代码目录里定位问题、修改，跑测试，请系统审查；CI 失败时应 Git Pipeline bot 的叫，在同一代码目录里修 |
+| 引擎 | DSH 会话，模型是配置的 `codingModel`（默认 `anthropic/claude-sonnet-5-5`），推理强度 `codingEffort`（默认 `high`）；和其他四个 bot 用同一个 Anthropic API key |
+| 权限 | DSH agent 预设 `coding`（`config/cordis.patch.yml`）：读、搜索、写、改文件，没有 shell、网络、子 agent、计划等工具；权限预设 `workspace-write`：写文件只能落在会话的工作目录（代码目录）和临时目录里；审批策略 `never`，越权请求直接被拒 |
+| 工具 | DSH 自带的 `read`、`read_image`、`glob`、`grep`、`edit`、`write`；角色工具 `task_read`、`repo_diff`、`run_tests`、`request_review`、`request_code`、`review_report`（只记 `cannot_fix`，只在 CI 步）、`needs_info_confirm` |
+| 输入 | 主 bot 的调用；任务上的摘要、Jira 单和测试命令；第 6 步里 Git Pipeline bot 的失败摘要 |
+| 产出 | 代码目录里的改动；审查结论（系统记）；说明：原因是什么、改了哪些文件、没有验证什么 |
+| 不做 | 不推分支；不开 MR；不碰 Slack 和 Jira；不跑测试命令以外的任何命令 |
+| 说明要点 | 只做任务要求的改动；改完用 `request_review` 审，通过后才交结果；信息不够时不猜，调用 `needs_info_confirm`；沿用仓库自己的指令文件；CI 修复不许放宽 CI 配置、阈值、基线，不许跳过或删测试，只有这些办法能过就报 `cannot_fix` |
 
-审查子 agent：
+`run_tests`：参数是一条测试命令，必须和频道绑定 `testCommands` 里的某一条完全相同；在代码目录里用 `sh -c` 原样运行，有时限（`testMinutes`，默认 10 分钟，到时整组进程被杀），环境变量只放行一张白名单（PATH、HOME、LANG 等），不带任何令牌；返回退出码和输出的末尾。
+
+审查者：
 
 | 项 | 规格 |
 |---|---|
-| 是什么 | Claude Code 自带的子 agent 机制里的一个子 agent。它不是注册的 bot，不在群里 |
-| 谁定义 | 系统在启动 Claude Code 时传入它的说明和工具，coding bot 不能改 |
-| 工具 | 只有 Read、Grep、Glob（读和搜索） |
-| 上下文 | 独立；只看任务、摘要和改动，以及它自己在仓库里读到的代码 |
-| 判断 | 改动是否解决了任务描述的问题；有没有超出任务范围；有没有漏掉相关的调用点 |
-| 产出 | 通过或不通过，以及理由 |
-
-coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会话一个 Claude Code 进程，双向逐行 JSON；系统提示词追加在 Claude Code 自己的提示词后面。
+| 是什么 | `request_review` 用 DSH 的子 agent 服务（`@deepseek-ai/dsh-subagent` 的 `startActivation`，进程内 spawn，结果交回调用方）起的一个子会话。它不是注册的 bot，不在群里 |
+| 谁定义 | 系统：说明是 `reviewer.md`，预设由注册表 `reviewer.preset` 定（`readonly`），输入由系统拼，coding bot 只能提供改动说明 |
+| 工具 | 只有 `read`、`read_image`、`glob`、`grep` |
+| 上下文 | 独立；只看系统给的材料和它自己在代码目录里读到的代码 |
+| 判断 | 改动是否解决了任务描述的问题；有没有超出任务范围；有没有漏掉相关的调用点；有没有明显会出错的地方 |
+| 产出 | 第一行“pass”或“not pass”，然后是理由；系统据此记结论，第一行不清楚的按不通过记 |
+| 时限和费用 | 一次审查最长 `reviewMinutes`（默认 15 分钟），到时停掉；审查者的 token 记到 coding bot 名下 |
 
 ## 7. 任务层各组件的规格
 
@@ -506,8 +506,8 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 | 项 | 规格 |
 |---|---|
-| 检查 | 各项时限、群是否安静、群是否因空转被暂停、Claude Code 是否有输出、审批事件；MR 的 pipeline（第 6 步，每 `ciPollSeconds` 秒一次，规格 7 第 4.4 节） |
-| 动作 | 催主 bot；中断 Claude Code；停止整群；结束任务；拒绝审批；重跑失败的 job、通知 Git Pipeline bot 或主 bot、往 Slack 发 CI 进度 |
+| 检查 | 各项时限、群是否安静、群是否因空转被暂停、coding bot 是否有输出（测试和审查进行中不算）、coding bot 一轮的工具调用数、审批事件；MR 的 pipeline（第 6 步，每 `ciPollSeconds` 秒一次，规格 7 第 4.4 节） |
+| 动作 | 催主 bot；中断 coding bot；停止整群；结束任务；拒绝审批；重跑失败的 job、通知 Git Pipeline bot 或主 bot、往 Slack 发 CI 进度 |
 | 数值 | [tools-and-limits.md](tools-and-limits.md) 第 4 节，全部是配置项 |
 
 ### 7.8 控制接口
@@ -547,50 +547,52 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 
 | 配置 | 内容 |
 |---|---|
-| bot 注册表 | 五个 bot 的定义：DS Bot 的 bot 字段（名字、角色标签、说明、模型线路、权限）加一项工具清单；审查子 agent 的说明 |
+| bot 注册表 | 五个 bot 的定义：DS Bot 的 bot 字段（名字、角色标签、说明、模型线路、权限）加 DSH agent 预设和推理强度，再加一项工具清单；审查者的说明和预设 |
 | 流程定义 | 步骤表、完成证据、每步允许的写工具 |
 | 群公告 | 步骤顺序和协作规范 |
-| 频道绑定 | 每个频道对应的仓库、默认分支、Jira 项目、单的类型和标签；本地仓库路径（`localRepo`）和远端（`remote`）；测试命令 `testCommands`（coding bot 可以运行的命令）；准备命令 `setupCommands`（本意是新建代码目录后运行一次；现在只做校验，没有地方运行它们：未实现） |
+| 频道绑定 | 每个频道对应的仓库、默认分支、Jira 项目、单的类型和标签；本地仓库路径（`localRepo`）和远端（`remote`）；测试命令 `testCommands`（coding bot 用 `run_tests` 能运行的命令，每条原样运行）；准备命令 `setupCommands`（本意是新建代码目录后运行一次；现在只做校验，没有地方运行它们：未实现） |
 | 适配器 | Slack、Jira、GitLab 各自用假的还是真的实现 |
 | 上限 | [tools-and-limits.md](tools-and-limits.md) 第 4 节的全部数值；另有 `limits.ci*` 和 `stepMinutes.ci`（规格 6） |
 | 价格表 | 可选 `pricing`，美元每百万 token，覆盖 `src/task/pricing.ts` 的默认价（规格 6） |
-| coding bot 模型和强度 | `codingModel`、`codingEffort`（`--effort`，默认 `high`） |
+| coding bot 模型和强度 | `codingModel`（默认 `anthropic/claude-sonnet-5-5`）、`codingEffort`（DSH 的推理强度，默认 `high`，审查者沿用）；上限 `codingMaxSteps`、`testMinutes`、`reviewMinutes`、`reviewMaxRounds` |
 | 并发 | 同时运行的任务数 |
 | 路径 | 数据目录、代码目录的根 |
 | 凭证 | Slack、Jira、GitLab 的令牌；Anthropic API 密钥；全部只从环境变量读，配置文件里不能写 |
-| 引擎登录 | `engineAuth`：`login`（用本机已登录的 Claude Code 账号，默认）或 `apiKey`（用环境变量里的 Anthropic API 密钥） |
+| 模型密钥 | 五个 bot 共用环境变量里的一个 `ANTHROPIC_API_KEY`（DSH 经配置补丁读取）；模型是 `anthropic/...` 而没有 key 时启动报错。旧配置里的 `engineAuth`、`codingPermission` 不再使用；`claude-code/...` 模型线路被拒绝。配置说明见 [configuration.md](../configuration.md) |
 | 语言 | `language`，默认 `zh`；Slack bot 和 coding bot 的说明还要求用讨论的语言回复 |
 
 ## 9. 权限和安全
 
 | 规则 | 做法 |
 |---|---|
-| 只有 coding bot 能改代码 | 其余四个 bot 用只读预设；代码目录只有 coding bot 的 Claude Code 写 |
-| 审查子 agent 不能改代码 | 启动时只给它读和搜索的工具 |
-| 令牌不给 bot | 令牌只在工具内部；启动 Claude Code 时只放行一张环境变量白名单（PATH、HOME、LANG 等），其余一律不传 |
+| 只有 coding bot 能改代码 | 其余四个 bot 用只读预设；只有 coding bot 的 `coding` 预设有写和改，写只能落在代码目录里 |
+| 审查者不能改代码 | 它的预设是 `readonly`，只有读和搜索 |
+| coding bot 只能跑测试命令 | 它没有 shell；`run_tests` 只运行绑定里的命令，不接受别的 |
+| 令牌不给 bot | 令牌只在工具内部；`run_tests` 运行测试命令时只放行一张环境变量白名单（PATH、HOME、LANG 等），其余一律不传 |
+| 读文件 | DSH 的沙箱只限写不限读，bot 能读到数据目录和机器上的其他文件；它们没有网络和 shell，读到的东西只能写进群聊。真正的边界是部署时的容器 |
 | Slack 文字不可信 | 只有 Slack bot 读原文；发到群里的原文标明是材料；读原文的 bot 没有碰代码、Jira 和 MR 的工具 |
 | 写操作定死 | 每个写工具只做一件事，只在指定步骤可用，目标由任务决定 |
 | 不强推 | 分支只追加提交、普通推送（开 MR 和 CI 修复都是）；推送被拒就停下报告，不覆盖别人推到分支上的提交 |
 | 没审过不开 MR | `mr_open_draft` 要求任务上记有“审查通过” |
 | 不合并 | 没有任何工具能合并、批准、关闭 MR |
-| 审批不等人 | Claude Code 以“不弹审批”的方式运行；万一出现审批，监控一律拒绝并记录 |
+| 审批不等人 | 权限预设的审批策略是 `never`，越权请求直接被拒；万一出现审批，监控一律拒绝并记录 |
 | 一个任务一个代码目录 | 任务之间的代码互不可见 |
 
 演示阶段在本机 Mac 上运行，以当前用户的权限运行，没有容器边界。演示使用测试仓库。部署到公司机器时放进容器，容器是安全边界。
 
-引擎登录和隔离：`engineAuth` 为 `login` 时 Claude Code 用本机已登录的账号；为 `apiKey` 时用环境变量里的密钥，并且每个会话有自己的私有配置目录（在数据目录下），不碰 `~/.claude`。无论哪种，启动 Claude Code 时都用 `claudeMdExcludes` 把代码目录之上各级目录和机器主人配置目录里的 CLAUDE.md、AGENTS.md、rules 排除掉，只保留代码目录自己的指令文件，所以机器主人的个人指令不会进到 coding bot。
+指令文件：coding bot 的 `coding` 预设读代码目录里仓库自己的 `AGENTS.md`、`CLAUDE.md`（从工作目录到仓库根）；全局的只读 `$DSH_HOME` 和 `$DSH_AGENTS_HOME`，启动脚本把这两个指到数据目录，所以机器主人的个人指令不会进到 bot。
 
 ## 10. 部署形态
 
 | 阶段 | 形态 |
 |---|---|
-| 演示 | 本机 Mac；DSH 加 bot 层加任务层在一个进程里，DSH 无界面运行（网页服务关闭，见 `config/cordis.patch.yml`），用项目 `runtime/` 里打包的 DSH；本机的 Claude Code；Slack、Jira、GitLab 默认用假响应，代码目录是本地的真仓库；看任务和群里的对话用项目自己的查看工具，不用 DSH 的网页界面：`scripts/flow-page.ts`（流程时序图和群聊页）、`scripts/watch.ts`（终端）、`scripts/show-task.ts`（打印任务和记录） |
+| 演示 | 本机 Mac；DSH 加 bot 层加任务层在一个进程里，DSH 无界面运行（网页服务关闭，见 `config/cordis.patch.yml`），用项目 `runtime/` 里打包的 DSH；Anthropic API key；Slack、Jira、GitLab 默认用假响应，代码目录是本地的真仓库；看任务和群里的对话用项目自己的查看工具，不用 DSH 的网页界面：`scripts/flow-page.ts`（流程时序图和群聊页）、`scripts/watch.ts`（终端）、`scripts/show-task.ts`（打印任务和记录） |
 | 试用 | 同一台 Mac，接真实的 Slack 事件，开一个频道和一个仓库 |
-| 正式 | 公司机器上的容器，照 DS Bot 的 Docker 方式；Claude Code 用公司的 API 密钥 |
+| 正式 | 公司机器上的容器，照 DS Bot 的 Docker 方式；五个 bot 共用公司的 Anthropic API key |
 | 以后 | 命令行、SDK；MCP 形态暂不做 |
 
-运维和测试工具（都在 `scripts/`）：`start-chat-to-fix.sh` 和 `stop-chat-to-fix.sh` 启停进程，启动时只放行一张环境变量名单，并把 DSH、临时文件和 XDG 目录都放进数据目录；`smoke.ts` 用模拟模型和假的 Claude Code 冒烟，不调真模型，`--sentinel-home` 可把 HOME 换成空目录来查有没有写进用户主目录；`e2e/` 是真模型的一遍过回归套件（10 个用例，默认跑 7 个，隐藏测试加自动检查）；`first-run.ts`、`make-test-repo.ts`、`fake-event.ts` 帮第一次真实运行做准备。
+运维和测试工具（都在 `scripts/`）：`start-chat-to-fix.sh` 和 `stop-chat-to-fix.sh` 启停进程，启动时只放行一张环境变量名单，并把 DSH、临时文件和 XDG 目录都放进数据目录；`smoke.ts` 用模拟模型冒烟（含 coding bot 的工具清单和推理强度），不调真模型，`--sentinel-home` 可把 HOME 换成空目录来查有没有写进用户主目录；`e2e/` 是真模型的一遍过回归套件（10 个用例，默认跑 7 个，隐藏测试加自动检查）；`first-run.ts`、`make-test-repo.ts`、`fake-event.ts` 帮第一次真实运行做准备。
 
 ## 11. 运行上限
 
-数值和依据见 [tools-and-limits.md](tools-and-limits.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟（CI 步骤 30 分钟，等 pipeline 的时间另算：单个提交 30 分钟、合计 90 分钟、最多 3 个修复提交）；coding bot 内部最多三轮修改和审查（只是提示词里的要求，代码不强制，见 5.5）；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。
+数值和依据见 [tools-and-limits.md](tools-and-limits.md) 第 4 节。主要的几项：任务总时限 80 分钟；编码（含审查）40 分钟；拉代码 10 分钟；其余每步 5 分钟（CI 步骤 30 分钟，等 pipeline 的时间另算：单个提交 30 分钟、合计 90 分钟、最多 3 个修复提交）；coding bot 每步最多三轮审查（由 `request_review` 计数，见 5.5）；coding bot 一轮最多 200 次工具调用；一次测试 10 分钟；一次审查 15 分钟；同时运行 1 个任务。这些是初值，按该文件第 5 节的办法在跑过历史工单后校准。

@@ -1,6 +1,6 @@
 # Chat-to-Fix 交接文档
 
-> 历史快照：本文记录 2026-11-12 迁移前的目录和运行方式。当前代码位于仓库的 `src/chat-to-fix/`，文档位于 [根目录的文档区](../../docs/chat-to-fix/README.md)，依赖与命令由根目录 `package.json` 管理。请以 [当前上手说明](README.md) 为准。
+> 历史快照：本文记录 2026-11-12 迁移前的目录和运行方式。当前代码位于仓库的 `src/chat-to-fix/`，文档位于 [根目录的文档区](../../docs/chat-to-fix/README.md)，依赖与命令由根目录 `package.json` 管理。请以 [当前上手说明](README.md) 为准。2026-11-13：Coding bot 改为 DSH 原生，五个 bot 共用一个 Anthropic API key，Claude Code 路线已删，见 [plan-dsh-coding.md](../../docs/chat-to-fix/design/plan-dsh-coding.md)，本文里关于 Claude Code 的内容都已过时。
 
 写于 2026-11-12。给接手的人和接手的 Claude 会话看：新会话看不到之前的对话，需要知道的都在这里。
 

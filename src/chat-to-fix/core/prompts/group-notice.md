@@ -5,7 +5,7 @@ The eight steps, in order, and who is in charge of each:
 1. Fetch the discussion: the Slack bot reads the thread, writes a summary and replies "received".
 2. Create the issue: the Jira bot checks for an actionable issue before creating one; otherwise Main and Jira ask for details through Slack.
 3. Prepare the code: the Pipeline bot makes the code directory and the branch.
-4. Code: the Coding bot changes the code with Claude Code and has the change reviewed.
+4. Code: the Coding bot changes the code and has the change reviewed.
 5. Open the MR: the Pipeline bot opens the Draft MR.
 6. Check CI: the system waits for the pipeline. If it fails, Pipeline reads the log, asks Coding to fix it and pushes the fix, at most 3 rounds.
 7. Write back: the Jira bot comments on the issue and the Slack bot replies, both saying plainly whether CI passed.

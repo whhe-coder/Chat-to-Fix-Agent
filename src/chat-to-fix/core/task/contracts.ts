@@ -55,7 +55,7 @@ export const CI_OUTCOMES = Object.freeze(['passed', 'rounds_exhausted', 'not_loc
 /** The `reason` values of ci_stop (a subset of CI_OUTCOMES). (spec 7, 4.6) */
 export const CI_STOP_REASONS = Object.freeze(['not_locatable', 'out_of_scope', 'not_fixable'])
 
-/** `verdict` values of review_report; `cannot_fix` is accepted only in step ci. (spec 7, 4.6) */
+/** `task.review.verdict`: pass / fail come from request_review, cannot_fix from review_report (step ci only). (spec 7, 4.6) */
 export const REVIEW_VERDICTS = Object.freeze(['pass', 'fail', 'cannot_fix'])
 
 /**
@@ -163,7 +163,7 @@ export function newCi(sha: string, at: string, carry: { round?: number, waitedMs
  *   ci_stop       pipeline  write  ci         reason (CI_STOP_REASONS), note (not empty). Refuses unless ci.status == failed,
  *                                              ci.logRead, and for not_fixable review.verdict == cannot_fix. Writes
  *                                              ci = {settled: true, outcome: reason, note}.
- *   review_report coding    write  code, ci   verdict gains `cannot_fix` (only in step ci); comments say why.
+ *   review_report coding    write  ci         verdict `cannot_fix` only; comments say why (the review itself is request_review).
  *   request_code  coding    read   code, ci   (was: code only)
  */
 export const CI_TOOL_PARAMETERS = Object.freeze({
@@ -200,7 +200,7 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
 /**
  * I1 bot-layer facade — core/task/botlayer.ts (spec 5, section 3)
  * @typedef {object} BotLayer
- * @property {(def: {name: string, label: string, instructions: string, model: string, permission: string, preset?: string}) => Promise<string>} createBot
+ * @property {(def: {name: string, label: string, instructions: string, model: string, effort?: string, permission: string, preset?: string}) => Promise<string>} createBot
  * @property {(def: {name: string, memberIds: string[], adminId: string, notice: string}) => Promise<string>} createGroup
  * @property {(groupId: string, dir: string) => Promise<void>} setGroupWorkDir
  * @property {(groupId: string, text: string, requestId: string) => Promise<void>} postTask
@@ -222,6 +222,8 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  * @property {(botId: string, binding: {taskId: string, role: string}) => void} bindBot
  * @property {(botId: string) => void} unbindBot
  * @property {(sessionId: string) => ({botId: string, role: string, taskId: string} | undefined)} botOfSession
+ * @property {(req: {sessionId: string, prompt: string, preset?: string, timeoutMs: number}) => Promise<{childId: string, text: string, stopReason: string, diagnostic?: string}>} runReview
+ *   Runs a read-only DSH subagent of `sessionId` on `preset` with `prompt` and waits for its answer; its usage is booked to that session's bot.
  */
 
 /**
@@ -261,18 +263,18 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  * @property {boolean} failed           True when the turn ended with an error or was stopped.
  * @property {string} at
  *
- * @typedef {object} UsageEvent         onUsage (one round of an API bot, or one model of one Claude Code turn)
+ * @typedef {object} UsageEvent         onUsage (one round of a bot, or one whole review of the Coding bot's reviewer)
  * @property {string} sessionId
  * @property {string | null} botId
- * @property {'dsh' | 'cli'} source     'dsh': DSH's tokenUsage and sessionStats projections, as the difference over the round; 'cli': the Claude Code result event.
- * @property {string} model             The model that ran (what the provider or the CLI reported).
- * @property {string} [effort]          The effort level the Coding bot was started with.
+ * @property {'dsh' | 'cli'} source     'dsh': DSH's tokenUsage and sessionStats projections, as the difference over the round. ('cli': records of the removed Claude Code route, read only.)
+ * @property {string} model             The model of the bot's route.
+ * @property {string} [effort]          The bot's thinking level, when it has one.
  * @property {number} input             Uncached input tokens.
  * @property {number} output
  * @property {number} cacheRead
  * @property {number} cacheWrite
- * @property {number | null} costUsd    The CLI's own cost ('cli'); null for 'dsh', which the recorder prices from the table.
- * @property {number} durationMs        The span the speed is measured over (DSH: decodeMs of sessionStats; CLI: duration_api_ms, else duration_ms).
+ * @property {number | null} costUsd    null: the recorder prices the tokens from the table.
+ * @property {number} durationMs        The span the speed is measured over (decodeMs of sessionStats).
  * @property {number} [tpsTokens]       DSH only: decodeTokens, the output tokens of that span.
  * @property {number} [ttftMs]          DSH only: mean time to first token over the round's steps (ttftMs / ttftSteps).
  * @property {'dsh-decode' | 'cli-api' | 'cli-wall' | null} tpsBasis
@@ -351,8 +353,11 @@ export const CI_CONFIG_DEFAULTS = Object.freeze({
  * @property {string} label         DS Bot's `role` field (at most 24 characters).
  * @property {string} instructions  Name of the prompt file.
  * @property {string} model         Model route, or the name of the config key that holds it.
- * @property {string} permission
+ * @property {string} [effort]      Thinking level, or the name of the config key that holds it.
+ * @property {string} permission    DSH permission preset (sandbox mode): read-only or workspace-write.
+ * @property {string} preset        DSH agent preset (the built-in tools of the bot's sessions, config/cordis.patch.yml).
  * @property {string[]} tools       Tools only this bot has.
+ * @property {{instructions: string, preset: string}} [reviewer]  The reviewer request_review starts (coding only).
  *
  * @typedef {object} StepDef
  * @property {number} no

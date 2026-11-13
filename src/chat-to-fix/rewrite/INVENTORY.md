@@ -1,6 +1,8 @@
 # TS 改写前的代码统计
 
-写于 2026-11-12，对应提交 `d988a3e`。English version: [INVENTORY.en.md](INVENTORY.en.md)
+写于 2026-11-12，对应提交 `d988a3e`。English version: [INVENTORY.md](INVENTORY.md)
+
+2026-11-13 注：表里的 `host/local-agents/`（Claude Code 路线）已整个删掉，Coding bot 改为 DSH 原生，见 [plan-dsh-coding.md](../../../docs/chat-to-fix/design/plan-dsh-coding.md)。本文其余数字是当时的统计，不再更新。
 
 这份统计用来回答两个问题：从 DS Bot 搬来的 `bot/` 里，哪些是我们真正在用的；删掉其余部分之后，测试还能不能跑。结论是本次 TS 改写的范围依据。
 

@@ -7,9 +7,9 @@
 //   - cacheWrite is the 5-minute-TTL rate (1.25 x input); cacheWrite1h is the 1-hour rate (2 x input).
 //     DSH reports one `cacheWriteTokens` figure without the TTL, so the 5-minute rate is used for it.
 //   - claude-haiku-5-5 is listed at its price for prompts up to 100K tokens.
-//   - The Coding bot's cost does not come from this table: Claude Code reports its own costUSD per
-//     model (core/engine/claude.ts), which is authoritative. The table prices the four API bots, and
-//     the Coding bot only when the CLI sent no cost.
+//   - Every bot (the Coding bot and its reviewer included) runs on DSH's API route, and DSH reports no
+//     cost, so this table prices every usage record. (Records of the Claude Code route, removed on
+//     2026-11-13, carried the CLI's own cost, which the recorder kept.)
 // A model that is not in the table has no price: the cost is null and the record is marked unpriced.
 // A price is never guessed.
 
@@ -26,7 +26,7 @@ export const DEFAULT_PRICING = Object.freeze({
 const PER_MILLION = 1_000_000
 
 /**
- * The key a model id is looked up under: no provider prefix (`anthropic/`, `claude-code/`), no
+ * The key a model id is looked up under: no provider prefix (`anthropic/`, or `claude-code/` in old records), no
  * context-window suffix (`[1m]`), no trailing date (`-20261101`), lower case.
  */
 export function normalizeModel(model) {

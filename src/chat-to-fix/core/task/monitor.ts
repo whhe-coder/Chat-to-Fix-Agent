@@ -16,9 +16,9 @@ export const NUDGE = Object.freeze({
   ciQuiet: (minutes) =>
     `[system] Nobody in the group has done anything for ${minutes} minutes. Continue this CI round: read the log, ask the Coding bot to fix it, push the fix with mr_push_fix, or stop the loop with ci_stop.`,
   ciEngineSilent: (minutes) =>
-    `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
+    `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
   engineSilent: (minutes) =>
-    `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
+    `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
 })
 
 const where = (task) => {
@@ -155,9 +155,13 @@ export const IDLE_RELAY_NOTICE = /went back and forth \d+ times without progress
 // Session events of the Coding bot. DSH emits 'turn/start' when a turn opens and 'turn/end' when it
 // closes (DSB:src/host/turns.js:667 and :896). Only these two change whether a turn is running;
 // every other session event (text, tool calls, results...) counts as output and refreshes the clock.
-// A RoundEndEvent from the facade also closes the turn.
+// A RoundEndEvent from the facade also closes the turn. Every 'tool/call' of the turn is a step: DSH has no
+// step limit of its own, so the monitor counts them (limits.codingMaxSteps). The Coding bot's two long
+// tools (a test run, a review) are silent while they run: a call of one of them in flight is not silence.
 const TURN_START = 'turn/start'
 const TURN_END = 'turn/end'
+const TOOL_CALL = 'tool/call'
+const LONG_TOOLS = new Set(['run_tests', 'request_review'])
 
 const MINUTE = 60_000
 
@@ -193,8 +197,24 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     const w = taskOfSession(ev.sessionId, ev.botId)
     if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
     w.lastCodingEventAt = now()
-    if (ev.type === TURN_START) w.turnRunning = true
-    else if (ev.type === TURN_END) w.turnRunning = false
+    if (ev.type === TURN_START) {
+      w.turnRunning = true
+      w.codingSteps = 0
+      w.longCalls = 0
+    } else if (ev.type === TURN_END) {
+      w.turnRunning = false
+      w.longCalls = 0
+    } else if (ev.type === TOOL_CALL) {
+      w.codingSteps += 1
+      if (LONG_TOOLS.has(ev.event?.data?.name)) w.longCalls += 1
+    }
+  }
+
+  function onToolResult(ev) {
+    const w = taskOfSession(ev.sessionId, ev.botId)
+    if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
+    w.lastCodingEventAt = now()
+    if (LONG_TOOLS.has(ev.tool)) w.longCalls = Math.max(0, w.longCalls - 1)
   }
 
   function onRoundEnd(ev) {
@@ -202,6 +222,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
     w.lastCodingEventAt = now()
     w.turnRunning = false
+    w.longCalls = 0
   }
 
   function onGroupLine(ev) {
@@ -221,7 +242,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
   function subscribe() {
     if (unsubscribers.length > 0) return
     const subs: [string, any][] = [
-      ['onSessionEvent', onSessionEvent], ['onRoundEnd', onRoundEnd],
+      ['onSessionEvent', onSessionEvent], ['onToolResult', onToolResult], ['onRoundEnd', onRoundEnd],
       ['onGroupLine', onGroupLine], ['onApproval', onApproval],
     ]
     for (const [name, fn] of subs) {
@@ -261,7 +282,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       taskId, watchedAt: t, baseAt: opts.restarted ? t : 0, restarted: !!opts.restarted,
       groupId: null, bots: {}, runNo: null, taskNo: null, lead: 'main', step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,
-      lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, idleRelay: false, ended: false,
+      lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, codingSteps: 0, longCalls: 0, idleRelay: false, ended: false,
       ciPolledAt: 0, ciPhaseKey: null,
     }
     watched.set(taskId, w)
@@ -493,8 +514,14 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       }
     }
 
-    // 6. Claude Code produces no output while its turn is running.
-    if (w.turnRunning && t - w.lastCodingEventAt > limits.engineSilentMinutes * MINUTE) {
+    // 7. The Coding bot made more tool calls in one turn than codingMaxSteps (a model going round in circles).
+    if (limits.codingMaxSteps !== undefined && w.codingSteps > limits.codingMaxSteps) {
+      try { if (w.bots.coding) await botlayer.stopBot(w.bots.coding) } catch (error) { warn('chat-to-fix: monitor cannot stop the Coding bot: %s', error?.message ?? error) }
+      return endTask(w, 'failed', 'coding_max_steps', 'coding_max_steps', `stopped the Coding bot after ${w.codingSteps} tool calls in one turn and ended the task (failed)`)
+    }
+
+    // 6. The Coding bot produces no output while its turn is running (a test run or a review in flight excepted).
+    if (w.turnRunning && w.longCalls === 0 && t - w.lastCodingEventAt > limits.engineSilentMinutes * MINUTE) {
       w.engineSilentCount += 1
       if (w.engineSilentCount >= 2) {
         return endTask(w, 'failed', 'engine_silent', 'engine_silent', 'ended the task (failed), second silence')

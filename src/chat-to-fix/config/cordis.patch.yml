@@ -15,7 +15,8 @@
 #    @deepseek-ai/dsh-llm-pi-ai, dormant until `providers` is set). The key is a reference to the
 #    environment variable, never the key itself. A `models` entry whose id is in pi-ai's installed
 #    catalog takes every other field (endpoint, context window, output cap) from the catalog.
-#    The model id must be the part after "anthropic/" of `apiModel` in the chat-to-fix configuration.
+#    The model ids must be the parts after "anthropic/" of `apiModel` and `codingModel` in the chat-to-fix
+#    configuration (both claude-sonnet-5-5 by default); add a `models` entry when they differ.
 - id: llm-pi-ai
   config:
     providers:
@@ -104,15 +105,15 @@
 - id: workspace-changes
   disabled: true
 
-# 6. Read-only agent preset `readonly` (new), used by the four bots that run on the API
-#    (src/task/runner.ts presetOf). A row of @deepseek-ai/dsh-agent-preset (config id, name,
-#    description, order, plugins), registered with the web-app's agent-preset-registry. The file
+# 6. Read-only agent preset `readonly` (new), used by the four flow bots and by the Coding bot's reviewer
+#    (core/registry/bots.ts `preset`, `reviewer.preset`). A row of @deepseek-ai/dsh-agent-preset (config id,
+#    name, description, order, plugins), registered with the web-app's agent-preset-registry. The file
 #    tool keeps read and readImage and loses write, edit and apply_patch; the search tool is
 #    read-only; no bash, pwsh, jobs, web, subagent or plan tools are listed, so the preset has none.
 #    Compaction is composed as in the shipped presets, so a long session can still be compacted.
 #    Every session the bot layer creates (a bot's own, its group session, a fresh part, the group's
-#    relay session) names its bot's preset, so the shipped `standard` preset is left as it is; only
-#    the Coding bot uses it (its route is Claude Code, which brings its own tools).
+#    relay session) names its bot's preset, so the shipped `standard` preset is left as it is and no
+#    bot uses it.
 - insert:
     - id: preset-readonly
       name: '@deepseek-ai/dsh-agent-preset'
@@ -149,15 +150,67 @@
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
 
+# 6b. Coding agent preset `coding` (new), used by the Coding bot (core/registry/bots.ts). The same rows as
+#    `readonly` plus the file tool's write and edit (apply_patch stays off, as in the shipped presets), the
+#    workspace instruction files (the repository's AGENTS.md / CLAUDE.md, from the working folder up to the
+#    repository root; the user-global ones come from $DSH_HOME and $DSH_AGENTS_HOME, which the start script
+#    points into the data folder), the time context and the tool-result pruner. No shell (bash, pwsh, jobs):
+#    the Coding bot runs tests only through the run_tests tool of the task layer. No web, subagent, schedule,
+#    ask-user, plan, todo, goal, skill or plugin tools: the review is started by the system (request_review).
+#    Writes are confined to the session's working folder by the permission preset workspace-write (row 3)
+#    through dsh-fs-sandbox.
+- insert:
+    - id: preset-coding
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: coding
+        name: Coding
+        description: Read, search, write and edit files in the working folder; no shell, web or delegation tools.
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a coding agent powered by the {{model}} model.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
 # 7. This project's plugin (core/plugin.ts): the bot layer and the task layer. The profile links
 #    the repository root as the package `chat-to-fix` (node_modules/chat-to-fix -> root, made by the start
 #    script); the package has no `main`/`exports`, so the row names the entry file by subpath.
-#    The row config reaches the bot layer as rt.config: `claudeCommand` is the Claude Code CLI
-#    the Coding bot's route `claude-code` runs (the desktop app keeps it inside its bundle, so it
-#    is not on PATH); unset, the bot layer looks for `claude` on PATH. Without a CLI there is no
-#    `claude-code` route and a task fails at start ("Model claude-code/default is not available").
 - insert:
     - id: chat-to-fix
       name: chat-to-fix/src/chat-to-fix/core/plugin.ts
-      config:
-        claudeCommand: !!js process.env.CLAUDE_BIN || undefined

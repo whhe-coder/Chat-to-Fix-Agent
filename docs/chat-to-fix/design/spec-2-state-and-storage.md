@@ -109,7 +109,7 @@
 | `jira` | Jira 的工具 | 单号、链接、是否已写 MR 链接、当前状态 |
 | `issueAssessment` | `jira_assess_request` | 建单前的判断：来源原文、具体问题、可检查的结果；新运行时清空 |
 | `repo` | 仓库的工具 | 代码目录、分支、基准提交 |
-| `review` | `review_report` | `verdict`、`comments`、`rounds`、`at` |
+| `review` | `request_review`（`pass`、`fail`）；`review_report`（`cannot_fix`） | `verdict`、`comments`、`rounds`、`at`、`by`（`reviewer` 或 `coding`） |
 | `mr` | `mr_open_draft`、`mr_push_fix` | `url`、`iid`（MR 编号）、`sha`（当前提交） |
 | `ci` | 监控、`mr_push_fix`、`ci_read_log`、`ci_stop` | CI 状态：`status`、`sha`、`round`、`retried`、`since`、`waitedMs`、`pipelineUrl`、`failedJobs`、`logRead`、`settled`、`outcome`、`note`；监控第一次在步骤 `ci` 看到任务时才建，之前是 `null`。字段含义见规格 7 的 4.3 |
 | `needsInfo` | `needs_info_confirm` | `main`、`jira`、`coding` 的确认文字和时间；一次追问只需当前步骤的两方确认 |
@@ -148,10 +148,10 @@
 | `refused` | 步骤把关 | 被拒绝的操作和原因 |
 | `limit` | 监控 | 触发的是哪一项上限、采取的动作 |
 | `approval` | 监控 | 审批的内容和应答 |
-| `refusal` | 记录器 | Claude Code 引擎的一行，说明某次工具使用被拒绝或权限请求超时 |
-| `tool_error` | 记录器 | Claude Code 引擎的一行，说明某次工具使用出错 |
+| `refusal` | 记录器 | 只出现在 2026-11-13 前的记录里（已删的 Claude Code 路线）：某次工具使用被拒绝或权限请求超时。现在被拒的工具调用就是一条失败的 `tool_result` |
+| `tool_error` | 记录器 | 同上，只在旧记录里 |
 | `system` | 运行器、监听口 | 建任务、启动、解散、结束 |
-| `usage` | 记录器 | 一次模型调用的用量：模型、各类 token、费用（`costUsd`，没价格时 `null`）、来源（`dsh` 或 `cli`）、耗时、输出速度。API bot 每一轮一条；Coding bot 每个 Claude Code 回合里每个模型一条 |
+| `usage` | 记录器 | 一次模型调用的用量：模型、各类 token、费用（`costUsd`，没价格时 `null`）、来源（`dsh` 或 `cli`）、耗时、输出速度。每个 bot 每一轮一条；审查者每次审查一条，记在 Coding bot 名下；来源 `cli` 只在 2026-11-13 前的记录里 |
 | `ci` | 监控 | CI 步骤里的变化：失败、重跑、结论、通知主 bot（规格 7） |
 
 这里代码自己前后不一致：记录器会写 `refusal` 和 `tool_error`，但 `src/task/contracts.ts` 的 `RECORD_TYPES`（现在含 `usage`、`ci`）里仍没有它们。未实现：把它们补进那张清单。
@@ -165,7 +165,7 @@
 | `needs_info` | `needs_info` | 步骤把关 |
 | `needs_person` | `failed` | 步骤把关 |
 | 主 bot 给的说明文字 | `failed` | 步骤把关 |
-| `step_timeout`、`stalled`、`idle_relay`、`engine_silent`、`start_failed`、`restart` | `failed` | 监控、运行器 |
+| `step_timeout`、`stalled`、`idle_relay`、`engine_silent`、`coding_max_steps`、`start_failed`、`restart` | `failed` | 监控、运行器 |
 | `task_timeout`、`coding_timeout` | `timed_out` | 监控 |
 | `store_corrupt` | `failed` | 任务库 |
 | `stopped` | `stopped` | 控制接口 |
@@ -203,7 +203,6 @@
 | 会话事件里的工具调用 | `onSessionEvent` | `tool_call` |
 | 工具返回 | `onToolResult` | `tool_result` |
 | 一轮结束 | `onRoundEnd` | `round_end`，并写 `stepResults` |
-| 会话事件里 Claude Code 引擎的一行 | `onSessionEvent` | `refusal` 或 `tool_error` |
 | 一次模型调用的用量 | `onUsage` | `usage`，并调 `store.addUsage`；费用按价格表算，Coding bot 以命令行自带的费用为准 |
 
 记录器不订阅审批：审批由监控拒绝并自己写那一条 `approval`，再订阅就会写两遍（规格 3）。

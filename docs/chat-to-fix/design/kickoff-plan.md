@@ -4,6 +4,7 @@
 - 前提：方案和选型依据见 [decision-record.md](decision-record.md)。
 - 状态：本文的文件清单、函数签名和行号来自阅读 DS Bot 0.3.1 源码（`~/Documents/mywork/ds-bot/upstream/DS-Bot-0.3.1`），没有运行过。第 9 节列出需要运行确认的项。
 - 2026-11-12 注：本文已是历史文档，记录开工前的计划。之后代码改成了 TypeScript，bot 层放在 `bot/`，结构和本文不同；现状以 software-spec 和 spec-1 至 spec-6 为准。第 6 节的容器镜像还没做，仍可当部署待办看。
+- 2026-11-13：Coding bot 改为 DSH 原生，五个 bot 共用一个 Anthropic API key，Claude Code 路线已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)。本文里关于 Claude Code、MCP 桥、`--agents` 审查子 agent 的部分都只是历史。
 
 ## 1. 工程结构
 

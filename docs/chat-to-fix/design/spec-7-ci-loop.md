@@ -1,8 +1,8 @@
 # 细分规格 7：CI 修复循环（最小版）
 
 - 日期：2026-11-12
-- 状态：2026-11-12 已实现，按代码（提交 192a721）更新。测试全用假 Slack、Jira、GitLab（模拟 CI）和假 Claude Code 命令行。**还没在真实运行里见过的**：Git Pipeline bot 用 `message_bot` 叫 Coding bot、Coding bot 交回给它；系统发给 `@Pipeline-<任务号>` 的消息经群里的 @ 只送到 Git Pipeline bot。**没在真实 GitLab 上验证的**：`retryJobs` 用的重跑接口、下游 pipeline 的 `project_id` 字段和跨项目读取、同一提交多条 MR pipeline 时的取法。第 4.1 节是提交 31b386d 上做的调研，保留原样。
-- 上位文档：[software-spec.md](software-spec.md)；流程表和门禁见规格 1，任务字段见规格 2，监控见规格 3，工具和适配器见规格 4，Coding bot 的 Claude Code 驱动见规格 5，配置和提示词见规格 6。
+- 状态：2026-11-12 已实现，按代码（提交 192a721）更新。测试全用假 Slack、Jira、GitLab（模拟 CI）和假 bot 层。2026-11-13：Coding bot 改为 DSH 原生，Claude Code 路线已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)。**还没在真实运行里见过的**：Git Pipeline bot 用 `message_bot` 叫 Coding bot、Coding bot 交回给它；系统发给 `@Pipeline-<任务号>` 的消息经群里的 @ 只送到 Git Pipeline bot。**没在真实 GitLab 上验证的**：`retryJobs` 用的重跑接口、下游 pipeline 的 `project_id` 字段和跨项目读取、同一提交多条 MR pipeline 时的取法。第 4.1 节是提交 31b386d 上做的调研，保留原样。
+- 上位文档：[software-spec.md](software-spec.md)；流程表和门禁见规格 1，任务字段见规格 2，监控见规格 3，工具和适配器见规格 4，Coding bot 的预设和审查见规格 5，配置和提示词见规格 6。
 - 来源：研究笔记 `ci-loop-design.md`（共享笔记目录 `local_ade7ee79…`）第 2.5 节"最小版"；Zihui 2026-11-12 的决定都已写进正文。
 - 参考（只作接口格式参考，不对齐设计）：公司仓库 `whhe-coder/Chat-to-Fix-Agent` 的 `README.md`「目标流程」、`spec/gitlab-mr-client.md`、`src/gitlab/client.js` 的 `getMergeRequestChecks` 和 `getJobTrace`（这两个已用真实 GitLab 只读验证过）。
 
@@ -23,7 +23,7 @@
 - **CI 步骤由 Git Pipeline bot 专职负责**（2026-11-12 Zihui 定）。主 bot 只在进入 CI 步骤时交给 Git Pipeline bot，等系统告诉它 CI 有结论后推进到回写，中间不插手。
 - **系统等 pipeline**：放在监控现有的定时检查里，没有新建模块。系统还负责数轮次、对一个提交第一次失败的 job 自动重跑一次（不区分是不是不稳定）、往 Slack 发进度。某一轮失败时通知 Git Pipeline bot；CI 因任何原因有了结论，通知主 bot 推进。
 - **Git Pipeline bot 主导每一轮**：读失败 job 的日志，写失败摘要；用 `message_bot` 直接叫 Coding bot 修；Coding bot 交回后，用 `mr_push_fix` 把修复作为一个新提交追加、普通推送。看过日志后判断定位不了或超出范围、或 Coding bot 已登记修不了时，用 `ci_stop` 记下停止原因。
-- **Coding bot**：被 Git Pipeline bot 叫来，按失败摘要在同一个工作目录里改代码，照旧过内置评审，再用 `review_report` 登记评审结论；修不了时登记 `cannot_fix` 并写清原因。做完交回给 Git Pipeline bot。
+- **Coding bot**：被 Git Pipeline bot 叫来，按失败摘要在同一个工作目录里改代码，照旧用 `request_review` 过评审（系统记结论）；修不了时用 `review_report` 登记 `cannot_fix` 并写清原因。做完交回给 Git Pipeline bot。
 - **CI 不过不代表 MR 没价值**：CI 没过时 MR 照样交付，任务以"完成"（状态 `done`）结束，结束原因里写明 CI 结论。只有 MR 都没开出来，任务才算失败。
 - **整条分支只追加、不强推**：开 MR（第 5 步）和 CI 轮次都是"追加提交、普通推送"。推送被拒就停下报告，不覆盖别人推到 `ai/<单号>` 上的提交。
 - **2026-11-12 已定（Zihui）**：上面这条；系统可以绕过 bot 直接碰外部服务的规则和三处清单，已记进 decision-record（第 4.7 节）；`ci_stop` 保留，不算"宣布完成"，但有两道限制（第 4.6 节）；CI 步骤由 Git Pipeline bot 专职负责，步骤里它可以直接叫 Coding bot（decision-record 第 2.11 节）。
@@ -54,7 +54,7 @@
 
 ```
 { no: 6, id: 'ci', roles: ['pipeline', 'coding'], evidence: ['ci.settled'],
-  writeTools: ['mr_push_fix', 'review_report', 'ci_stop'] }
+  writeTools: ['mr_push_fix', 'request_review', 'review_report', 'ci_stop'] }
 ```
 
 - "回写"是第 7 步，"结束"是第 8 步。`src/task/contracts.ts` 的 `STEP_IDS` 有 `ci`。
@@ -135,7 +135,7 @@ ci: null | {
 | `ci_read_log` | pipeline | 读 | 不限 | 参数 `job`（名字或 id，须在 `task.ci.failedJobs` 里）。`ci.status` 不是 `failed` 或没有失败 job 时拒绝。返回日志末尾（`limits.ciLogMaxChars`），标成"材料"，超长再截一次。第一次读时写 `ci.logRead: true` 和一条 `ci` 记录，作为"这一轮看过日志"的证据；适配器出错时不写 |
 | `mr_push_fix` | pipeline | 写 | `ci` | 参数 `commit_message`（一行 Conventional Commit，沿用 `checkCommitMessage`）。门禁另查 `review.verdict == pass`、`diff.withinLimits`。工具自己检查：`ci.status == failed`、还没有结论（`settled` 不为真）、`ci.round < ciMaxRounds`，否则拒绝并说明。成功后写 `ci = newCi(新提交, 现在, { round: +1, waitedMs: 原值 })`（`pending`，`retried`、`logRead` 为 false，`failedJobs` 清空）和 `lastPollAt: null`（按字段合并进 `task.ci`，旧的 `phaseAt` 留着，等待时监控不用它），`task.mr.sha` 也更新，记一条 `ci` 记录。没有改动（`nothing_to_commit`）时拒绝，`ci` 不变。推送被拒时写 `branch_changed`（见第 4.5 节）。其他适配器错误照常报错，不写任何东西 |
 | `ci_stop` | pipeline | 写 | `ci` | 参数 `reason`（`not_locatable`、`out_of_scope`、`not_fixable` 三选一）和 `note`（不能为空）。工具自己检查：`ci.status == failed`（等 pipeline 时不能停）、还没有结论；`ci.logRead`（这一轮看过日志才能停）；`reason` 为 `not_fixable` 时还要 `review.verdict == cannot_fix`（修不了必须是 Coding bot 自己登记的，Git Pipeline bot 不能替它认定）。写 `settled: true, outcome: reason, note`，记一条 `ci` 记录 |
-| `review_report`（现有） | coding | 写 | `code`、`ci` | `verdict` 多了 `cannot_fix`（`REVIEW_VERDICTS`），只在 `ci` 步骤能用，`comments` 写清为什么修不了；在 `ci` 步骤里也登记这一轮修复的评审结论 |
+| `review_report`（现有，2026-11-13 收窄） | coding | 写 | `ci` | 只收 `verdict: cannot_fix` 和 `comments`；评审本身改由 `request_review`（`code`、`ci`）记 |
 | `request_code`（现有） | coding | 读 | `code`、`ci` | 去掉了"只能在 code"的限制，改成 `code` 或 `ci` |
 
 - 3 轮上限由 `mr_push_fix` 自己检查（同 `slack_reply` 自己检查"每种用途只发一次"），没改门禁的求值器。
@@ -184,16 +184,9 @@ ci: null | {
 - `slack.md`、`jira.md`：回写（第 7 步）从 `task_read` 的 `ci` 读结论，一两句话如实写；CI 没过、循环停了或没有 CI 结果时写"Draft MR 已开，修复在里面"，加上没过的 job 或停止原因；Slack 不重复系统发过的进度；CI 没过时 Jira 不调 `jira_transition`。
 - **提示词和工具的一处不一致（未处理）**：`pipeline.md` 说"Coding bot 再试一次评审仍不通过，就 `ci_stop` `not_fixable`"，但 `ci_stop` 的 `not_fixable` 要求 `review.verdict == cannot_fix`，评审只是 `fail` 时会被拒。见第 7 节第 4 条。
 
-### 4.11 Coding bot 空闲关闭后靠回放续上（已用假命令行验证）
+### 4.11 Coding bot 空闲关闭后靠回放续上（已不适用）
 
-- 现有：Coding bot 的 Claude Code 进程最后一次输出后空闲 10 分钟就关闭（`bot/src/host/local-agents/adapter.ts` 的 `IDLE_CLOSE_MS`，`closeLive` 带 `idle`）。Coding bot 的会话不保存（`bot/src/host/local-agents/launch.ts` 的 `launchFor` 对它返回 `resumed: false`），所以再来请求时起一个新进程，靠回放续上：只回放系统提示加最近 12 条消息、最多 24KB（`REPLAY_MESSAGES`、`REPLAY_BYTES`，`renderReplay`）。
-- CI 每一轮修复几乎都会走这条路径，因为等 pipeline 加上 bot 之间的转交，Coding bot 两次请求之间通常超过 10 分钟。
-- 这次的改动（`adapter.ts`）：
-  1. 空闲时间可以注入：`idleCloseOf` 取 `deps.idleCloseMs`，其次运行时配置的 `idleCloseMs`，都没有时用 `IDLE_CLOSE_MS`。
-  2. **修了一个验证时发现的错误**：原来空闲计时器到点就关进程，哪怕这一轮还在跑（比如一段很久没输出的测试）。现在计时器（`arm`）到点时，如果进程的状态是 `running`、进程还活着，就重新计时，不关；等桥接工具调用或权限回答的轮次照旧可以被关，下次请求靠回放续上。
-- **验证**：`test/bot/idle-replay.test.ts`，用假 Claude Code 命令行（`test/fixtures/fake-claude.ts`），空闲时间设成 120 毫秒。覆盖：空闲关闭后的下一次请求起新进程、带上回放窗口、仍是原来那个 bot；回放窗口是系统提示、最新输入和最多 `REPLAY_MESSAGES` 条近期消息且不超过 `REPLAY_BYTES`；关闭后那一轮的用量照样记到这个任务的 Coding bot 上；重起的进程调桥接的角色工具时仍归到 Coding bot，`task_read` 拿到整个任务视图；一轮沉默超过空闲时间时进程不被关；等桥接工具调用超过空闲时间的一轮，结果到来后从回放续上。真实 Claude Code 上还没跑过这条路径。
-- 应对仍然有效：每一轮给 Coding bot 的请求自带全部上下文：失败摘要在 `stepResults.ci.pipeline`，CI 状态在 `task.ci`，`task_read` 一次就能拿到，不依赖回放。
-- `bot/` 是我们带的 DS Bot 代码，不是 DSH，改这里不违反"DSH 整体使用、不改"。
+这一节讲的是 Claude Code 命令行进程空闲关闭后怎么续上对话。2026-11-13 起 coding bot 是普通的 DSH 会话，会话由 DSH 自己保存，没有进程要关，也不用回放；原文在 git 历史里（提交 `0d80fd3` 的本文件）。
 
 ### 4.12 实现情况
 
@@ -207,7 +200,7 @@ ci: null | {
 | 工具 | 新文件 `src/tools/ci.ts`，`src/tools/index.ts`、`repo.ts`、`request-code.ts`、`task.ts`，`src/registry/bots.ts` |
 | 监控、配置 | `src/task/monitor.ts`、`src/config.ts`、`src/app.ts`、`config.example.json` |
 | 提示词 | `src/prompts/` 的六个文件 |
-| 空闲关闭 | `bot/src/host/local-agents/adapter.ts` |
+| 空闲关闭 | `bot/src/host/local-agents/adapter.ts`（2026-11-13 随 Claude Code 路线删除） |
 | 界面 | `scripts/watch.ts`、`scripts/flow-page.ts`、`scripts/debug-ui/` 加了步骤名 CI；`README.md` 改了 bot 名 |
 
 测试见第 5 节。提交说明里的结果：`npm test` 601 个通过，`test:layer` 43，`test:bot` 505（2 个跳过），smoke 24/24，类型检查无错（这次更新没有重跑）。

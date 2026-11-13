@@ -10,6 +10,8 @@ import { stepDef } from '../flow/steps.ts'
 import { costOf, priceTable } from './pricing.ts'
 import { fmtTokens, fmtTps, fmtUsd } from './usage.ts'
 
+// The text of an entry is cut by the store (core/task/store.ts TEXT_MAX), so the Coding bot's write and edit
+// calls (whole file contents) and its reads (whole files) stay short in the record.
 const argsText = (value) => {
   if (typeof value === 'string') return value
   try { return JSON.stringify(value ?? {}) } catch { return String(value) }
@@ -71,32 +73,7 @@ export function createRecorder({ store, botlayer, pricing = undefined, warn = (.
     return task === undefined ? undefined : { task, bot }
   }
 
-  // The Coding bot's own tool uses happen inside Claude Code, not as DSH tool calls. The adapter
-  // (bot/src/host/local-agents/adapter.ts) writes a refused or failed one as a reasoning line
-  // starting with "▸ denied:", "▸ permission request for … timed out" or "▸ tool error:"; those
-  // lines become entries so a refused test command is visible in the records.
-  const ENGINE_LINE = /^\s*▸ (denied:|permission request for .* timed out|tool error:)/
-  async function onEngineLines(e) {
-    const blocks = e.event?.data?.message?.content
-    if (!Array.isArray(blocks)) return
-    const lines = []
-    for (const block of blocks) {
-      if (block === null || typeof block !== 'object' || block.type === 'text') continue
-      const text = [block.text, block.thinking, block.reasoning].find((v) => typeof v === 'string')
-      if (text === undefined) continue
-      for (const line of text.split('\n')) if (ENGINE_LINE.test(line)) lines.push(line.trim())
-    }
-    if (lines.length === 0) return
-    const found = await ofSession(e.sessionId)
-    if (found === undefined) return
-    const { task, bot } = found
-    for (const line of lines) {
-      await append(task, runOf(task), bot.role, bot.botId, { at: e.at, type: line.startsWith('▸ tool error:') ? 'tool_error' : 'refusal', text: line })
-    }
-  }
-
   async function onSessionEvent(e) {
-    if (e.type === 'assistant/message') return onEngineLines(e)
     if (e.type !== 'tool/call') return // only tool calls become entries
     const found = await ofSession(e.sessionId)
     if (found === undefined) return
@@ -124,9 +101,9 @@ export function createRecorder({ store, botlayer, pricing = undefined, warn = (.
     await store.patchTask(task.id, { stepResults: { [task.step]: { [bot.role]: { text: e.text, at: e.at } } } })
   }
 
-  // One usage record per model call (API bots) or per model of a CLI turn (Coding bot), and the same record
-  // added to the task's running summary. The cost of an API call is computed from the price table; the CLI's
-  // own cost wins for the Coding bot. A model with no price gets costUsd null and unpriced true (never a guess).
+  // One usage record per round of a bot (and one per review of the Coding bot's reviewer), and the same record
+  // added to the task's running summary. The cost is computed from the price table; an event that brings its
+  // own cost keeps it. A model with no price gets costUsd null and unpriced true (never a guess).
   // Fields: see core/task/usage.ts.
   async function onUsage(e) {
     const found = await ofSession(e.sessionId)

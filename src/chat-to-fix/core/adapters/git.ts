@@ -3,8 +3,8 @@
 // Every call runs `git` with execFile (no shell string), a timeout, and a minimal environment:
 // the user's global and system git config are switched off, hooks are switched off, nothing may
 // prompt, and author and committer come from the configuration value `commitAuthor`.
-// The pattern (execFile + timeout + an explicit small env) follows the DS Bot reference
-// bot/src/host/local-agents/discover.ts:13 (outputOf) and :77.
+// The pattern (execFile + timeout + an explicit small env) follows the DS Bot 0.3.1 reference
+// local-agents/discover.ts (outputOf), a module this project no longer ships.
 //
 // Directory rules: a code directory is always <worktreesDir>/T-<n>; anything else is refused, so a
 // bot that is handed a wrong path cannot make this module touch another folder.

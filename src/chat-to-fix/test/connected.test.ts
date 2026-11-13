@@ -7,7 +7,7 @@ import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { agentAlreadyRunning, bridgeEnv, connectedConfig, prepareAgentRepo, saveConfig } from '../scripts/connected.ts'
+import { MISSING_KEY, agentAlreadyRunning, bridgeEnv, connectedConfig, prepareAgentRepo, saveConfig } from '../scripts/connected.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -28,7 +28,7 @@ test('已运行 Agent 的有效 token 和健康接口可避免重复启动', asy
     const configPath = join(dataRoot, 'chat-to-fix.json')
     writeFileSync(configPath, JSON.stringify({
       httpPort: port, apiModel: 'anthropic/claude-sonnet-5-5',
-      codingModel: 'claude-code/claude-sonnet-5-5', engineAuth: 'login',
+      codingModel: 'claude-code/claude-sonnet-5-5',
     }))
     await assert.rejects(execFileAsync(process.execPath, [join(import.meta.dirname, '../scripts/connected.ts'), '--start', '--data', dataRoot], {
       env: { ...process.env, ANTHROPIC_API_KEY: '', CHAT_TO_FIX_HTTP_TOKEN: 'local-token' }, encoding: 'utf8',
@@ -79,24 +79,26 @@ test('existing tokens reach real adapters without entering the saved configurati
   }
   const dataRoot = mkdtempSync(join(tmpdir(), 'chat-to-fix-connected-'))
   try {
-    const config = connectedConfig({ env, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
-    assert.equal(config.apiModel, 'claude-code/claude-sonnet-5-5')
-    assert.equal(config.engineAuth, 'login')
-    const withKey = connectedConfig({ env: { ...env, ANTHROPIC_API_KEY: 'test-key' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
-    assert.equal(withKey.apiModel, 'anthropic/claude-sonnet-5-5')
-    assert.equal(withKey.engineAuth, 'apiKey')
-    const explicitModel = connectedConfig({ env: { ...env, CHAT_TO_FIX_API_MODEL: 'claude-code/sonnet' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
-    assert.equal(explicitModel.apiModel, 'claude-code/sonnet')
-    assert.throws(() => connectedConfig({ env: { ...env, CHAT_TO_FIX_API_MODEL: 'anthropic/claude-sonnet-5-5' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot }), /ANTHROPIC_API_KEY is required/)
+    // No key: one clear message, before anything else happens.
+    assert.throws(() => connectedConfig({ env, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot }), (error: any) => error.message === MISSING_KEY)
+    assert.match(MISSING_KEY, /ANTHROPIC_API_KEY is not set.*all five bots on the Anthropic API/)
+    const keyed = { ...env, ANTHROPIC_API_KEY: 'test-key' }
+    const config = connectedConfig({ env: keyed, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
+    assert.equal(config.apiModel, 'anthropic/claude-sonnet-5-5')
+    assert.equal(config.codingModel, 'anthropic/claude-sonnet-5-5')
+    assert.equal('engineAuth' in config, false)
+    const explicitModel = connectedConfig({ env: { ...keyed, CHAT_TO_FIX_API_MODEL: 'anthropic/claude-opus-5-5', CHAT_TO_FIX_CODING_MODEL: 'anthropic/claude-opus-5-5' }, channel: 'C123ABC', localRepo: resolve('..'), jiraSite: 'https://site.atlassian.net', dataRoot })
+    assert.equal(explicitModel.apiModel, 'anthropic/claude-opus-5-5')
+    assert.equal(explicitModel.codingModel, 'anthropic/claude-opus-5-5')
     assert.deepEqual(config.adapters, { slack: 'outbox', jira: 'real', gitlab: 'real' })
     assert.equal(config.jira.apiVersion, '3')
     assert.equal(config.slack.inputMode, 'command')
     assert.equal(config.slack.mentions, false)
     assert.equal(config.bindings[0].remote, 'https://gitlab.example.com/account-platform/free-to-play-pc.git')
     assert.equal(bridgeEnv(env).CHAT_TO_FIX_SLACK_TOKEN, undefined) // no Slack token is handed to this service
-    const path = saveConfig(config, bridgeEnv(env), dataRoot)  // loads without any Slack token
+    const path = saveConfig(config, bridgeEnv(keyed), dataRoot)  // loads without any Slack token
     const saved = readFileSync(path, 'utf8')
-    for (const secret of [env.GITLAB_TOKEN, env.JIRA_TOKEN, env.SLACK_BOT_TOKEN, env.SLACK_APP_TOKEN]) assert.equal(saved.includes(secret), false)
+    for (const secret of [env.GITLAB_TOKEN, env.JIRA_TOKEN, env.SLACK_BOT_TOKEN, env.SLACK_APP_TOKEN, keyed.ANTHROPIC_API_KEY]) assert.equal(saved.includes(secret), false)
   } finally { rmSync(dataRoot, { recursive: true, force: true }) }
 })
 

@@ -78,7 +78,6 @@
 |---|---|
 | `defineRoleTool(def)` | 登记一个工具定义 |
 | `attachRoleTools(agent)` | 把属于这个会话的工具注册到它自己的范围里 |
-| `bridgedToolNames(sessionId)` | 这个会话里要递给 Claude Code 的工具名 |
 | `detachRoleTools(sessionId)` | 把一个会话的工具再摘掉（会话结束或换了 agent） |
 | `toolsFor(role)` | 一个角色拥有的工具定义 |
 | `call(name, sessionId, args)` | 经统一包装（4.2 节）执行一个工具；总是返回文字 |
@@ -93,7 +92,7 @@
 - bot 层每次为一个会话准备工具时，调用 `attachRoleTools`。
 - `attachRoleTools` 用 `botOfSession` 查这个会话属于哪个任务、哪个角色。查不到就什么都不做。
 - 把 `roles` 含这个角色（或为 `all`）的工具注册到这个会话自己的范围里，用的是 DS Bot 注册团队工具的同一个调用。
-- coding bot 走 Claude Code。它的工具除了注册到会话范围，还要出现在递给 Claude Code 的工具名单里，由 `bridgedToolNames` 提供。
+- coding bot 和其他 bot 一样，工具只注册到会话范围。它的两个长工具有自己的时限、不重试：`run_tests`（`limits.testMinutes`）和 `request_review`（`limits.reviewMinutes`）；定义里用 `timeoutMs(config)` 和 `retries` 两个可选字段。
 - 走 API 的四个 bot 没有 DSH 自带的写文件、命令行、网页工具，这由只读预设保证（规格 5、6）。
 
 ### 4.2 执行的统一包装
@@ -203,13 +202,13 @@ Jira 的工具只能访问 `jira.key` 那一张单。新建的单不带现有自
 | 正常 | 任务走完八步，状态 `done`；假 Jira 里有一张单并带 MR 链接；裸仓库里有分支 `ai/<单号>`；回复文件里有“ack”和“result” |
 | 建单前信息不足 | Jira bot 和主 bot 都确认后，回复文件里有“question”；状态 `needs_info`；假 Jira 没有新单 |
 | 编码时信息不足 | coding bot 和主 bot 都确认后，回复文件里有“question”；状态 `needs_info`；同一讨论再次提交事件后开始第二次运行，不产生第二张单 |
-| 审查未通过 | `review_report` 记下 `fail`；`mr_open_draft` 被拒绝；状态 `failed`；分支保留 |
+| 审查未通过 | `request_review` 记下 `fail`；`mr_open_draft` 被拒绝；状态 `failed`；分支保留 |
 
 另有 CI 修复循环的场景（`ci 1` 至 `ci 9`：一次通过、失败后读日志修复、flaky 重跑、允许失败的 job、三轮仍失败、`ci_stop` 的前提、没有 pipeline、别人推了提交导致推送被拒、补信息重跑时追加提交不强推），见规格 7。设计里的超时场景不在端到端文件里。规格 3 的时限规则由 `test/monitor.test.ts` 测；一次因超时结束并向原讨论发系统通知的端到端运行未实现。
 
-需要启动 coding bot 引擎的测试用假的 Claude Code 程序 `test/fixtures/fake-claude.ts`（`test/engine.test.ts`、`test/bot/` 里的测试和 `bot/test/local-agents*.test.ts` 用它）。`scripts/lib/fake-claude.sh` 是另一个替身，只给冒烟运行 `scripts/smoke.ts` 用。
+coding bot 的两个工具有自己的测试 `test/coding-tools.test.ts`（真实的存储和门禁，假的 bot 层和仓库）；门面的 `runReview` 在 `test/bot/botlayer.test.ts` 里用假的子 agent 服务测。假 bot 层（`test/helpers/fake-botlayer.ts`）的 `runReview` 默认答“pass”，可以改成别的回答。
 
-另有第二套测试 `scripts/e2e/`，用真实模型跑（真实的 API bot 和真实的 Claude Code，Slack、Jira、GitLab 仍是假的）。运行：`node scripts/e2e/run.ts`。每个用例是绑定的 Slack 频道里的一条缺陷报告，对着一个小的临时前端仓库（纯 Node，没有浏览器）。默认跑七个用例：文案错别字、圆角、按下效果、表单校验、价格显示（要补一个单元测试）、跨文件改动、提示注入（讨论里有恶意指令和假令牌）；另外三个可以按名字单独跑。每个用例带隐藏测试，隐藏测试在基准代码上必须失败、修好后必须通过。检查项（`scripts/e2e/checks.ts`）要求：一次跑通（八步、没有 `needs_info`、没有重跑、没有被拒绝的调用），只改允许的文件，只有一个提交且提交说明是一行，Jira 单、Slack 回复和 MR 都正确，并且里面没有密钥样式的字符串。报告写到运行目录里。`test/e2e-real.test.ts` 测的是这套测试本身，不调用模型。
+另有第二套测试 `scripts/e2e/`，用真实模型跑（五个 bot 都走真实模型，Slack、Jira、GitLab 仍是假的）。运行：`node scripts/e2e/run.ts`。每个用例是绑定的 Slack 频道里的一条缺陷报告，对着一个小的临时前端仓库（纯 Node，没有浏览器）。默认跑七个用例：文案错别字、圆角、按下效果、表单校验、价格显示（要补一个单元测试）、跨文件改动、提示注入（讨论里有恶意指令和假令牌）；另外三个可以按名字单独跑。每个用例带隐藏测试，隐藏测试在基准代码上必须失败、修好后必须通过。检查项（`scripts/e2e/checks.ts`）要求：一次跑通（八步、没有 `needs_info`、没有重跑、没有被拒绝的调用），只改允许的文件，只有一个提交且提交说明是一行，Jira 单、Slack 回复和 MR 都正确，并且里面没有密钥样式的字符串。报告写到运行目录里。`test/e2e-real.test.ts` 测的是这套测试本身，不调用模型。
 
 ### 4.9 真实实现（R1）
 
@@ -229,6 +228,15 @@ Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_ment
 
 已知的过时代码注释（代码是对的，注释不对）：`src/adapters/index.ts` 开头说选 `real` 会抛“尚未实现”；`src/tools/request-code.ts`（`sessionId` 那行附近）说注册表的 `ctx` 还不带 `sessionId`，实际已经带了。
 
+
+### 4.10 Coding bot 的两个工具（2026-11-13）
+
+`run_tests`（`core/tools/tests.ts`，coding，读工具，`code` 和 `ci` 步）：参数 `command` 必须和任务绑定里的某条 `testCommands` 完全相同（去掉首尾空白后比较），否则拒绝并列出能跑的命令；没有测试命令时报错。在 `task.repo.dir` 里 `sh -c <命令>` 运行，单独一个进程组，`limits.testMinutes` 到时杀掉整组；环境变量只有白名单（`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`TERM`、`TMPDIR`、`LC_*`）；返回退出码、用时和输出最后 8000 个字符（标成材料）。不重试。
+
+`request_review`（`core/tools/review.ts`，coding，写工具，`code` 和 `ci` 步）：参数 `summary`。先查轮数（任务上 `review.rounds`，`cannot_fix` 不算），到了 `limits.reviewMaxRounds` 就拒绝；代码目录对基准提交没有改动也拒绝。然后拼审查材料（`reviewer.md`、Slack 原文和摘要、Jira 步的结果、CI 步的失败摘要、`summary`、真实 diff，外来文字都标成材料），调门面 `runReview`（规格 5 第 4.9 节）。审查没有正常结束（`stopReason` 不是 `completed`）就报错、不记、不算一轮。否则按回答第一行定结论（`pass` 或 `not pass`，看不出的按不通过记），写 `review: { verdict, comments, rounds, at, by: 'reviewer' }`，把结论和审查者的回答返回给 coding bot。不重试。
+
+`review_report` 只剩一种用法：CI 步记 `cannot_fix`（`verdict` 只能是它，`comments` 写原因）；轮数沿用当前的 `review.rounds`，`by: 'coding'`。`repo_diff` 也给了 coding，用来看自己改了什么。
+
 ## 5. 代码参考
 
 `DSB:` 是 DS Bot 参考实现，现在也在代码仓库里，目录是 `bot/`（文件是 `.ts`）。2026-11-11 的行号已经不对；给出行号的条目已在 2026-11-12 重新核对，其余只写函数名或文件名。`DSH:` 和 `SA:` 在代码仓库之外，没有重新核对。
@@ -240,7 +248,6 @@ Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_ment
 | `DSB:src/host/tools.ts:527` | 它在这里调用 `rt.taskLayer.attachRoleTools(agent)` |
 | `DSB:src/host/tools.ts:664` | 工具执行前的拦截：`ctx.tools.guard`，从 `exec.agent` 得到会话 |
 | `DSB:src/host/constants.ts:65` | 团队工具名单（`TEAM_TOOLS`）；新工具不加进去。`test/tools.test.ts` 检查 `register.ts` 里的 `TEAM_TOOL_NAMES` 和它一致 |
-| `DSB:src/host/local-agents/index.ts:94`、`launch.ts:71` | 递给命令行的工具名单：团队工具加上 `bridgeNames`，后者去问任务层的 `bridgedToolNames` |
 | `DSB:src/host/tools.ts` 里的 `message_bot`（约第 152 行） | `message_bot` 的实现，`request_code` 的样板 |
 | `DSB:src/host/handoffs.ts:101`、`:224` | `openWork`：开一件转交的活；`answerText`：把结果拼成答复 |
 | `DSB:src/host/turns.ts:40` | `answerSender`：一轮结束后把答复送回请求方 |
@@ -250,7 +257,7 @@ Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_ment
 | `DSH:docs/cookbook/adding-a-tool.md` | 定义工具的最小写法；用 `timeoutMs` 声明时限 |
 | `DSH:docs/subsystems/tools.md` | 工具的执行管线和拦截点 |
 | `SA:docs/003-execution.md` “Preparing a Ticket directory” | 用 git worktree 给每张单建独立目录 |
-| `DSB:test/fake-ctx.ts`；`test/helpers/fake-botlayer.ts`、`test/fixtures/fake-claude.ts`（chat-to-fix 的，不在 `bot/` 里） | 假的 DSH 上下文；端到端测试用的内存 bot 层；假的 Claude Code |
+| `DSB:test/fake-ctx.ts`；`test/helpers/fake-botlayer.ts`（chat-to-fix 的，不在 `bot/` 里） | 假的 DSH 上下文；端到端测试用的内存 bot 层 |
 | `DSB:test/group-work.test.ts`、`rounds.test.ts`、`handoff-results.test.ts` | 群里干活、轮次、转交结果的测试写法 |
 | `~/Documents/ChatGPT/ba-fix-bot/research/phase-1/README.md` | 现有流程的分支命名、同一分支复用 MR、现有 Jira 自动化的触发条件 |
 
@@ -258,7 +265,7 @@ Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_ment
 
 C0：
 
-- [x] `defineRoleTool`、`attachRoleTools`、`bridgedToolNames`（另有 `detachRoleTools`、`toolsFor`、`call`、`validate`）。
+- [x] `defineRoleTool`、`attachRoleTools`（另有 `detachRoleTools`、`toolsFor`、`call`、`validate`）。
 - [x] 启动时校验：工具名不在团队工具名单里；注册表里列出的每个工具都有定义。
 - [x] 统一包装的四步，前面先查会话、角色和参数；写工具过 `allow`。
 - [x] 失败以错误结果返回，不抛出。
@@ -305,7 +312,7 @@ R1：
 
 ## 7. 验收
 
-- Jira bot 的会话里有五个 Jira 工具和 `needs_info_confirm`，没有 Slack 和仓库的工具；coding bot 的 Claude Code 里能调用 `task_read`、`request_code`、`review_report`、`needs_info_confirm`。
+- Jira bot 的会话里有五个 Jira 工具和 `needs_info_confirm`，没有 Slack 和仓库的工具；coding bot 的会话里有 `task_read`、`repo_diff`、`run_tests`、`request_review`、`request_code`、`review_report`、`needs_info_confirm` 和 DSH 的读写改工具，没有 shell。
 - 在错误的步骤调用任何写工具都被拒绝，bot 收到的是原因，任务不受影响。
 - 同一个任务调两次 `jira_create_issue`，假 Jira 里只有一张单；调两次 `mr_open_draft`，只有一条 MR 记录。
 - coding bot 新建一个文件后，`repo_diff` 的列表里有它。

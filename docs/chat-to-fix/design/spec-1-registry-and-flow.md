@@ -25,7 +25,7 @@
 | `slack` | Slack bot | Slack |
 | `jira` | Jira bot | Jira |
 | `pipeline` | Git Pipeline bot | GitLab |
-| `coding` | coding bot | Claude Code |
+| `coding` | coding bot | 代码目录 |
 
 ### 2.2 bot 注册表
 
@@ -41,7 +41,7 @@
 | `permission` | 权限预设 | DS Bot 的 `permission` |
 | `tools` | 这个 bot 独有的工具名 | 新增 |
 
-五条定义。`model` 和 `permission` 存的是字面值或配置项的名字；`CONFIG_KEYS` 列出这些配置项（`apiModel`、`codingModel`、`codingPermission`），`CONFIG_DEFAULTS` 给默认值（`codingModel` = `claude-code/default`，`codingPermission` = `workspace-write`）。下表写的是配置项名，由 bot 层去解析。
+五条定义，只差数据，没有按角色写死的分支。字段：`role`、`name`、`label`、`instructions`、`model`、`effort`（可选）、`permission`、`preset`（DSH 的 agent 预设）、`tools`，coding 另有 `reviewer`。`model` 和 `effort` 存的是字面值或配置项的名字；`CONFIG_KEYS` 列出这些配置项（`apiModel`、`codingModel`、`codingEffort`），`CONFIG_DEFAULTS` 给默认值（`codingModel` = `anthropic/claude-sonnet-5-5`，`codingEffort` = `high`），由运行器换成配置值。（2026-11-13：Coding bot 改为 DSH 原生，Claude Code 路线已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)。）
 
 | `role` | `name` | `label` | `model` | `permission` | `tools` |
 |---|---|---|---|---|---|
@@ -49,11 +49,11 @@
 | `slack` | `Slack` | Slack | 配置项 `apiModel` | `read-only` | `slack_read_thread`、`slack_reply` |
 | `jira` | `Jira` | Jira | 配置项 `apiModel` | `read-only` | `jira_assess_request`、`jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition`、`needs_info_confirm` |
 | `pipeline` | `Pipeline` | GitLab | 配置项 `apiModel` | `read-only` | `repo_prepare`、`repo_diff`、`repo_read_file`、`repo_log`、`mr_open_draft`、`mr_get`、`ci_read_log`、`mr_push_fix`、`ci_stop` |
-| `coding` | `Coding` | Claude Code | 配置项 `codingModel`，默认 `claude-code/default` | 配置项 `codingPermission`，默认 `workspace-write` | `request_code`、`review_report`、`needs_info_confirm` |
+| `coding` | `Coding` | Coding | 配置项 `codingModel`，默认 `anthropic/claude-sonnet-5-5`；推理强度配置项 `codingEffort` | `workspace-write`；预设 `coding` | `repo_diff`、`run_tests`、`request_review`、`request_code`、`review_report`、`needs_info_confirm` |
 
 所有 bot 共有的工具不写在 `tools` 里：`task_read`，以及 DS Bot 的团队工具（`list_bots`、`message_bot`、`post_to_group`、`read_group_chat`、`read_own_chat`）。`stop_bot` 只有群管理员能用。
 
-coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名字 `reviewer`、说明所在的文件、只读工具（读和搜索）。它不是注册的 bot。
+coding bot 的定义另带一项 `reviewer`：审查者的说明文件（`reviewer.md`）和 DSH 预设（`readonly`）。`request_review` 用它起一个只读子 agent。它不是注册的 bot。四个流程 bot 的预设都是 `readonly`。
 
 ### 2.3 流程定义
 
@@ -74,9 +74,9 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | 1 | `fetch` | 取讨论 | `slack` | `slack.readAt` 有值；`slack.sent.ack` 为真；`stepResults.fetch` 有值 | `slack_reply`（用途 `ack`） |
 | 2 | `issue` | 判断并建单 | `jira` | `jira.key` 有值 | `jira_assess_request`、`jira_create_issue` |
 | 3 | `prepare` | 备代码 | `pipeline` | `repo.dir`、`repo.branch`、`repo.base` 都有值 | `repo_prepare` |
-| 4 | `code` | 编码 | `coding` | 代码目录相对 `repo.base` 有改动；`review.verdict` 为 `pass` | `review_report` |
+| 4 | `code` | 编码 | `coding` | 代码目录相对 `repo.base` 有改动；`review.verdict` 为 `pass` | `request_review` |
 | 5 | `mr` | 开 MR | `pipeline` | `mr.url` 有值 | `mr_open_draft` |
-| 6 | `ci` | CI | `pipeline`、`coding` | `ci.settled` 为真 | `mr_push_fix`、`review_report`、`ci_stop` |
+| 6 | `ci` | CI | `pipeline`、`coding` | `ci.settled` 为真 | `mr_push_fix`、`request_review`、`review_report`、`ci_stop` |
 | 7 | `writeback` | 回写 | `jira`、`slack` | `jira.commentedMr` 为真；`slack.sent.result` 为真 | `jira_add_comment`、`jira_transition`、`slack_reply`（用途 `result`） |
 | 8 | `close` | 收尾 | `main` | 任务已结束 | 无 |
 
@@ -84,7 +84,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 
 `stepResults.<步骤标识>` 是该步负责的 bot 在这一步里最后一轮的最终答复，由系统记下（规格 2）。第 1 步的摘要就是 `stepResults.fetch`。
 
-一个写工具可以属于多个步骤：`review_report` 在 `code` 和 `ci` 都能调（`stepsOfWriteTool` 返回所有列了它的步骤；`stepOfWriteTool` 只返回第一个，门禁不再用它判断步骤）。`writeTools` 里的一项是 `工具名` 或 `工具名:用途`（`slack_reply:ack`）。证据是一个短字符串，由步骤把关里的同一个求值函数判断：`<路径>`（该字段有值或为真）、`<路径> == <文本>`、`diff`（代码目录相对 `repo.base` 有改动）、`diff.withinLimits`（改动在 `diffMaxFiles` 和 `diffMaxLines` 之内）、`ended`（任务状态不再是 `queued` 或 `running`）。结束的规则、工具的附加证据、不绑定步骤的写工具也是 `steps.ts` 里的数据（`OUTCOME_RULES`、`CI_END_REASONS`、`TOOL_EXTRA_EVIDENCE`、`UNBOUND_WRITE_TOOLS`），不是步骤把关里的代码。
+一个写工具可以属于多个步骤：`request_review` 在 `code` 和 `ci` 都能调（`stepsOfWriteTool` 返回所有列了它的步骤；`stepOfWriteTool` 只返回第一个，门禁不再用它判断步骤）。`writeTools` 里的一项是 `工具名` 或 `工具名:用途`（`slack_reply:ack`）。证据是一个短字符串，由步骤把关里的同一个求值函数判断：`<路径>`（该字段有值或为真）、`<路径> == <文本>`、`diff`（代码目录相对 `repo.base` 有改动）、`diff.withinLimits`（改动在 `diffMaxFiles` 和 `diffMaxLines` 之内）、`ended`（任务状态不再是 `queued` 或 `running`）。结束的规则、工具的附加证据、不绑定步骤的写工具也是 `steps.ts` 里的数据（`OUTCOME_RULES`、`CI_END_REASONS`、`TOOL_EXTRA_EVIDENCE`、`UNBOUND_WRITE_TOOLS`），不是步骤把关里的代码。
 
 不绑定步骤的写工具：
 
@@ -161,12 +161,13 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | `task_advance` | `main` | `to` | 调用 `advance` | 成功，或缺少的证据 |
 | `task_close` | `main` | `outcome`、`note` | 调用 `close` | 成功，或拒绝的原因 |
 | `needs_info_confirm` | `main`、`jira`、`coding`；按步骤限制 | `text` | 调用 `confirmNeedsInfo` | 已记下；另一方是否已确认 |
-| `review_report` | `coding` | `verdict`（`pass`、`fail` 或 `cannot_fix`）、`comments`、`rounds` | 把审查结论写到任务的 `review` 上 | 已记下 |
+| `request_review` | `coding` | `summary`（改动说明） | 系统拼材料、起只读审查者、等它答完，把结论（`pass` 或 `fail`）、意见、轮数写到任务的 `review` 上（`by: 'reviewer'`）；超过 `reviewMaxRounds` 拒绝 | 第几轮、通过与否、审查者的回答 |
+| `review_report` | `coding` | `verdict`（只有 `cannot_fix`）、`comments` | 把“这次 CI 失败修不了”写到任务的 `review` 上 | 已记下 |
 
 规则：
 
 - `task_read` 不返回令牌、不返回其他任务的内容。
-- `review_report` 是写工具，在步骤 `code` 和 `ci` 放行（在 `ci` 里登记这一轮修复的审查）。`cannot_fix` 只能在 `ci` 用，别的步骤调用会报错；它表示 CI 失败修不了，`comments` 要写原因。重复调用时以最后一次为准。
+- `request_review` 是写工具，在步骤 `code` 和 `ci` 放行。`review_report` 是写工具，只在 `ci` 放行，只收 `cannot_fix`，表示 CI 失败修不了，`comments` 要写原因。
 - `rounds` 超过 3 时仍然记下。未实现：监控没有审查轮数上限的处理（配置里有 `reviewMaxRounds`，但没有代码读它）。
 
 ## 6. 代码参考
@@ -179,7 +180,6 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | `DSB:src/host/roster.js:148` | `buildBot` 的参数：`role`、`instructions`、`model`、`effort`、`workDir`、`pickModel` 等 |
 | `DSB:src/host/roster.js:316` | `updateBot(id, patch, …)`：建好后设模型、权限、工作目录 |
 | `DSB:src/host/tools.js:823` | DS Bot 把同一套团队工具注册给每个 bot 会话；按 bot 分配是新增的 |
-| `DSB:src/host/local-agents/engines.js:55` | 权限预设到 Claude Code 模式的对应：`read-only`、`workspace-write`、`danger-full-access` |
 | `SA:src/core/stage.ts` | 用一张表从上到下判断状态的写法 |
 | `SA:cordis.patch.yml:23`、`:128` | 用配置定义两个固定角色及其工具集的例子 |
 

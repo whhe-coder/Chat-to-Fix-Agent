@@ -56,7 +56,7 @@ async function rig({ limits = {} } = {}) {
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
     limits,
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
   const fake = fakeAdapters()
   const gate = createGate({ store, repo: fake.adapters.repo, limits: config.limits } as any)

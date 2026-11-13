@@ -49,12 +49,14 @@
 | `stepMinutes.code` | 40 | 编码（含内部审查）的时限 |
 | `quietMinutes` | 3 | 群安静多久算停滞 |
 | `quietNudges` | 2 | 停滞时最多催几次 |
-| `engineSilentMinutes` | 10 | Claude Code 多久没有任何输出算无响应 |
+| `engineSilentMinutes` | 10 | coding bot 的一轮多久没有任何会话事件算无响应（`run_tests`、`request_review` 进行中不算） |
 | `maxConcurrent` | 1 | 同时运行的任务数 |
 | `queueMax` | 20 | 队列长度上限 |
 | `queueWaitHours` | 4 | 排队等待上限 |
 | `worktreeKeepDays` | 7 | 任务结束后代码目录保留的天数（用到它的清理未实现，见 4.4） |
-| `engineMaxTurns` | 200 | 作为 `--max-turns` 传给 Claude Code |
+| `codingMaxSteps` | 200 | coding bot 一轮里最多几次工具调用；超过就停掉它，任务失败（`coding_max_steps`）。DSH 自己没有步数上限。取代原来传给 Claude Code 的 `engineMaxTurns` |
+| `testMinutes` | 10 | `run_tests` 一次最长几分钟，到时整组进程被杀 |
+| `reviewMinutes` | 15 | `request_review` 一次审查最长几分钟 |
 | `reviewMaxRounds` | 3 | 键存在，但没有任何代码读它；三轮只写在 `src/prompts/coding.md` 里 |
 | `toolTimeoutSeconds` | 30 | 一次工具调用的时限 |
 | `toolRetries` | 2 | 工具调用的重试次数，间隔 250 毫秒，只重试标为可重试的错误 |
@@ -85,14 +87,14 @@
 
 其他错误：400 `invalid_json`（请求体不是 JSON）；413 `body_too_large`（超过 1,000,000 字节）；404 `not_found`（路径不存在）；500 `internal_error`。缺字段时返回 400，字段名写在错误文字里：`{ error: "missing_fields: eventId, user.id" }`。
 
-每个任务的 token 和费用统计已提交（31b386d）：`src/task/usage.ts` 把每次模型调用或 Claude Code 回合记成一条 `usage` 记录，并经 `store.addUsage` 汇总到任务的 `usage`（总额、按角色、按模型、按运行次数）；价格表在 `src/task/pricing.ts`，可被配置键 `pricing` 覆盖或补充。Coding bot 的费用用 Claude Code 自己报的数。模型没有价格时该条标 `unpriced`，不计入总额，也不猜价。`GET /tasks` 的 `totalUsd` 和 `unpriced` 取自这份汇总。
+每个任务的 token 和费用统计已提交（31b386d）：`src/task/usage.ts` 把每个 bot 的每一轮（和每次审查）记成一条 `usage` 记录，并经 `store.addUsage` 汇总到任务的 `usage`（总额、按角色、按模型、按运行次数）；价格表在 `src/task/pricing.ts`，可被配置键 `pricing` 覆盖或补充。Coding bot 的费用用 Claude Code 自己报的数。模型没有价格时该条标 `unpriced`，不计入总额，也不猜价。`GET /tasks` 的 `totalUsd` 和 `unpriced` 取自这份汇总。
 
 ### 3.2 内部函数
 
 | 组件 | 文件 | 函数 |
 |---|---|---|
 | 队列 | `src/task/queue.ts` | `enqueue(taskId)`、`dispatch()`、`release(taskId)`、`expire()`、`full()`、`position(taskId)` |
-| 运行器 | `src/task/runner.ts` | `start(taskId)`、`end(taskId, state, endReason)`、`restore()`、`cleanupWorktrees()`、`codingOptions(taskId)` |
+| 运行器 | `src/task/runner.ts` | `start(taskId)`、`end(taskId, state, endReason)`、`restore()`、`cleanupWorktrees()` |
 | 监控 | `src/task/monitor.ts` | `watch(taskId)`、`unwatch(taskId)`、`notify(task, kind)` |
 
 依赖：任务库（I2）；步骤把关的 `close` 结束后回调 `end`；bot 层门面（I1）；bot 注册表和流程定义；Slack 适配器的 `reply`（发系统通知）；代码仓库适配器的 `cleanup`（清理代码目录）。
@@ -134,7 +136,7 @@
 
 第 4 步的消息以用户身份发到群里。群是管理员模式，所以只叫到主 bot。
 
-`repo_prepare` 建好代码目录后，`setGroupWorkDir` 只把这个目录给 coding bot；另外四个 bot 保留各自的文件夹。`codingOptions(taskId)` 把频道的 `testCommands`（Claude Code 可以运行的命令）交给 Claude Code 的启动代码。频道的 `setupCommands` 也一并传过去，但没有任何代码去运行它（未实现）。
+`repo_prepare` 建好代码目录后，`setGroupWorkDir` 只把这个目录给 coding bot；另外四个 bot 保留各自的文件夹。coding bot 用 `run_tests` 运行频道的 `testCommands`，命令清单从任务上的绑定读（`task.binding`），运行器不再单独存一份。
 
 ### 4.4 结束一次运行
 
@@ -163,7 +165,8 @@
 | 编码时限 | 进入 `code` 超过 `stepMinutes.code` | 不催：直接停止 coding bot 的回合并结束任务，状态 `timed_out` | `coding_timeout` |
 | 群安静 | 群连续 `quietMinutes` 没有任何动静，任务没结束 | 给主 bot 补一条消息，最多 `quietNudges` 次；再发生则结束任务，状态 `failed` | `stalled` |
 | 空转暂停 | 群里出现“因连续空转而暂停”的系统通知 | 结束任务，状态 `failed` | `idle_relay` |
-| Claude Code 无输出 | coding bot 的回合在跑，但 `engineSilentMinutes` 内没有任何事件 | 第一次：停止 coding bot 的回合，给主 bot 补一条消息让它重新叫 coding bot。第二次：结束任务，状态 `failed` | `engine_silent` |
+| coding bot 无输出 | coding bot 的回合在跑、没有 `run_tests` 或 `request_review` 在进行，但 `engineSilentMinutes` 内没有任何事件 | 第一次：停止 coding bot 的回合，给主 bot 补一条消息让它重新叫 coding bot。第二次：结束任务，状态 `failed` | `engine_silent` |
+| coding bot 步数超限 | coding bot 一轮里的工具调用次数超过 `codingMaxSteps` | 停掉 coding bot，任务以 `failed` / `coding_max_steps` 结束 |
 | CI（任务在 `ci` 步） | 监控按 `ciPollSeconds` 查 MR 当前提交的 pipeline，通过、失败（先自动重跑失败的 job 一次）或等太久（`ciWaitMinutes`、`ciTotalMinutes`）时定案，细节见规格 7。等 pipeline 期间（状态 pending）：跳过步骤时限和“群安静”两项检查，等待的时间也不算进任务总时限。某轮失败后，Git Pipeline bot 负责修，步骤时限、安静次数和空转检查都从这次失败重新计，催促发给 Git Pipeline bot，不发给主 bot。定案后给主 bot 补一条消息让它推进到回写，只发一次（记在任务的 `ci.mainNotified`，重启也不会重发） | 无新结束原因；结果由 `completed_ci_failed`、`completed_ci_stopped`、`completed_no_ci`（状态 `done`）体现 |
 | 审批 | 出现审批请求 | 拒绝，并记一条执行记录 | — |
 
@@ -175,7 +178,7 @@
 - 空转暂停靠正则匹配 DS Bot 那条通知的英文原文来识别（`monitor.ts` 里的 `IDLE_RELAY_NOTICE`）。DS Bot 改了措辞，这一项就失效。
 - coding bot 内部的修改和审查最多三轮只写在它的说明里（`src/prompts/coding.md`）；配置键 `reviewMaxRounds` 没有任何代码读它。系统用编码时限兜底。
 - 每次触发都记一条 `limit` 类型的执行记录，写明是哪一项、当时在第几步、采取了什么动作。
-- 在 `ci` 步，“给主 bot 补一条消息”里的步骤超时、群安静和 Claude Code 无输出的催促改发给 Git Pipeline bot（它在带领修复），措辞也改成 CI 的版本（`NUDGE.ciQuiet`、`NUDGE.ciEngineSilent`）。
+- 在 `ci` 步，“给主 bot 补一条消息”里的步骤超时、群安静和 coding bot 无输出的催促改发给 Git Pipeline bot（它在带领修复），措辞也改成 CI 的版本（`NUDGE.ciQuiet`、`NUDGE.ciEngineSilent`）。
 - 判断步骤时限要用进入当前步骤的时间，记在任务的 `stepAt` 字段（规格 2）。
 
 ### 4.6 系统通知
@@ -216,7 +219,6 @@ CI 通知另算（`monitor.ts` 的 `ciNoticeText`，不在上表里）：在 `ci
 
 | 位置 | 看什么 |
 |---|---|
-| `DSB:src/host/local-agents/mcp.ts`（`LoopbackMcp`，第 30 行） | 在进程里开一个只监听本机、带令牌的 HTTP 服务 |
 | `SA:docs/006-deployment.md` “Management API” | 管理接口的设计和错误返回 |
 | `SA:src/executor/dsh.ts:171` | 名额管理 |
 | `SA:docs/003-execution.md` | 并发名额、失败和恢复、重启 |
@@ -230,7 +232,6 @@ CI 通知另算（`monitor.ts` 的 `ciNoticeText`，不在上表里）：在 `ci
 | `src/task/botlayer.ts` 的 `isQuiet`（第 223 行），`DSB:src/host/groups.ts:1401` | “群已安静”的判断条件（原版的 `goals.js` 在这里已不存在） |
 | `DSB:src/host/groups.ts:723`、`:90`、`:630`（2026-11-12 复核） | 空转暂停写进群里的那条系统提示（`reason: paused`、`idle: true`）；这条提示的文字；被暂停的调用放在哪 |
 | `DSB:src/host/constants.ts:38`、`:79`（2026-11-12 复核） | 成员回复超时 240 秒；空转上限 6 次 |
-| `DSB:src/host/local-agents/claude-engine.ts`（`session.interrupt()`，第 47 行） | 中断 Claude Code |
 | `DSB:src/host/approvals.ts:15`、`:100` | 订阅审批；应答审批（`allow` 或 `reject`） |
 | `DSB:src/host/resume.ts:21`、`:168` | 重启 3 秒后开始恢复；恢复逻辑包裹了投递 |
 | `SA:src/limits.ts:2` | 把上限集中成一张表 |

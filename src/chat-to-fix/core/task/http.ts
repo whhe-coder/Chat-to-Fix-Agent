@@ -1,5 +1,5 @@
 // The listener and control interface (work package B4, spec 3 sections 3.1, 4.1 and 4.7).
-// Pattern taken from the reference code bot/src/host/local-agents/mcp.ts: a node:http server bound to
+// Pattern taken from DS Bot 0.3.1's local-agents/mcp.ts (no longer shipped here): a node:http server bound to
 // 127.0.0.1 only, a token check on every request, and a chosen or random port (0 = random).
 import { createServer } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'

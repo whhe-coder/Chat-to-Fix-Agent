@@ -24,7 +24,7 @@ async function rig() {
     apiModel: 'anthropic/test',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir })
   const notices = []
   const notify = async (task, kind) => { notices.push([task?.id ?? null, kind]) }
@@ -105,7 +105,8 @@ test('one task goes from the @ event through all eight steps to done', async (t)
   assert.equal((await r.gate.advance(id, 'writeback')).ok, false)
   assert.equal((await r.gate.advance(id, 'mr')).ok, false)
   r.changed.files = [{ path: 'src/button.js', added: 2, removed: 1 }]
-  assert.equal((await r.gate.allow(id, 'review_report')).ok, true)
+  assert.equal((await r.gate.allow(id, 'request_review')).ok, true)
+  assert.equal((await r.gate.allow(id, 'review_report')).ok, false, 'cannot_fix belongs to step ci only')
   await r.store.patchTask(id, { review: { verdict: 'pass', comments: 'fine', rounds: 1, at } })
   assert.equal((await r.gate.advance(id, 'mr')).ok, true)
 

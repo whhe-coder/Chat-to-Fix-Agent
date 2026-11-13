@@ -1,11 +1,11 @@
 # Chat-to-Fix 架构说明
 
-- 写给第一次看 Agent 代码的人。按 `main` 的提交 `0d80fd3`（2026-11-13）核对过代码。
+- 写给第一次看 Agent 代码的人。按 `main` 的提交 `0d80fd3`（2026-11-13）核对过代码；2026-11-13 又按分支 `dsh-coding` 改了第 3、4、6、7、8 节（Coding bot 改为 DSH 原生，Claude Code 路线已删，见 [design/plan-dsh-coding.md](design/plan-dsh-coding.md)）。
 - 下文代码路径默认相对 `src/chat-to-fix/`，用“文件 + 函数/常量名”指位置，不写行号。
 
 ## 1. 一句话
 
-五个 bot 是平级的 agent，跑在 DeepSeek Harness（DSH）上，经过从 DS Bot 裁出来的 bot 层；我们没有自己写 agent 循环。每个 bot 就是注册表 `core/registry/bots.ts` 里的一条，加上提示词 `core/prompts/<role>.md`。这一条决定它用什么模型、什么权限、有哪些工具。系统层只管流程、状态和时限，不替 bot 做判断。
+五个 bot 是平级的 agent，都是 DeepSeek Harness（DSH）里的会话，共用一个 Anthropic API key，经过从 DS Bot 裁出来的 bot 层；我们没有自己写 agent 循环。每个 bot 就是注册表 `core/registry/bots.ts` 里的一条，加上提示词 `core/prompts/<role>.md`。这一条决定它用什么模型、什么推理强度、什么权限、什么 DSH 预设、有哪些工具。五条之间只差数据。系统层只管流程、状态和时限，不替 bot 做判断。
 
 ## 2. 分层
 
@@ -58,7 +58,7 @@ flowchart LR
 
 ## 3. 五个 bot 是同一种东西
 
-注册表里一条就是一个 bot。字段：`role`、`name`、`label`、`instructions`（提示词文件）、`model`、`permission`、`tools`（只有这个角色有的工具）。Coding 多一个 `reviewer`。`model` 和 `permission` 可以写字面值，也可以写配置键名（`CONFIG_KEYS`：`apiModel`、`codingModel`、`codingPermission`），由 `core/task/runner.ts` 里的 `resolve` 换成配置值。
+注册表里一条就是一个 bot。字段：`role`、`name`、`label`、`instructions`（提示词文件）、`model`、`effort`（可选，推理强度）、`permission`（DSH 的权限预设，即写文件的边界）、`preset`（DSH 的 agent 预设，即内置工具集）、`tools`（只有这个角色有的工具）。Coding 多一个 `reviewer`（审查者的提示词和预设）。`model` 和 `effort` 可以写字面值，也可以写配置键名（`CONFIG_KEYS`：`apiModel`、`codingModel`、`codingEffort`），由 `core/task/runner.ts` 里的 `resolve` 换成配置值。
 
 | role（name） | 模型 | 权限 | DSH 预设 | 专有工具 | 提示词 |
 |---|---|---|---|---|---|
@@ -66,20 +66,20 @@ flowchart LR
 | slack（Slack） | `apiModel` | `read-only` | `readonly` | `slack_read_thread` `slack_reply` | `slack.md` |
 | jira（Jira） | `apiModel` | `read-only` | `readonly` | `jira_assess_request` `jira_create_issue` `jira_get_issue` `jira_add_comment` `jira_transition` `needs_info_confirm` | `jira.md` |
 | pipeline（Pipeline） | `apiModel` | `read-only` | `readonly` | `repo_prepare` `repo_diff` `repo_read_file` `repo_log` `mr_open_draft` `mr_get` `ci_read_log` `mr_push_fix` `ci_stop` | `pipeline.md` |
-| coding（Coding） | `codingModel`，默认 `claude-code/default` | `codingPermission`，默认 `workspace-write` | `standard` | `request_code` `review_report` `needs_info_confirm` | `coding.md`；评审子 agent 用 `reviewer.md`，只有 `Read` `Grep` `Glob` |
+| coding（Coding） | `codingModel`，默认 `anthropic/claude-sonnet-5-5`；推理强度 `codingEffort`，默认 `high` | `workspace-write` | `coding` | `repo_diff` `run_tests` `request_review` `request_code` `review_report` `needs_info_confirm` | `coding.md`；审查者用 `reviewer.md`，预设 `readonly` |
 
 - 每个 bot 都另有 `task_read`（`core/tools/task.ts`，`roles: 'all'`）和 DS Bot 的团队工具（`message_bot`、`post_to_group`、`stop_bot` 等，名单见 `core/tools/register.ts` `TEAM_TOOL_NAMES`）。
-- DSH 预设由 `core/task/runner.ts` `presetOf` 决定：条目里写了 `preset` 就用它，否则 coding 用 `standard`，其余用 `readonly`（`config/cordis.patch.yml` 里的 `preset-readonly`，没有 shell、网络、子 agent 工具）。
+- DSH 预设就是条目的 `preset`，在 `config/cordis.patch.yml` 里定义：`readonly`（读和搜索）和 `coding`（读、搜索、写、改）。两个都没有 shell、网络、子 agent 工具。`apiModel` 默认也是 `anthropic/claude-sonnet-5-5`，五个 bot 走同一条线路、同一个 key（`ANTHROPIC_API_KEY`）。
 
 **只有一条创建路径。** `core/task/runner.ts` `start()` 对 `allBotDefs()` 逐条做：
 
-1. `botlayer.createBot`：调 DS Bot 的 `rt.createBot`，再用 `rt.updateBot` 设模型和权限；
+1. `botlayer.createBot`：调 DS Bot 的 `rt.createBot`（带 DSH 预设），再用 `rt.updateBot` 设模型、权限和推理强度；
 2. `botlayer.bindBot`：记下 bot 属于哪个任务、哪个角色，并把该角色的工具挂到它的会话上；
 3. 全部建完后 `botlayer.createGroup`：五个成员，`mode: 'admin'`，管理员是 Main，群公告是 `core/prompts/group-notice.md`。
 
 五个 bot 没有各自的类，也没有“主 bot 派生子 agent”。它们是一个管理员模式群里的五个平级成员。管理员模式下，普通消息先到 Main，Main 用 @ 叫当步负责的 bot；被叫的 bot 干完给出最终回答就停。唯一的直接互叫在 CI 步：Pipeline 用 `message_bot` 叫 Coding 修。Coding 要仓库别处的代码时用 `request_code`，经 `botlayer.askBot` 私下问 Pipeline。
 
-**工具怎么到 bot 手上。** 工具在 `core/tools/register.ts` 用 `defineRoleTool` 定义一次，`roles` 写哪些角色有它。走 API 的 bot：`attachRoleTools` 把工具注册进它的 DSH 会话（自己的会话在 `bindBot` 时挂，群会话由 `bot/src/host/tools.ts` 里 `shareBotTools` 的钩子挂）。走 Claude Code 的 bot：本机回环 MCP 服务（`bot/src/host/local-agents/mcp.ts`）按 `bridgedToolNames` 把同一批工具提供给 CLI。不管哪条路，执行都经过同一个包装 `call`：取最新任务 → 写工具先问 `gate.allow` → 带重试和超时执行 → 失败返回文字，不抛异常。
+**工具怎么到 bot 手上。** 工具在 `core/tools/register.ts` 用 `defineRoleTool` 定义一次，`roles` 写哪些角色有它。`attachRoleTools` 把工具注册进 bot 的 DSH 会话（自己的会话在 `bindBot` 时挂，群会话由 `bot/src/host/tools.ts` 里 `shareBotTools` 的钩子挂）；五个 bot 都一样。执行都经过同一个包装 `call`：取最新任务 → 写工具先问 `gate.allow` → 带重试和超时执行（工具可以有自己的超时和重试次数，`run_tests`、`request_review` 不重试）→ 失败返回文字，不抛异常。
 
 **启动自检。** `core/app.ts` `createApp` 一开始跑 `validateRegistry`、`validateFlow`，注册完工具再跑 `tools.validate`（注册表列的工具必须有定义，定义的 `roles` 必须和注册表一致）。对不上就不启动。
 
@@ -112,7 +112,7 @@ sequenceDiagram
 | 1 fetch | Slack 读讨论串、写总结、回“已收到” | `slack_read_thread`、`slack_reply`（`purpose: ack`） |
 | 2 issue | Jira 先用 `jira_assess_request` 判断讨论里有没有具体问题和可检查的结果（要原文引用），通过才 `jira_create_issue`；不通过就走“缺信息” | `core/tools/jira.ts` |
 | 3 prepare | Pipeline 建代码目录和分支 `ai/<Jira 单号>`；目录只设成 Coding 的工作目录 | `repo_prepare` → `core/adapters/git.ts`；`botlayer.setGroupWorkDir` |
-| 4 code | Coding 在目录里改代码、跑测试，让评审子 agent 看，`review_report` 记结论 | Claude Code CLI，见第 6 节 |
+| 4 code | Coding 用 DSH 的读写改工具改代码，`run_tests` 跑绑定里的测试命令，`request_review` 请系统审查；系统起只读审查者、记结论和轮数 | 见第 6 节 |
 | 5 mr | Pipeline 开 Draft MR（一行 Conventional Commit） | `mr_open_draft`（`core/tools/repo.ts`） |
 | 6 ci | 系统轮询 pipeline，失败的 job 自动重跑一次；仍失败就告诉 Pipeline。Pipeline 读日志、叫 Coding 修、`mr_push_fix` 推修复，最多 3 轮（`ciMaxRounds`），或 `ci_stop` 停。结束后系统告诉 Main | `core/task/monitor.ts` `ciCheck` 等；`core/tools/ci.ts` |
 | 7 writeback | Jira 评论、改状态；Slack 回结果，写明 CI 过没过 | `jira_add_comment`、`jira_transition`、`slack_reply`（`purpose: result`） |
@@ -142,18 +142,22 @@ sequenceDiagram
 - **审批**：任务里的 bot 在 DSH 里触发的、需要人点“允许”的请求，看门狗一律拒绝并记录（`monitor.ts` `onApproval`），所以没有东西会卡着等人。
 - 被拒的每一次都写进执行记录（`records.jsonl`），Main 用 `task_records` 能看到原因。
 
-## 6. 例外：Claude Code
+## 6. Coding bot：没有例外了
 
-模型名的前缀决定走哪条路：`anthropic/...` 走 DSH 自己的模型接口；`claude-code/...` 走 DS Bot 的本机 agent 路由（`bot/src/host/local-agents/`），由它起一个 Claude Code CLI 进程。对 DSH 来说这仍是一个普通 bot 和会话（`LocalAgentAdapter` 是一个 DSH 模型适配器），群、团队工具、审批都照旧；区别是这一轮里的循环由 Claude Code 自己跑。
+2026-11-13 之前，Coding bot 是例外：它的模型线路是 `claude-code/...`，由 DS Bot 的本机 agent 路由起一个 Claude Code CLI 进程，循环在 CLI 里跑；没有 key 时四个流程 bot 也走 CLI（Logan 的 `fd4407d`）。这条路线已整个删掉（`bot/src/host/local-agents/`、`core/engine/`，见 [design/plan-dsh-coding.md](design/plan-dsh-coding.md)）。现在 Coding bot 和其他四个一样是 DSH 会话，区别都在注册表的数据和它的工具里：
 
-| 谁 | 什么时候走 CLI | 起进程的参数 |
+| 项 | Coding bot | 在哪 |
 |---|---|---|
-| Coding | 一直（默认 `codingModel` 是 `claude-code/default`） | `bot/src/host/local-agents/launch.ts` `launchFor` → `core/engine/args.ts` `codingArgs`：工作目录内可改文件；shell 只放行 `git status`、`git diff` 和绑定里的测试命令；不弹权限确认；角色工具经 MCP 提供；评审子 agent 用 `--agents` 传入，只读，和 Coding 同模型同 effort；关掉后台任务，保证评审在本轮内答完 |
-| 四个流程 bot | `apiModel` 是 `claude-code/...` 时。`npm start` 走 `scripts/connected.ts`：没设 `ANTHROPIC_API_KEY` 就用 `claude-code/claude-sonnet-5-5`（Logan 的提交 `fd4407d`） | `launchFor` → `flowArgs`：内置工具只留 `ToolSearch`，只能调自己的 MCP 角色工具 |
+| 内置工具 | 预设 `coding`：`read`、`read_image`、`glob`、`grep`、`edit`、`write`；没有 shell | `config/cordis.patch.yml` 第 6b 组 |
+| 写的边界 | 权限预设 `workspace-write`：写只能落在会话的工作目录里。`repo_prepare` → `botlayer.setGroupWorkDir` 只给 Coding 设成代码目录 | `config/cordis.patch.yml` 第 3 组；`core/task/botlayer.ts` `setGroupWorkDir` |
+| 跑测试 | `run_tests`：只能原样跑频道绑定 `testCommands` 里的命令，`sh -c`，在代码目录里，有时限（`testMinutes`），环境变量白名单（不带任何令牌） | `core/tools/tests.ts` |
+| 审查 | `request_review`：系统拼材料（`reviewer.md`、Slack 原文和摘要、Jira 步结果、Coding 的说明、真实 diff），门面 `runReview` 用 DSH 的子 agent 服务起一个只读子会话（预设 `readonly`，`delivery: 'caller'`，同一次工具调用里等它答完），按第一行记 `pass`/`fail` 和轮数（`reviewMaxRounds`） | `core/tools/review.ts`；`core/task/botlayer.ts` `runReview` |
+| 修不了 | `review_report` 只在 CI 步记 `cannot_fix` | `core/tools/task.ts` |
+| 看守 | 一轮里没动静算沉默（测试、审查进行中不算）；一轮工具调用超过 `codingMaxSteps` 就停 | `core/task/monitor.ts` |
+| 用量 | 和其他 bot 一样，每轮从 DSH 的会话统计取差值；审查者的子会话结束时读一次，记在 Coding 名下 | `core/task/botlayer.ts` `roundUsage`、`reportChildUsage` |
 
-- 评审子 agent 不是注册表里的 bot，只是 Coding 那个 CLI 会话里的一个子 agent。`launchFor` 认的是条目上有没有 `reviewer`，不是角色名。
-- 用量：走 API 的 bot 每轮从 DSH 的会话统计取差值（`botlayer.ts` `readTotals`、`roundUsage`），按价目表 `core/task/pricing.ts` 算钱；走 CLI 的回合由 CLI 报用量和费用（`botlayer.reportEngineUsage`）。两者都由 `core/task/recorder.ts` `onUsage` 记到任务上。
-- 正在另一个工作区评估一个 DSH 原生的 Coding bot（不走 Claude Code）。如果采用，这个例外就没有了：Coding 也只是注册表里换一个 `model` 和 `tools` 的条目。`main` 上目前没有这部分代码。
+- 审查者不是注册表里的 bot，也不在群里；它只在 `request_review` 这一次调用里存在。
+- 还没用真实模型验证：真实 DSH 里 `runReview` 那组参数、子会话用量能否读到、DSH 原生编码的质量。对比运行待批准（plan-dsh-coding.md 第 10 节）。
 
 ## 7. 目录对照
 
@@ -162,14 +166,13 @@ sequenceDiagram
 | `core/registry/bots.ts` | 注册表：五个 bot 的定义和校验 | 要 |
 | `core/prompts/` | 每个角色的提示词、群公告 `group-notice.md`、评审 `reviewer.md`；`index.ts` 读文件 | 要 |
 | `core/flow/steps.ts` | 八步、证据、写工具归属、结束规则 | 要 |
-| `core/tools/` | 角色工具：`register.ts` 框架，`task.ts`、`slack.ts`、`jira.ts`、`repo.ts`、`ci.ts`、`request-code.ts`；`material.ts` 是公用小函数 | 要 |
+| `core/tools/` | 角色工具：`register.ts` 框架，`task.ts`、`slack.ts`、`jira.ts`、`repo.ts`、`ci.ts`、`request-code.ts`、`tests.ts`（`run_tests`）、`review.ts`（`request_review`）；`material.ts` 是公用小函数 | 要 |
 | `core/task/` | 系统层：`http.ts`、`queue.ts`、`runner.ts`、`monitor.ts`、`gate.ts`、`store.ts`、`recorder.ts`、`outbox.ts`、`botlayer.ts`（bot 层门面）、`usage.ts`/`pricing.ts`、`contracts.ts`（数据形状） | 要 |
 | `core/adapters/` | Jira、GitLab/git、Slack 的 fake/real/outbox 实现 | 接外部服务时看 |
-| `core/engine/` | Claude Code 的参数（`args.ts`）、环境与隔离（`env.ts`）、进程驱动（`claude.ts`） | 动 CLI 行为时看 |
 | `core/plugin.ts`、`core/app.ts`、`core/config.ts` | 插件入口、系统层组装、配置读取和默认上限（`DEFAULT_LIMITS`） | 偶尔 |
 | `core/bot/` | bot 层入口：按顺序装 DS Bot 模块（`index.ts`），加少量替身（`stubs.ts`） | 很少 |
-| `bot/` | 从 DS Bot 0.3.1 裁来的代码，基本不改。例外是 `bot/src/host/local-agents/launch.ts`（按角色给 CLI 参数） | 平时不用看 |
-| `config/cordis.patch.yml` | DSH 配置补丁：插件行、权限预设、`readonly` 预设 | 很少 |
+| `bot/` | 从 DS Bot 0.3.1 裁来的代码，基本不改（`local-agents/` 已删） | 平时不用看 |
+| `config/cordis.patch.yml` | DSH 配置补丁：模型线路和 key、插件行、权限预设、`readonly` 和 `coding` 两个 agent 预设 | 改模型或 bot 的内置工具时看 |
 | `scripts/` | 启停（`start-chat-to-fix.sh` 等）、接真实服务（`connected.ts`）、调试页、端到端脚本；`dev-env.sh` 设本机路径 | 运行时用 |
 | `test/` | `npm run test:agent`、`test:agent-layer` | 改代码时跑 |
 | `rewrite/` | 从 DS Bot 裁掉了什么、为什么（`INVENTORY.md`） | 想知道 `bot/` 由来时 |
@@ -180,15 +183,15 @@ sequenceDiagram
 
 | 想做什么 | 改哪里 | 注意 |
 |---|---|---|
-| 加一个 bot | `core/registry/bots.ts` 加一条；`core/prompts/<role>.md` 写提示词；它的工具在 `core/tools/` 用 `defineRoleTool` 定义、`roles` 写上新角色，并在 `core/tools/index.ts` 注册 | 不用新类，`runner.start` 会自动建它、拉进群。它要负责某一步，就在 `steps.ts` 那步的 `roles` 里加上；在 `group-notice.md` 和 `main.md` 里写明 Main 什么时候叫它。代码里按角色名写死的只有三处：`runner.ts` `presetOf`（coding 用 `standard`）、`gate.ts` `needsInfoPeerRole`（issue 步是 jira，其后是 coding）、`validateRegistry` 要求 coding 有 `reviewer` |
-| 改一个 bot 的模型 / 权限 | 条目的 `model` / `permission`；或配置里的 `apiModel`、`codingModel`、`codingPermission` | 改认证方式或模型后先 `npm stop` 再启动 |
+| 加一个 bot | `core/registry/bots.ts` 加一条；`core/prompts/<role>.md` 写提示词；它的工具在 `core/tools/` 用 `defineRoleTool` 定义、`roles` 写上新角色，并在 `core/tools/index.ts` 注册 | 不用新类，`runner.start` 会自动建它、拉进群。它要负责某一步，就在 `steps.ts` 那步的 `roles` 里加上；在 `group-notice.md` 和 `main.md` 里写明 Main 什么时候叫它。条目要写 `preset`（通常 `readonly`）。代码里按角色名写死的只有两处：`gate.ts` `needsInfoPeerRole`（issue 步是 jira，其后是 coding）、`validateRegistry` 要求 coding 有 `reviewer` |
+| 改一个 bot 的模型 / 强度 / 权限 / 内置工具 | 条目的 `model`、`effort`、`permission`、`preset`；或配置里的 `apiModel`、`codingModel`、`codingEffort`；预设本身在 `config/cordis.patch.yml` | 新型号要加进补丁第 1 组的 `models`；改完先 `npm stop` 再启动。怎么配见 [configuration.md](configuration.md) |
 | 加一个工具 | `core/tools/<服务>.ts` 加定义；注册表对应条目的 `tools` 加名字 | 写工具（`write: true`）必须在 `steps.ts` 某步的 `writeTools` 或 `UNBOUND_WRITE_TOOLS` 登记，否则一调就被门禁拒。名字不能和 DS Bot 团队工具重名 |
 | 改一步的规则 | `core/flow/steps.ts`：`STEPS`（顺序、负责角色、证据、写工具）、`TOOL_EXTRA_EVIDENCE`、`OUTCOME_RULES`、`CI_END_REASONS` | 门禁本身不用改，它只读这张表 |
 | 改时限、并发、改动上限、CI 轮数 | 配置的 `limits`，默认值在 `core/config.ts` `DEFAULT_LIMITS` | |
 | 改提示词 | `core/prompts/*.md`；所有 bot 共用的规则在 `group-notice.md` | 改工具的 `description` 也会影响 bot 行为 |
 | 改系统通知文案 | `core/task/monitor.ts` `NOTICE`（英文）、`NOTICE_ZH`（中文，配置 `language: 'zh'` 时用）；`/fix` 开头消息在 `core/task/http.ts` `openingMessage` | |
 | 改发件箱 / HTTP 接口 | `core/task/outbox.ts`、`core/task/http.ts` `route`；Slack 适配器 `core/adapters/slack.ts` `createOutboxSlack` | 这是和 Slack Bot 的约定，先改 `docs/chat-to-fix/slack/slackbot.md`，再和 Slack Bot 一侧对齐 |
-| 改 Claude Code 怎么起 | `core/engine/args.ts`（`codingArgs`、`flowArgs`）、`bot/src/host/local-agents/launch.ts` `launchFor` | |
+| 改 Coding bot 能跑什么、怎么审查 | 能跑的命令：频道绑定的 `testCommands`；`run_tests` 在 `core/tools/tests.ts`；审查材料和计轮在 `core/tools/review.ts`，起子会话在 `core/task/botlayer.ts` `runReview`；审查者的提示词 `core/prompts/reviewer.md` | 上限在配置 `limits`：`testMinutes`、`reviewMinutes`、`reviewMaxRounds`、`codingMaxSteps` |
 
 ## 9. 和设计文档的关系
 

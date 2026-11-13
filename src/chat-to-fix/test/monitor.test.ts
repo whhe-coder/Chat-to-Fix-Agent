@@ -5,7 +5,7 @@ import { createMonitor, NOTICE_KINDS } from '../core/task/monitor.ts'
 const LIMITS = {
   taskMinutes: 80,
   stepMinutes: { fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, writeback: 5 },
-  quietMinutes: 3, quietNudges: 2, engineSilentMinutes: 10,
+  quietMinutes: 3, quietNudges: 2, engineSilentMinutes: 10, codingMaxSteps: 5,
 }
 const MIN = 60_000
 const T0 = Date.parse('2026-11-12T02:00:00Z')
@@ -24,7 +24,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
     async appendRecord(id, entry) { records.push({ id, ...entry }) },
   }
   const calls = { post: [], stop: [], approval: [], ended: [], sent: [] }
-  const handlers = { session: [], round: [], line: [], approval: [] }
+  const handlers = { session: [], round: [], line: [], approval: [], tool: [] }
   const state = { quiet: false }
   const sub = (list) => (fn) => { list.push(fn); return () => list.splice(list.indexOf(fn), 1) }
   const botlayer = {
@@ -33,6 +33,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
     isQuiet: () => state.quiet,
     answerApproval(id, choice) { calls.approval.push([id, choice]) },
     onSessionEvent: sub(handlers.session),
+    onToolResult: sub(handlers.tool),
     onRoundEnd: sub(handlers.round),
     onGroupLine: sub(handlers.line),
     onApproval: sub(handlers.approval),
@@ -49,7 +50,9 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
   return { monitor, tasks, records, calls, handlers, state, clock, advance, settle, warnings }
 }
 const limitRecords = (s) => s.records.filter((r) => r.type === 'limit')
-const sessionEvent = (s, type, id = 'bc') => s.handlers.session[0]({ sessionId: id, botId: id, type, event: {}, at: '' })
+const sessionEvent = (s, type, id = 'bc', data = {}) => s.handlers.session[0]({ sessionId: id, botId: id, type, event: { type, data }, at: '' })
+const toolCall = (s, name, id = 'bc') => sessionEvent(s, 'tool/call', id, { name })
+const toolResult = (s, tool, id = 'bc') => s.handlers.tool[0]({ sessionId: id, botId: id, tool, ok: true, text: '', ms: 1, at: '' })
 
 test('total task time ends the run as timed_out / task_timeout', async () => {
   const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 81 })
@@ -127,7 +130,7 @@ test('idle-relay pause notice ends the task as failed / idle_relay', async () =>
   assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'idle_relay']])
 })
 
-test('Claude Code silent: first stop and ask again, second silence ends failed / engine_silent', async () => {
+test('the Coding bot silent: first stop and ask again, second silence ends failed / engine_silent', async () => {
   const s = setup({ step: 'code', stepAgoMin: 1 })
   s.monitor.watch('T-1'); await s.settle()
   sessionEvent(s, 'turn/start')
@@ -144,6 +147,42 @@ test('Claude Code silent: first stop and ask again, second silence ends failed /
   sessionEvent(s, 'turn/start')
   s.advance(10.5); await s.monitor.tick()
   assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'engine_silent']])
+})
+
+test('a test run or a review in flight is not silence; once it returns, the silence counts again', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1 })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  toolCall(s, 'request_review')
+  s.advance(14); await s.monitor.tick()
+  assert.equal(s.calls.stop.length, 0, 'the review runs for 14 minutes without an event of the Coding bot')
+  toolResult(s, 'request_review')
+  s.advance(10.5); await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'], 'silent after the review returned')
+  // another tool does not hold the check off
+  sessionEvent(s, 'turn/start')
+  toolCall(s, 'read')
+  s.advance(10.5); await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'engine_silent']])
+})
+
+test('more tool calls in one turn than codingMaxSteps stop the Coding bot and end the task failed / coding_max_steps', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1 })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  for (let i = 0; i < 5; i++) toolCall(s, 'read')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [], 'five calls are within the limit')
+  sessionEvent(s, 'turn/start') // a new turn counts afresh
+  for (let i = 0; i < 5; i++) toolCall(s, 'edit')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.ended, [])
+  toolCall(s, 'edit')
+  toolCall(s, 'read', 'bm') // another bot's calls do not count
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'])
+  assert.deepEqual(s.calls.ended, [['T-1', 'failed', 'coding_max_steps']])
+  assert.match(limitRecords(s).at(-1).text, /coding_max_steps at step code: stopped the Coding bot after 6 tool calls in one turn/)
 })
 
 test('a finished turn is not counted as silence; other bots are ignored', async () => {

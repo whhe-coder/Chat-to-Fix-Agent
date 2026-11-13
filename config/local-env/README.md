@@ -9,7 +9,7 @@ chmod 600 .env.local
 
 `.env.local` 是本机明文文件，已被 Git 忽略。不要发送该文件，也不要把 token 写进 Git、命令参数、日志或聊天。Slack Bot、模拟 Bot 和 Jira 检查脚本通过 `src/load-local-env.js` 加载该文件；Agent 通过自己的启动脚本加载。当前本机 Node.js 已验证支持所用的 `process.loadEnvFile`。若旧版 Node.js 不支持此方法，文件存在时启动会报出明确错误。
 
-已有的进程环境变量优先于 `.env.local`。`npm start` 启动 Agent 和本机模拟 Slack 页面，直接从这两处读取 GitLab、Jira token；它不需要 Slack token。`npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。`npm run start:slack` 启动 Slack Bot：接收指定频道的 `/fix`，交给本机 Agent，并把 Agent 发件箱里的消息转发到任务讨论串；它需要 `SLACK_APP_TOKEN`、`SLACK_BOT_TOKEN` 和 `CHAT_TO_FIX_SLACK_CHANNEL`，Agent 要先启动。该 Bot 和 `npm run check:jira` 在 Slack、Jira token 未设置时，仍可从 Mac 登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm run start:mock-slack` 可单独在前台启动模拟页面；它加载 `.env.local`，只读取本机 Agent 的接口 token，不使用 Slack token。提交 `/fix` 后，Agent 仍可能访问真实 Jira 和 GitLab。钥匙串中的现有 token 副本仍保留。
+已有的进程环境变量优先于 `.env.local`。`npm start` 启动 Agent 和本机模拟 Slack 页面，直接从这两处读取 Anthropic API key 和 GitLab、Jira token；它不需要 Slack token。`npm stop` 停止两者；`npm run stop:agent` 只停止 Agent。`npm run start:slack` 启动 Slack Bot：接收指定频道的 `/fix`，交给本机 Agent，并把 Agent 发件箱里的消息转发到任务讨论串；它需要 `SLACK_APP_TOKEN`、`SLACK_BOT_TOKEN` 和 `CHAT_TO_FIX_SLACK_CHANNEL`，Agent 要先启动。该 Bot 和 `npm run check:jira` 在 Slack、Jira token 未设置时，仍可从 Mac 登录钥匙串的 `Chat-to-Fix-Agent/<变量名>` 条目读取，账号为 `local-agent`。`npm run start:mock-slack` 可单独在前台启动模拟页面；它加载 `.env.local`，只读取本机 Agent 的接口 token，不使用 Slack token。提交 `/fix` 后，Agent 仍可能访问真实 Jira 和 GitLab。钥匙串中的现有 token 副本仍保留。
 
 ## 变量来源
 
@@ -20,6 +20,9 @@ chmod 600 .env.local
 | 模拟 Slack Bot | `MOCK_SLACK_STATE_DIR` | 后台页面进程的状态目录；留空时使用 `src/slackBot/.data/`，PID 和日志在其 `run/` 下。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
 | Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
+| 模型 | `ANTHROPIC_API_KEY` | 必填。Anthropic Console 的 **API Keys**。Agent 的五个 bot（含修复 bot 和它的评审）都在 DSH 里调用 Anthropic API，共用这一个 key；没有它 `npm start` 直接报错。不再使用本机登录的 Claude Code。见 [Agent 配置说明](../../docs/chat-to-fix/configuration.md)。 |
+| 模型 | `CHAT_TO_FIX_API_MODEL` | 可选。四个流程 bot 的模型线路，默认 `anthropic/claude-sonnet-5-5`。 |
+| 模型 | `CHAT_TO_FIX_CODING_MODEL` | 可选。修复 bot 和它的评审的模型线路，默认 `anthropic/claude-sonnet-5-5`。 |
 | Slack Bot | `CHAT_TO_FIX_API_URL` | 本机 Agent 控制接口地址；默认 `http://127.0.0.1:3090`。 |
 | Slack Bot | `CHAT_TO_FIX_HTTP_TOKEN` | 可选；Agent 控制接口令牌。留空时每次请求读取 Agent 数据目录（`CHAT_TO_FIX_DATA`，默认 `src/chat-to-fix/.data/connected`）里的 `http-token`，和模拟频道相同。 |
 | Slack Bot | `SLACK_BOT_STATE_DIR` | 可选；发件箱游标的保存目录，留空时使用 `src/slackBot/.data/`（已被 Git 忽略）。没有游标时从发件箱最新一条之后开始转发。 |

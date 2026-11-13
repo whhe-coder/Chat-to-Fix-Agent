@@ -1,6 +1,6 @@
 # CI 修复循环：缺口、设计和增量改动
 
-2026-11-12，研究分叉会话写。只读：没改代码、没提交、没建分支、没启动系统、没调用模型。
+2026-11-12，研究分叉会话写。（2026-11-13：Coding bot 改为 DSH 原生，五个 bot 共用一个 Anthropic API key，Claude Code 路线已删，见 [plan-dsh-coding.md](../design/plan-dsh-coding.md)；本文里 Coding bot 走 Claude Code 的内容只是历史。）只读：没改代码、没提交、没建分支、没启动系统、没调用模型。
 对照的代码是 `chat-to-fix/` 的提交 `d1eb5c8`（工作区里另一个子 agent 正在改计费相关文件，本文引用的文件里 `src/task/contracts.ts`、`store.ts`、`config.ts`、`bot/src/host/local-agents/*` 以 `d1eb5c8` 为准）。
 参照：公司仓库 `whhe-coder/Chat-to-Fix-Agent` 的 `README.md`「目标流程」、`plans/chat-to-fix-agent.md` 的 M4、`spec/gitlab-mr-client.md`（用 `gh api` 只读）。
 

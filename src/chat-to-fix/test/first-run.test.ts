@@ -1,6 +1,6 @@
 // scripts/first-run.ts (prepares a first real run) and scripts/show-task.ts (prints a task).
 // No model is called, nothing is started; the keychain lookup is injected, the key is a fake value,
-// the CLI is stood in for by the node binary, and everything is written under a temporary HOME.
+// and everything is written under a temporary HOME.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
@@ -19,10 +19,10 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'chat-to-fix-firstrun-'))
 const everyFile = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && !/[\\/]\.git[\\/]/.test(join(e.parentPath, e.name))).map((e) => join(e.parentPath, e.name))
 const prepare = (extra: any = {}) => {
   const home = tmp()
-  return prepareFirstRun({ home, user: 'tester', port: 0, claudeBin: process.execPath, env: { ...process.env, ANTHROPIC_API_KEY: undefined }, hasKeychainItem: () => false, ...extra }).then((r) => ({ ...r, home }))
+  return prepareFirstRun({ home, user: 'tester', port: 0, env: { ...process.env, ANTHROPIC_API_KEY: undefined }, hasKeychainItem: () => false, ...extra }).then((r) => ({ ...r, home }))
 }
 
-test('first-run writes the data folder outside the project: test repo, config, overlay, commands', async () => {
+test('first-run writes the data folder outside the project: test repo, config, commands', async () => {
   const r = await prepare({ env: { PATH: process.env.PATH, ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.equal(r.ready, true)
   assert.equal(r.keySource, 'env')
@@ -31,9 +31,9 @@ test('first-run writes the data folder outside the project: test repo, config, o
 
   const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
   assert.equal(config.apiModel, 'anthropic/claude-sonnet-5-5')
-  assert.equal(config.codingModel, 'claude-code/claude-sonnet-5-5', 'the Coding bot is pinned, not the CLI default')
+  assert.equal(config.codingModel, 'anthropic/claude-sonnet-5-5', 'the Coding bot is pinned')
   assert.equal(config.codingEffort, 'high')
-  assert.equal(config.engineAuth, 'apiKey')
+  assert.equal('engineAuth' in config, false)
   assert.deepEqual(config.adapters, { slack: 'fake', jira: 'fake', gitlab: 'fake' })
   assert.ok(config.dataDir.startsWith(r.dir) && config.worktreesDir.startsWith(r.dir))
   assert.deepEqual(config.bindings[0].testCommands, ['sh test.sh'])
@@ -43,15 +43,12 @@ test('first-run writes the data folder outside the project: test repo, config, o
   const loaded: any = loadConfig({ path: r.configPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.equal(loaded.bindings[0].channel, 'C0456')
 
-  const overlay = readFileSync(r.patchPath, 'utf8')
-  assert.match(overlay, /- id: chat-to-fix/)
-  assert.ok(overlay.includes(`claudeCommand: ${JSON.stringify(process.execPath)}`))
-
-  // The printed commands: start with the overlay, inject with the sample report, watch, stop.
+  // The printed commands: start, inject with the sample report, watch, stop.
   const text = readFileSync(r.commandsPath, 'utf8')
   assert.equal(text, r.text)
   assert.ok(text.includes(`export CHAT_TO_FIX_DATA='${r.dir}'`))
-  assert.ok(text.includes(`sh scripts/start-chat-to-fix.sh --patch '${r.patchPath}'`))
+  assert.ok(text.includes('sh scripts/start-chat-to-fix.sh\n'))
+  assert.doesNotMatch(text, /--patch|claude/i)
   assert.ok(text.includes('node scripts/fake-event.ts --channel C0456 --text '))
   assert.ok(text.includes(SAMPLE_REPORT))
   assert.match(text, /show-task\.ts T-1 --dir/)
@@ -75,7 +72,7 @@ test('first-run: with no key in the environment, an existing keychain item is ex
   // the export comes right before the start command
   const start = r.commands.start
   assert.equal(start.at(-2), exportLine)
-  assert.match(start.at(-1), /^sh scripts\/start-chat-to-fix\.sh --patch /)
+  assert.equal(start.at(-1), 'sh scripts/start-chat-to-fix.sh')
 })
 
 test('first-run: the keychain service name is a flag, and a key in the environment skips the keychain', async () => {
@@ -97,27 +94,24 @@ test('first-run: no key and no keychain item blocks the run (files are still wri
   assert.match(r.text, /read -rs ANTHROPIC_API_KEY/)
 })
 
-test('first-run: a missing CLI blocks the run; a data folder inside the project or a used one is refused', async () => {
-  const noCli = await prepare({ env: { PATH: '/nonexistent', ANTHROPIC_API_KEY: FAKE_KEY }, claudeBin: join(tmp(), 'no-such-claude') })
-  assert.equal(noCli.ready, false)
-  assert.ok(noCli.blockers.some((b) => /Claude Code CLI was not found/.test(b)))
-  await assert.rejects(prepareFirstRun({ dir: new URL('../.data/first-run-test', import.meta.url).pathname, env: {}, claudeBin: process.execPath, hasKeychainItem: () => false }), /outside the project/)
+test('first-run: a data folder inside the project or a used one is refused', async () => {
+  await assert.rejects(prepareFirstRun({ dir: new URL('../.data/first-run-test', import.meta.url).pathname, env: {}, hasKeychainItem: () => false }), /outside the project/)
   const used = tmp()
   writeFileSync(join(used, 'something'), 'x')
-  await assert.rejects(prepareFirstRun({ dir: used, env: {}, claudeBin: process.execPath, hasKeychainItem: () => false }), /not empty/)
+  await assert.rejects(prepareFirstRun({ dir: used, env: {}, hasKeychainItem: () => false }), /not empty/)
 })
 
 test('first-run as a command: default folder under HOME, prints the commands, never the key, starts nothing', async () => {
   const home = tmp()
   const script = new URL('../scripts/first-run.ts', import.meta.url).pathname
-  const { stdout } = await run(process.execPath, [script, '--port', '0', '--claude-bin', process.execPath], {
+  const { stdout } = await run(process.execPath, [script, '--port', '0'], {
     env: { PATH: process.env.PATH, HOME: home, USER: 'tester', ANTHROPIC_API_KEY: FAKE_KEY },
   })
   const [folder] = readdirSync(join(home, 'chat-to-fix-runs'))
   assert.match(folder, /^\d{8}-\d{6}$/)
   const dir = join(home, 'chat-to-fix-runs', folder)
-  assert.ok(existsSync(join(dir, 'chat-to-fix.json')) && existsSync(join(dir, 'first-run.patch.yml')) && existsSync(join(dir, 'commands.txt')))
-  assert.ok(stdout.includes('sh scripts/start-chat-to-fix.sh --patch'))
+  assert.ok(existsSync(join(dir, 'chat-to-fix.json')) && existsSync(join(dir, 'commands.txt')))
+  assert.ok(stdout.includes('sh scripts/start-chat-to-fix.sh'))
   assert.ok(stdout.includes('Nothing was started and no model was called'))
   assert.equal(stdout.includes(FAKE_KEY), false)
   assert.equal(existsSync(join(dir, 'run')), false, 'the system was not started')
@@ -129,7 +123,7 @@ test('first-run as a command: exit code 1 when blocked', async () => {
   const script = new URL('../scripts/first-run.ts', import.meta.url).pathname
   // HOME is empty and the keychain is the real one: use a service name that cannot exist.
   await assert.rejects(
-    run(process.execPath, [script, '--port', '0', '--claude-bin', process.execPath, '--keychain-service', 'chat-to-fix-test-no-such-item-xyz'], { env: { PATH: process.env.PATH, HOME: home, USER: 'tester' } }),
+    run(process.execPath, [script, '--port', '0', '--keychain-service', 'chat-to-fix-test-no-such-item-xyz'], { env: { PATH: process.env.PATH, HOME: home, USER: 'tester' } }),
     (e: any) => e.code === 1 && /BLOCKED: ANTHROPIC_API_KEY is not set/.test(e.stdout),
   )
 })

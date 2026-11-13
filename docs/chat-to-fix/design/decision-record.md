@@ -5,6 +5,7 @@
 - 目标：产品或测试在 Slack 频道里 @ 机器人后，系统自动建 Jira 单、修改代码、向开发者提交 Draft MR。要求 5 天内上线。
 - 状态：本文所有结论来自阅读源码和官方文档，没有运行过任何一环。第 3.5 节列出了需要靠运行确认的项。
 - 2026-11-12 注：这里的决定和理由仍然有效。软件已经按这些决定写出来并用真实模型跑过；实现细节以 software-spec 和 spec-1 至 spec-6 为准。
+- 2026-11-13 注：“编码交给 Claude Code”这一条已改。五个 bot（含 coding bot）都在 DSH 里走 Anthropic API，共用一个 key；Claude Code 路线（含 Logan 给流程 bot 加的无 key 路线）已删。决定见第 3.1 节最后一行和第 3.6 节，方案和理由见 [plan-dsh-coding.md](plan-dsh-coding.md)。下文第 1、2 节已按新决定改；第 3.2 至 3.5 节是 2026-11-11 选型时的事实，保留原样。
 
 ## 1. 约束
 
@@ -17,7 +18,7 @@
 | 部署机器由他人申请和负责 | 用户，2026-11-11 |
 | 第一版不做编译检查，只需要一个代码目录和文件修改能力 | 用户，2026-11-11 |
 | 最终形态不是桌面应用，是 CLI 或 SDK；MCP 形态以后再做 | 用户，2026-11-11 |
-| 演示阶段在本机 Mac 上调通本机部署的 Claude Code 即可 | 用户，2026-11-11 |
+| 演示阶段在本机 Mac 上调通本机部署的 Claude Code 即可（2026-11-13 起不再用 Claude Code；演示和部署都要 Anthropic API key） | 用户，2026-11-11 |
 
 ## 2. 讨论结果
 
@@ -27,8 +28,8 @@
 |---|---|---|
 | 运行时 | DeepSeek Harness（DSH） | 整体打包，不改源码 |
 | bot 层 | 参照 DS Bot | 从 DS Bot 挑文件搬进新工程；群聊里 bot 互相 @ 的机制保留 |
-| 编码 | Claude Code 命令行 | coding bot 把活原样转给它，对接方式照搬 DS Bot 的“本地 Agent”功能 |
-| 其他 bot 的模型 | Claude，走 Anthropic API | 由 DSH 自己的 agent 循环驱动 |
+| 编码 | DSH 原生 agent（2026-11-13 起；之前是 Claude Code 命令行） | coding bot 用 DSH 的读写改工具和 agent 预设 `coding`；测试经 `run_tests`，审查经系统起的只读子 agent（`request_review`） |
+| 五个 bot 的模型 | Claude，走 Anthropic API，共用一个 key | 由 DSH 自己的 agent 循环驱动 |
 | 入口 | 看门狗 | 我们自己写的后端监听服务，第一个收到 Slack 的 @ |
 | 任务表、步骤把关、交付 | 自建 | 见 2.3 至 2.6 |
 
@@ -42,11 +43,11 @@
 | Slack bot | Slack | 取回原始讨论，往原讨论回消息 | Claude，走 API |
 | Jira bot | Jira | 建 Jira 单、更新状态、写评论 | Claude，走 API |
 | Git Pipeline bot | GitLab | 拉代码、建分支、推分支并开 Draft MR | Claude，走 API |
-| coding bot | Claude Code | 在代码目录里定位问题、修改，并在内部完成审查 | Claude Code；内置一个只读的审查子 agent |
+| coding bot | 代码目录 | 在代码目录里定位问题、修改、跑测试，请系统审查 | Claude，走 API；审查由系统起一个只读子 agent |
 
 一个群一个主 bot。每个任务的群有这五个成员，都由系统在任务开始时新建，任务结束后删除；主 bot 不跨群。
 
-编码和审查是 coding bot 的两面：审查由 Claude Code 自带的子 agent 在 coding bot 内部完成，返工不出 Claude Code 的对话。审查子 agent 不是注册的 bot；它的说明和工具由系统在启动时给定，只有读和搜索。
+编码和审查是 coding bot 的两面：coding bot 调 `request_review`，系统起一个只读子 agent 审查真实 diff，等它答完把结论和轮数记到任务上；返工在 coding bot 的同一轮里完成。审查者不是注册的 bot；它的说明、材料和工具都由系统给定，只有读和搜索。（2026-11-13 前由 Claude Code 自带的子 agent 审查。）
 
 ### 2.3 工具清单
 
@@ -59,7 +60,7 @@
 | Slack bot | 读原始讨论；回复原始讨论 |
 | Jira bot | 建单；读单；加评论；改状态 |
 | Git Pipeline bot | 准备代码目录（拉代码、建分支）；看改动；读文件；读历史；推分支并开 Draft MR；读 MR 状态 |
-| coding bot | 调用 Claude Code；向 Git Pipeline bot 要代码；报告审查结论；确认信息不足 |
+| coding bot | 读写改代码目录；跑测试命令（`run_tests`）；请系统审查（`request_review`）；向 Git Pipeline bot 要代码；记“修不了”；确认信息不足 |
 
 ### 2.4 流程
 
@@ -68,7 +69,7 @@
 3. 取讨论：Slack bot 取回讨论，整理成摘要写进任务，并在原讨论回复“已收到”。
 4. 建单：Jira bot 从任务里读摘要，建单，把单号写进任务。
 5. 备代码：Git Pipeline bot 拉代码，建分支 `ai/<Jira 单号>`（沿用现有流程的命名）。
-6. 编码：coding bot 调 Claude Code 定位并修改，在内部审查通过后汇报改动和审查结论。
+6. 编码：coding bot 定位并修改，跑测试，`request_review` 审查通过后汇报改动和审查结论。
 7. 开 MR：Git Pipeline bot 推分支，开 Draft MR。任务上没有“审查通过”时开不了。
 8. 回写：Jira bot 写上 MR 链接并更新状态；Slack bot 在原讨论回复结果。
 9. 收尾：主 bot 结束任务；看门狗取队列里的下一个任务。
@@ -98,14 +99,14 @@ bot 之间的转交走存储：上一步的结果写在任务上，下一个 bot
 
 ### 2.7 权限
 
-- 只有 coding bot 能调用 Claude Code。
+- 只有 coding bot 能改文件（agent 预设 `coding`，写只能落在代码目录里）。
 - 其余 bot 只能读、查看、调用定死的工具，不能修改任何东西。
 - 推分支和开 MR 是 Git Pipeline bot 的一个定死的工具，令牌在工具内部，bot 本身拿不到。任务上没有“审查通过”时这个工具调不动。
 - 所有可选操作都是定死的，严格按流程走。
 - 部署在容器里，容器是安全边界，运行中不出现需要人点的审批。
 - 运行中出现的审批由任务层（状态层）统一管理。
 - bot 完成一步的判定靠新加的工具：调用我们新加的工具算干了活；coding bot 向 Git Pipeline bot 要代码也是一个工具。
-- coding bot 是纯转发：Claude Code 保持默认能力，是否有命令行不单独做决定。审查子 agent 只有读和搜索。
+- coding bot 没有 shell，只能经 `run_tests` 跑频道绑定里的测试命令。审查者只有读和搜索。（2026-11-13 前：coding bot 是纯转发，Claude Code 保持默认能力。）
 
 ### 2.8 并发
 
@@ -144,11 +145,12 @@ bot 之间的转交走存储：上一步的结果写在任务上，下一个 bot
 | 候选 | 结论 | 原因 |
 |---|---|---|
 | Claude Code 无头模式加一条确定性流水线，不做多 bot | 未采用 | 用户要的是多个 bot 分工协作的团队形态，并且要能改外层框架 |
-| DSH 原生 agent 接 Claude 模型，角色用预设定死 | 未采用 | 编码质量取决于 DSH 对 Claude 的第三方适配层，没有验证；用户决定编码直接交给 Claude Code |
+| DSH 原生 agent 接 Claude 模型，角色用预设定死 | 2026-11-11 未采用；2026-11-13 改为采用（见本表最后一行） | 当时：编码质量取决于 DSH 对 Claude 的第三方适配层，没有验证；用户决定编码直接交给 Claude Code |
 | 以 dsh-superagent 为骨架 | 只作参考 | 只支持 github.com；硬依赖 DSH 的网页服务；执行器以完全权限运行；README 自述为研究原型 |
 | CopilotKit OpenBot | 未采用 | 是工作台和治理平台，不是编码引擎；后端部署在 Kubernetes 和 PostgreSQL 上；依赖单独授权的 CopilotKit Intelligence，生产环境需要生产许可证 |
 | 外层完全自建，不带 DSH | 未采用 | DS Bot 的核心路由代码贴着 DSH 的会话、收件箱和事件服务写成；抛开 DSH 等于重写这一层 |
-| **DSH 整体打包，bot 层取自 DS Bot，编码交给 Claude Code** | **采用** | 每一环都有现成实现；用户熟悉 DS Bot |
+| DSH 整体打包，bot 层取自 DS Bot，编码交给 Claude Code | 2026-11-11 采用；2026-11-13 改为下一行 | 每一环都有现成实现；用户熟悉 DS Bot |
+| **DSH 整体打包，bot 层取自 DS Bot，五个 bot（含编码）都是 DSH 原生 agent，共用一个 Anthropic API key**（2026-11-13，Zihui 定，Logan 同意撤回无 key 路线） | **采用** | DSH 自带读写改文件、按会话目录限写、只读预设、子 agent、按会话的用量统计，DS Bot 的群聊也会等子 agent；四个流程 bot 已经用 `anthropic/claude-sonnet-5-5` 跑通真实任务，说明 pi-ai 适配层的工具调用、缓存和计费可用。结构变平：五条注册表条目只差数据；删掉 Claude Code 路线约 2000 行代码、约 2000 行测试和个人指令隔离那套绕法；部署要 API key。编码质量还没和 Claude Code 对比过，真实用例对比待批准（[plan-dsh-coding.md](plan-dsh-coding.md) 第 10 节） |
 
 ### 3.2 各项目的事实
 
@@ -226,10 +228,12 @@ DS Bot 的驱动用到的参数全部在文档中：`--input-format`、`--output
 |---|---|---|
 | Jira、GitLab、Slack 只是工具，不该是 bot | 它们各对应一个注册的 bot | 架构里只有 bot 这一种可注册的东西，一个 bot 对应一个服务；读不可信 Slack 文本的 bot 与改代码的 bot 分开，令牌互不可见 |
 | Slack 和 Jira 合并成一个 bot（讨论中短暂采用） | Slack bot 和 Jira bot 各是一个注册的 bot | 架构逻辑和流程逻辑是两回事：架构上统一注册，合并与否是流程编排的事；转交走存储，分成两个 bot 不丢信息 |
-| 审查由 GitLab bot 在开 MR 前顺带核对 | 审查内置在 coding bot 里，由 Claude Code 的子 agent 完成 | 编码和审查是一体两面；返工在 Claude Code 的同一段对话里完成，不用经过主 bot 来回转交 |
+| 审查由 GitLab bot 在开 MR 前顺带核对 | 审查内置在 coding bot 里，由 Claude Code 的子 agent 完成；2026-11-13 改为 coding bot 调 `request_review`，系统起只读子 agent、记结论 | 编码和审查是一体两面；返工在 coding bot 的同一轮里完成，不用经过主 bot 来回转交；审查的输入和结论都由系统掌握，比让 coding bot 自己转述更独立 |
 | bot 的名字：GitLab bot、修复 bot | Git Pipeline bot、coding bot | 用户定名；2026-11-12 pipeline bot 再定名为 Git Pipeline bot（代码里的角色标识仍是 `pipeline`，群里的 bot 名仍是 `Pipeline-1`） |
 | 管理角色用代码实现 | 主 bot 是 agent，看门狗是代码 | 用户要的是 bot 团队；步骤完成条件仍由代码检查 |
 | 非必要不用 Claude Code | 编码直接交给 Claude Code | 外层框架自建后，可定制的需求落在外层；DS Bot 已有成熟接法 |
+| 编码直接交给 Claude Code（2026-11-11） | 编码也用 DSH 原生 agent，五个 bot 共用一个 Anthropic API key（2026-11-13） | DSH 本身就有编码所需的部件，换过去结构变平、可测（冒烟能用模拟模型看到 coding bot 的工具），省掉命令行驱动和个人指令隔离；部署本来就要 API key。代价是编码质量要另行验证 |
+| 没有 API key 时四个流程 bot 改走已登录的 Claude Code（Logan，`fd4407d`） | 撤回：所有部署都要 `ANTHROPIC_API_KEY` | 和上一条一起；Logan 同意（2026-11-13） |
 | 不带 DSH，外层完全自建 | DSH 整体打包 | DS Bot 的核心路由依赖 DSH 的服务 |
 | 第一版砍掉群聊轮次，只做派活树 | 保留群聊 | 群聊代码是从 DS Bot 搬来而不是重写 |
 | 工人长期存在 | 每个任务新建一批 bot | 任务之间要隔离，为并发留出空间 |

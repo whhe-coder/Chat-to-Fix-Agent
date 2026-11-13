@@ -25,8 +25,6 @@ export async function start(t, config: any = {}) {
   const creates = []
   // What the projections of a session report (see sessionController.projections below).
   const totals = new Map()
-  // What the local agents module registers on the llm service (a route list and the adapter).
-  const adapters = []
   let sessions = 0
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
@@ -59,20 +57,10 @@ export async function start(t, config: any = {}) {
   }
   Object.assign(ctx, {
     llm: {
-      listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'claude-code', name: 'Claude Code' }],
-      // The Claude Code route lists what the registered local-agents adapter lists (as DSH's llm service does);
-      // until it is registered, a short fixed list.
-      listModels: async provider => (provider === 'claude-code'
-        ? (adapters.length > 0
-          ? (await adapters[0].adapter.listModels(provider)).map(model => ({ ...model, inputModalities: ['text'] }))
-          : [{ id: 'default', name: 'CLI default', inputModalities: ['text'] }, { id: 'sonnet', name: 'sonnet', inputModalities: ['text'] }])
-        : [{ id: 'v4-flash', name: 'v4-flash', inputModalities: ['text'] }]),
-      resolveModelInfo: async () => ({}),
-      registerAdapter(routes, adapter) {
-        const entry = { routes, adapter }
-        adapters.push(entry)
-        return Object.assign(() => {}, { replace(next) { entry.routes = next } })
-      },
+      listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+      listModels: async () => [{ id: 'v4-flash', name: 'v4-flash', inputModalities: ['text'] }],
+      // `config.efforts` (a list of thinking levels) makes every model serve them, as a reasoning model does.
+      resolveModelInfo: async () => (config.efforts ? { reasoning: { efforts: config.efforts.map(id => ({ id })) } } : {}),
     },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
@@ -92,7 +80,7 @@ export async function start(t, config: any = {}) {
   })
   // `config.build(ctx, home)` lets a test install something else on the context (the plugin
   // entry); it returns the facade or an object with a `botlayer`.
-  const { build, presets, projections, ...rest } = config
+  const { build, presets, projections, efforts, ...rest } = config
   const built = build ? build(ctx, home) : createRuntime(ctx, { home, ...rest })
   const botlayer = built.botlayer ?? built
   const rt = runtimeOf(botlayer)
@@ -126,14 +114,7 @@ export async function start(t, config: any = {}) {
     emit(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: reply }] } })
     emit(sessionId, 'turn/end', { turn: turns.get(sessionId), reason: { kind: 'completed' } })
   }
-  // The local-agents adapter once the CLI is found (the scan runs in the background).
-  const localAdapter = async () => {
-    const until = Date.now() + 20_000
-    while (adapters.length === 0 && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20))
-    assert.ok(adapters.length > 0, 'the local agent adapter was not registered')
-    return adapters[0].adapter
-  }
-  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, creates, totals, emit, tool, begin, finish, adapters, localAdapter }
+  return { home, ctx, rt, botlayer, built, agentOf, agentCreated, agents, selected, prompts, creates, totals, emit, tool, begin, finish, services }
 }
 
 export const settle = async (check) => {
@@ -142,12 +123,11 @@ export const settle = async (check) => {
   assert.ok(check(), 'condition not reached')
 }
 
-// The task layer (core/app.ts) on a host, as in role-tools.test.js, with the Claude Code driver
-// pointed at `cli` ({ command, args }: the fake CLI, or a wrapper of the real one). `runtime` is
-// extra runtime configuration (testCommands, permissionTimeoutMs, ...). Returns the host and
-// the app; `post(text)` starts a task and resolves with the running task and its bots.
-export async function startApp(t, { cli, runtime = {}, config: extra = {} }: { cli?: any, runtime?: any, config?: any } = {}) {
-  const host = await start(t, { claudeCommand: cli.command, claudeCommandArgs: cli.args, ...runtime })
+// The task layer (core/app.ts) on a host, as in role-tools.test.js. `runtime` is extra host configuration
+// (presets, efforts, ...). Every bot is on the fake DSH's deepseek route. Returns the host and the app;
+// `post(text)` starts a task and resolves with the running task and its bots.
+export async function startApp(t, { runtime = {}, config: extra = {} }: { runtime?: any, config?: any } = {}) {
+  const host = await start(t, { ...runtime })
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-app-'))
   const configPath = join(dir, 'config.json')
   await writeFile(configPath, JSON.stringify({
@@ -155,11 +135,11 @@ export async function startApp(t, { cli, runtime = {}, config: extra = {} }: { c
     worktreesDir: join(dir, 'worktrees'),
     httpPort: 0,
     apiModel: 'deepseek/v4-flash',
-    codingModel: 'claude-code/default',
+    codingModel: 'deepseek/v4-flash',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
     ...extra,
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const warnings = []
   const app = createApp({ config, botlayer: host.botlayer, token: 'tok', defineTool, warn: (...args) => warnings.push(args.join(' ')) })
   connectTaskLayer(host.botlayer, app.taskLayer)
@@ -180,19 +160,4 @@ export async function startApp(t, { cli, runtime = {}, config: extra = {} }: { c
     throw new Error(`task ${posted.taskId} did not start; warnings: ${warnings.join(' | ')}`)
   }
   return { host, app, post, warnings, config }
-}
-
-// A real DSH loop (test/bot/loop.ts mountLoop) runs on a context of its own; the bot layer listens on the host's.
-// This hands the loop's session events and tool results on to the host's listeners, as one DSH would, so the task
-// layer's recorder sees what the loop does (tool calls, tool results, round ends). Returns the stop function.
-export function forwardLoopEvents(host, loopCtx) {
-  const offs = [
-    loopCtx.on('session/event', (session, event) => {
-      for (const listener of host.ctx.listeners.get('session/event') ?? []) if (listener.length >= 2) listener(session, event)
-    }),
-    loopCtx.on('tools/result', (exec, result) => {
-      for (const listener of host.ctx.listeners.get('tools/result') ?? []) if (listener.length >= 2) listener(exec, result)
-    }),
-  ]
-  return () => { for (const off of offs) off?.() }
 }

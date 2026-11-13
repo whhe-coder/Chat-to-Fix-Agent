@@ -8,8 +8,8 @@
 ## 1. 设计理念
 
 1. **一个群一个主 bot，各司其职。** 每个任务一个群，群里是主 bot、Slack bot、Jira bot、Git Pipeline bot、coding bot。
-2. **一个 bot 对应一个服务。** Slack bot 对 Slack，Jira bot 对 Jira，Git Pipeline bot 对 GitLab，coding bot 对 Claude Code，主 bot 对任务的流程和状态。所有 bot 用同一种方式注册；谁先谁后由流程定义决定，和 bot 的定义分开。
-3. **编码和审查是一个 bot 的两面。** 审查由 coding bot 内部的子 agent 完成，返工不出 Claude Code 的对话。
+2. **一个 bot 对应一个服务。** Slack bot 对 Slack，Jira bot 对 Jira，Git Pipeline bot 对 GitLab，coding bot 对代码目录，主 bot 对任务的流程和状态。所有 bot 用同一种方式注册；谁先谁后由流程定义决定，和 bot 的定义分开。
+3. **编码和审查是一个 bot 的两面。** coding bot 调 `request_review`，系统起只读审查者、记结论；返工在 coding bot 的同一轮里完成。
 4. **一轮结束再转交，转交走存储。** bot 做完自己这一轮，最终答复交回主 bot，由主 bot 叫下一步。上一步的结果写在任务上，下一个 bot 从任务里读。
 5. **执行记录对主 bot 开放。** 系统把每一步记到任务上，主 bot 可以读全部记录。
 6. **状态由系统管。** 群和成员由系统建；步骤的推进由代码检查条件；审批由任务层统一处理。
@@ -86,18 +86,21 @@ CI 步骤由 Git Pipeline bot 负责，流程见 [spec-7-ci-loop.md](spec-7-ci-l
 
 ### 2.6 coding bot
 
-coding bot 是纯转发，Claude Code 在本任务的代码目录里用它自己的读、搜索、改文件能力。通过 DS Bot 的本机 MCP 桥递给它的工具（Claude Code 能运行的命令是频道的 `testCommands`；频道的 `setupCommands` 会从配置里读出，但没有任何代码去运行它：未实现）：
+coding bot 是 DSH 会话，预设 `coding`：DSH 自带的 `read`、`read_image`、`glob`、`grep`、`edit`、`write`，写只能落在代码目录里；没有 shell。它的角色工具（2026-11-13：Coding bot 改为 DSH 原生，Claude Code 路线已删，见 [plan-dsh-coding.md](plan-dsh-coding.md)。）：
 
 | 工具 | 参数 | 做什么 |
 |---|---|---|
-| `task_read` | 无 | 同 2.1 |
+| `task_read` | 无 | 同 2.1；另外列出这个仓库的测试命令 |
+| `repo_diff` | 无 | 同 2.5：代码目录相对基准提交改了什么 |
+| `run_tests` | 测试命令（必须和绑定里的某条完全相同） | 在代码目录里原样运行，有时限，环境变量只有白名单；返回退出码和输出末尾。只在 `code` 和 `ci` 步可用 |
+| `request_review` | 改动说明 | 系统起只读审查者，给它任务、说明和真实 diff，等它答完，把结论、意见、轮数记到任务上。写工具，`code` 和 `ci` 步可用；最多 `reviewMaxRounds` 轮 |
 | `request_code` | 要什么（例如另一个分支上的某个文件、某段历史） | 私下向 Git Pipeline bot 要代码，结果回到 coding bot。只在 `code` 和 `ci` 步可用 |
-| `review_report` | 结论（通过、不通过；`cannot_fix` 只在 `ci` 步可用）；审查意见；轮数 | 把内部审查的结论记到任务上。`code` 和 `ci` 步可用；在 `ci` 步记的是本轮修复的审查，`cannot_fix` 表示这次 CI 失败修不了 |
+| `review_report` | `cannot_fix`；原因 | 只在 `ci` 步：记下这次 CI 失败修不了 |
 | `needs_info_confirm` | 缺什么信息 | 记下 coding bot 对“信息不足”的确认 |
 
 `request_code` 是新工具，不用 DS Bot 现成的 `message_bot`：`message_bot` 在团队工具名单里，调用它不算干了活。
 
-审查子 agent 不是工具，是 Claude Code 自带的子 agent。系统在启动 Claude Code 时传入它的说明，并只给它读和搜索的工具。
+审查者不是工具，是 `request_review` 按需起的 DSH 子 agent（预设 `readonly`，只有读和搜索）。
 
 ### 2.7 不给任何 bot 的能力
 
@@ -130,10 +133,13 @@ coding bot 是纯转发，Claude Code 在本任务的代码目录里用它自己
 | 第 8 步 `close` | 无 | 只受任务总时限约束 | 没有自己的时限 |
 | coding bot 内部的修改和审查 | 最多 3 轮 | coding bot 报告审查未通过，主 bot 把任务以失败关闭，保留分支 | 现有 Rovo 修复 Agent V13 每次调用最多三次修复提交。这一项只写在 coding bot 的说明里，配置键 `reviewMaxRounds` 有但没有任何代码读它。系统用编码时限兜底 |
 | 群内成员无回复 | 240 秒 | 该成员记为错过，主 bot 继续 | DS Bot 的 `ROOM_REPLY_TIMEOUT_MS`；是 DS Bot 里的常量，不是配置键 |
-| Claude Code 无任何输出 | 10 分钟 | 中断，并让主 bot 重新叫 coding bot，只一次；再发生则任务失败 | 估算 |
+| coding bot 一轮无任何输出（测试、审查进行中不算） | 10 分钟 | 中断，并让主 bot 重新叫 coding bot，只一次；再发生则任务失败 | 估算 |
 | 群安静而任务未结束 | 3 分钟 | 看门狗给主 bot 补一条消息；最多 2 次，第 3 次任务失败 | 次数取自 DS Bot 目标功能的 `GOAL_IDLE_NUDGES = 2`；时长是估算 |
 | bot 之间连续空转 | 6 次 | 群暂停，看门狗记为卡住并结束任务 | DS Bot 的 `ROOM_IDLE_RELAY_LIMIT`；是 DS Bot 里的常量，不是配置键。看门狗靠正则匹配 DS Bot 那条通知的英文原文来识别暂停 |
-| Claude Code 单次运行的回合数 | 200（`engineMaxTurns`） | 作为 `--max-turns` 传给 Claude Code，它自己停下；代码里没有专门的处理 | 估算；作为时限之外的第二道保险 |
+| coding bot 一轮的工具调用数 | 200（`codingMaxSteps`） | 停掉 coding bot，任务失败（`coding_max_steps`）；DSH 自己没有步数上限 | 估算；作为时限之外的第二道保险 |
+| 一次 `run_tests` | 10 分钟（`testMinutes`） | 杀掉整组进程，返回“没跑完” | 估算 |
+| 一次 `request_review` | 15 分钟（`reviewMinutes`） | 停掉审查者，报错，不算一轮 | 估算 |
+| 审查轮数 | 3（`reviewMaxRounds`） | 第四次 `request_review` 被拒 | 沿用 Rovo V13 的“最多三轮” |
 | 模型或网络的瞬时失败 | 重试 3 次，间隔 15、30、60 秒 | 未实现：代码里没有这种重试 | dsh-superagent 对失败回合的续跑间隔 |
 | 外部接口调用 | 每次 30 秒超时（`toolTimeoutSeconds`），重试 2 次（`toolRetries`），间隔 250 毫秒，只重试标为可重试的错误 | 工具返回错误，由 bot 决定受阻或再试 | 估算 |
 | 改动规模（`diffMaxFiles`、`diffMaxLines`） | 20 个文件或 500 行 | `mr_open_draft` 被拒，不开 MR；主 bot 随后把任务以“需要人工处理”关闭（状态 `failed`、结束原因 `needs_person`），保留分支，原讨论收到“未能完成”的通知 | 估算；dsh-superagent 自动合并的门槛是 200 行，这里只是开 Draft MR，放宽 |
@@ -148,4 +154,4 @@ coding bot 是纯转发，Claude Code 在本任务的代码目录里用它自己
 
 ## 5. 校准办法
 
-跑 5 到 10 张历史工单时，记录每一步的实际耗时、Claude Code 的回合数、内部审查的轮数、改动的文件数和行数。每项上限取实测最大值的 2 倍左右，再向上取整。编码时限和任务总时限按这个办法重定一次。
+跑 5 到 10 张历史工单时，记录每一步的实际耗时、coding bot 一轮的工具调用数、审查的轮数、改动的文件数和行数。每项上限取实测最大值的 2 倍左右，再向上取整。编码时限和任务总时限按这个办法重定一次。

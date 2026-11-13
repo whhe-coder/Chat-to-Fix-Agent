@@ -50,7 +50,8 @@ const BOT_NAME_LANE = Object.freeze({ main: 'main', slack: 'slack', jira: 'jira'
 const TOOL_HINTS = Object.freeze({
   task_read: '读任务', task_records: '读记录', repo_prepare: '准备代码', repo_diff: '看改动', repo_read_file: '读文件', repo_log: '看历史',
   mr_open_draft: '开 Draft MR', mr_get: '查 MR', jira_create_issue: '建工单', jira_get_issue: '查工单', jira_add_comment: '加评论',
-  jira_transition: '改状态', review_report: '评审结果', ci_read_log: '读 CI 日志', mr_push_fix: '推修复提交', ci_stop: '停止 CI 循环',
+  jira_transition: '改状态', review_report: '记录修不了', ci_read_log: '读 CI 日志', mr_push_fix: '推修复提交', ci_stop: '停止 CI 循环',
+  request_review: '请求评审', run_tests: '跑测试', read: '读文件', write: '写文件', edit: '改文件', glob: '找文件', grep: '搜索',
 })
 
 const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -235,7 +236,7 @@ function buildDetailed(records, task) {
     if (isLane(r.role)) delete roundUsage[r.role]
   }
 
-  // A usage record (one model call or one model of a CLI turn): drawn only in the detailed view, as a small self-loop;
+  // A usage record (one round of a bot, or one review): drawn only in the detailed view, as a small self-loop;
   // its figures also go to the popup of the round it belongs to.
   const onUsage = (r) => {
     if (isLane(r.role)) (roundUsage[r.role] ??= []).push(r)
@@ -324,7 +325,7 @@ function buildDetailed(records, task) {
           push(r, { from: 'gate', to, kind: 'reply', label: `拒绝: ${r.text ?? ''}`, detail: String(r.text ?? ''), failed: true, ok: false })
           break
         }
-        // A tool use refused or failed inside Claude Code (core/task/recorder.ts onEngineLines):
+        // A refused or failed tool use recorded by the removed Claude Code route (records before 2026-11-13):
         // a red self-loop on the bot's lane, labelled with the attempted command.
         case 'refusal':
         case 'tool_error': {
@@ -424,14 +425,14 @@ const partOf = (a) => ({
 /**
  * The concise view of the detailed arrows: only the main flow, with short labels (tables above, keyed by role and step) and a grey
  * second line of key content. Step advances, task_read / jira_* / repo_* / mr_* self-loops, the main bot's own notes and the Slack
- * echo are hidden; the Slack read and its ack reply are one arrow; the Claude Code work is one self-loop with the narration and
+ * echo are hidden; the Slack read and its ack reply are one arrow; the Coding bot's work is one self-loop with the narration and
  * tool calls behind it. Unknown records are hidden. Failures and watchdog notices always stay.
  */
 function toConcise(all, task) {
   const out: any[] = []
   let advanceTo = 0 // the step number while no bot has been called since the advance
   let lastRead: any // the "读讨论" arrow: the ack reply that follows it joins it
-  let work: any // the "Claude Code ..." self-loop while the Coding bot works
+  let work: any // the "定位并修改" self-loop while the Coding bot works
   const callStep: any = {} // lane -> step in which the main bot last called it
   let jiraTitle = ''
   let repoText = ''
@@ -462,25 +463,26 @@ function toConcise(all, task) {
     if (a.tool === 'repo_prepare' && a.result) repoText = a.result
     if (a.tool === 'mr_open_draft' && a.result) mrUrl = urlIn(a.result) || mrUrl
     if (a.tool === 'review_report') { const verdict = jsonOf(a.args)?.verdict; review = verdict === 'pass' ? '通过' : verdict ? `：${verdict}` : review }
+    if (a.tool === 'request_review' && a.result) { const verdict = /^Review round \d+ of at most \d+: (pass|not pass)\./.exec(String(a.result))?.[1]; review = verdict === 'pass' ? '通过' : verdict ? '未通过' : review }
     if (keyIn(a.result) && a.tool === 'jira_create_issue') jiraKey = keyIn(a.result)
 
     if (a.recordType === 'advance') { advanceTo = stepNo(a.step); continue }
-    // usage records are shown in the popup of their round, never as an arrow (a usage record must not start a "Claude Code" loop)
+    // usage records are shown in the popup of their round, never as an arrow (a usage record must not start a work loop)
     if (a.recordType === 'usage') continue
     // "[PASS]": a bot that saw a group message and chose not to answer (real run 2026-11-12: the Coding bot after the CI fix push)
     if (a.recordType === 'round_end' && /^\s*\[PASS\]\s*$/.test(String(a.detail ?? ''))) continue
 
-    // the Coding bot's own lane: its narration and tool calls are one "Claude Code" loop; refusals and errors stay red beside it
+    // the Coding bot's own lane: its narration and tool calls are one work loop; refusals and errors stay red beside it
     if (a.role === 'coding' && a.from === 'coding' && a.to === 'coding' && a.recordType !== 'round_end') {
       let started = false
       if (work === undefined) {
         started = true
-        work = emit(a, { label: 'Claude Code 定位并修改', kind: 'self', failed: false, pending: false, ok: null, ms: null, unknown: false, minor: false, tool: null, args: '', result: '', detail: '', uid: `${a.uid}s` }, a.failed ? [] : undefined)
+        work = emit(a, { label: '定位并修改', kind: 'self', failed: false, pending: false, ok: null, ms: null, unknown: false, minor: false, tool: null, args: '', result: '', detail: '', uid: `${a.uid}s` }, a.failed ? [] : undefined)
       }
       if (!a.failed) {
         if (!started) work.parts.push(partOf(a))
         refresh(work)
-        if (a.tool === 'review_report') work.sub = `评审${review}`
+        if (a.tool === 'review_report' || a.tool === 'request_review') work.sub = `评审${review}`
         continue
       }
     }

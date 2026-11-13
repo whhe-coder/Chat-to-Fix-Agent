@@ -1,8 +1,8 @@
 // One-pass end-to-end regression suite for REAL runs (real models, fake Slack / Jira / GitLab).
 //
 //   . scripts/dev-env.sh && node scripts/e2e/run.ts [--cases a,b] [--dir <folder outside the project>] [--prepare-only]
-//        [--timeout-minutes 20] [--port 3090] [--api-model anthropic/claude-sonnet-5-5] [--engine-auth apiKey|login]
-//        [--claude-bin <path>] [--keychain-service chat-to-fix-anthropic] [--poll-seconds 3]
+//        [--timeout-minutes 20] [--port 3090] [--api-model anthropic/claude-sonnet-5-5]
+//        [--coding-model anthropic/claude-sonnet-5-5] [--keychain-service chat-to-fix-anthropic] [--poll-seconds 3]
 //
 // Each case is a bug report in a bound Slack channel against a small throwaway front-end repository; it is
 // expected to go through all eight steps in one run (no needs_info, no rerun). The runner
@@ -181,12 +181,12 @@ const mark = (ok) => (ok ? '[x]' : '[ ]')
 // ---- token billing in the report (task.usage, core/task/usage.ts)
 const costCell = (usage) => (usage && usage.calls > 0 ? `${fmtUsd(usage.totalUsd)}${usage.unpriced ? '（含未定价）' : ''}` : '-')
 const tokenText = (b) => `输入 ${fmtTokens(b.input)} / 输出 ${fmtTokens(b.output)} / 缓存读 ${fmtTokens(b.cacheRead)} / 缓存写 ${fmtTokens(b.cacheWrite)}`
-// 速度的来源：DSH 自己的算法（API bot），或由 CLI 结果推算（修复 bot）
+// 速度的来源：DSH 自己的算法（五个 bot）；2026-11-13 前的旧报告里修复 bot 的速度由 CLI 结果推算
 const basisText = (b) => (b.last?.tpsBasis === undefined || b.last?.tpsBasis === null ? '' : TPS_BASIS_LABEL[b.last.tpsBasis] ?? b.last.tpsBasis)
 const usageHeader = (report) => {
   const u = report.usage
   if (!u || !(u.calls > 0)) return []
-  return [`- 花费：${fmtUsd(u.totalUsd)}${u.unpriced ? '（含未定价的调用，未计入）' : ''}　${tokenText(u)}　${u.calls} 次调用`, `- 平均输出速度：${fmtTps(u.outputTps)}（总输出 token ÷ 总计时用时；API bot 的速度取自 DSH 的 sessionStats，修复 bot 的是按 CLI 结果推算，来源见各用例的“花费”表）`]
+  return [`- 花费：${fmtUsd(u.totalUsd)}${u.unpriced ? '（含未定价的调用，未计入）' : ''}　${tokenText(u)}　${u.calls} 次调用`, `- 平均输出速度：${fmtTps(u.outputTps)}（总输出 token ÷ 总计时用时；五个 bot 的速度都取自 DSH 的 sessionStats，来源见各用例的“花费”表）`]
 }
 const usageSection = (u) => {
   if (!u || !(u.calls > 0)) return []
@@ -242,11 +242,11 @@ export function writeReport(dir, report) {
 }
 
 /** The real system: start/stop scripts of the project. The key is passed in the child's environment only. */
-export function createSystem({ dir, patchPath, env = process.env, keyFromKeychain, log = (line) => console.log(line), execImpl = exec }: any) {
+export function createSystem({ dir, env = process.env, keyFromKeychain, log = (line) => console.log(line), execImpl = exec }: any) {
   const childEnv = () => ({ ...env, CHAT_TO_FIX_DATA: dir, CHAT_TO_FIX_START_TIMEOUT: '120', ...(env.ANTHROPIC_API_KEY ? {} : keyFromKeychain ? { ANTHROPIC_API_KEY: keyFromKeychain() } : {}) })
   return {
     async start() {
-      const { stdout } = await execImpl('sh', [join(ROOT, 'scripts', 'start-chat-to-fix.sh'), '--patch', patchPath], { cwd: ROOT, env: childEnv(), timeout: 240_000 })
+      const { stdout } = await execImpl('sh', [join(ROOT, 'scripts', 'start-chat-to-fix.sh')], { cwd: ROOT, env: childEnv(), timeout: 240_000 })
       log(stdout.trim())
     },
     async stop() {
@@ -257,7 +257,7 @@ export function createSystem({ dir, patchPath, env = process.env, keyFromKeychai
 }
 
 export function parseArgs(argv) {
-  const values = { '--dir': 'dir', '--cases': 'cases', '--timeout-minutes': 'timeoutMinutes', '--port': 'port', '--api-model': 'apiModel', '--engine-auth': 'engineAuth', '--claude-bin': 'claudeBin', '--keychain-service': 'keychainService', '--poll-seconds': 'pollSeconds' }
+  const values = { '--dir': 'dir', '--cases': 'cases', '--timeout-minutes': 'timeoutMinutes', '--port': 'port', '--api-model': 'apiModel', '--coding-model': 'codingModel', '--keychain-service': 'keychainService', '--poll-seconds': 'pollSeconds' }
   const o: any = {}
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
@@ -273,7 +273,6 @@ export function parseArgs(argv) {
   for (const key of ['port', 'timeoutMinutes', 'pollSeconds']) if (o[key] !== undefined) o[key] = Number(o[key])
   if (o.port !== undefined && !(Number.isInteger(o.port) && o.port >= 0 && o.port < 65536)) throw new Error('--port must be an integer from 0 to 65535')
   if (o.timeoutMinutes !== undefined && !(o.timeoutMinutes > 0)) throw new Error('--timeout-minutes must be a positive number')
-  if (o.engineAuth !== undefined && !['apiKey', 'login'].includes(o.engineAuth)) throw new Error('--engine-auth must be apiKey or login')
   return o
 }
 
@@ -292,17 +291,16 @@ async function main() {
     const env = process.env
     const user = env.USER ?? userInfo().username
     if (!(typeof env.ANTHROPIC_API_KEY === 'string' && env.ANTHROPIC_API_KEY !== '') && !keychainHas(manifest.keychainService ?? DEFAULT_KEYCHAIN_SERVICE, user)) blockers.push(`ANTHROPIC_API_KEY is not set and the keychain has no item "${manifest.keychainService ?? DEFAULT_KEYCHAIN_SERVICE}" for ${user}`)
-    if (manifest.claudeBin === undefined || !existsSync(manifest.claudeBin)) blockers.push(`the Claude Code CLI ${manifest.claudeBin ?? '(none)'} was not found`)
+    if (typeof manifest.codingModel !== 'string' || manifest.codingModel.startsWith('claude-code/')) blockers.push('this folder was prepared for the removed Claude Code route; prepare a new folder')
   } else {
-    const prepared = await prepareE2e({ dir: o.dir, cases: o.cases, port: o.port, apiModel: o.apiModel, engineAuth: o.engineAuth, claudeBin: o.claudeBin, keychainService: o.keychainService })
+    const prepared = await prepareE2e({ dir: o.dir, cases: o.cases, port: o.port, apiModel: o.apiModel, codingModel: o.codingModel, keychainService: o.keychainService })
     dir = prepared.dir
     manifest = prepared.manifest
     blockers = prepared.blockers
     console.log(`Prepared the e2e run in ${dir}`)
     for (const c of manifest.cases) console.log(`  ${c.id.padEnd(16)} channel ${c.channel}  jira ${c.jiraProject}  repo ${c.localRepo}`)
     console.log(`  configuration     ${prepared.configPath}`)
-    console.log(`  DSH overlay       ${prepared.patchPath}`)
-    console.log(`  Claude Code CLI   ${prepared.claudeBin ?? '(not found)'}`)
+    console.log(`  models            ${manifest.apiModel} (four flow bots), ${manifest.codingModel} (Coding bot and its reviewer)`)
     console.log(`  Anthropic key     ${prepared.keySource === 'env' ? 'set in the environment' : prepared.keySource === 'keychain' ? 'found in the keychain (read only when the suite starts the system)' : 'NOT AVAILABLE'}`)
     for (const w of prepared.warnings) console.log(`WARNING: ${w}`)
   }
@@ -320,7 +318,7 @@ async function main() {
 
   const user = process.env.USER ?? userInfo().username
   const service = manifest.keychainService ?? DEFAULT_KEYCHAIN_SERVICE
-  const system = createSystem({ dir, patchPath: manifest.patchPath, keyFromKeychain: () => execFileSync('security', ['find-generic-password', '-a', user, '-s', service, '-w'], { encoding: 'utf8' }).trim() })
+  const system = createSystem({ dir, keyFromKeychain: () => execFileSync('security', ['find-generic-password', '-a', user, '-s', service, '-w'], { encoding: 'utf8' }).trim() })
   let interrupted = false
   process.once('SIGINT', () => { interrupted = true; console.log('\nCtrl-C: stopping the running task and the system ...') })
   process.once('SIGTERM', () => { interrupted = true })

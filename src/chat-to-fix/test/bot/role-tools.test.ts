@@ -27,7 +27,7 @@ async function rig(t) {
     codingModel: 'deepseek/v4-flash',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const warnings = []
   const app = createApp({ config, botlayer: host.botlayer, token: 'tok', defineTool, warn: (...args) => warnings.push(args.join(' ')) })
   connectTaskLayer(host.botlayer, app.taskLayer)
@@ -62,7 +62,7 @@ test('role tools are registered in the own scope of a bound bot\'s session, by i
     host.agents.delete(bots[role])
     await host.agentCreated(bots[role])
   }
-  const expected = role => app.tools.bridgedToolNames(bots[role])
+  const expected = role => app.tools.toolsFor(role).map(def => def.name)
   for (const role of ROLES) {
     const names = held(host, bots[role])
     for (const name of expected(role)) assert.ok(names.includes(name), `${role} has ${name}`)
@@ -85,7 +85,6 @@ test('role tools are registered in the own scope of a bound bot\'s session, by i
 
 test('an unbound session gets no role tools, and a new Agent starts the scope over', async (t) => {
   const { host, app, post, running } = await rig(t)
-  assert.deepEqual(app.tools.bridgedToolNames('no-such-session'), [])
   // A bot the task layer did not make: not bound, so its session holds the team tools only.
   const loose = await host.botlayer.createBot({ name: 'Loose', label: 'Other', instructions: 'You are Loose.' })
   await host.agentCreated(loose)

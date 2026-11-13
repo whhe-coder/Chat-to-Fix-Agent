@@ -26,7 +26,7 @@ async function rig({ limits = {} } = {}) {
     dataDir: join(dir, 'data'), worktreesDir: join(dir, 'worktrees'), httpPort: 0, apiModel: 'anthropic/test',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }], limits,
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
   const calls = []
   const state = {
@@ -318,8 +318,8 @@ test('ci_stop: not_fixable only when the Coding bot recorded cannot_fix this rou
   await pass(r, 'pass')
   assert.match(await r.call('pipeline', 'ci_stop', args), /not_fixable must come from the Coding bot/)
   assert.equal((await r.now()).ci.settled, false)
-  // The Coding bot records it with review_report (allowed in step ci); then the Pipeline bot may stop.
-  assert.equal(await r.call('coding', 'review_report', { verdict: 'cannot_fix', comments: 'needs a service we cannot start', rounds: 1 }), 'Recorded: review cannot_fix, round 1.')
+  // The Coding bot records it with review_report (step ci only); then the Pipeline bot may stop.
+  assert.equal(await r.call('coding', 'review_report', { verdict: 'cannot_fix', comments: 'needs a service we cannot start' }), 'Recorded: cannot_fix. The Pipeline bot can now stop the CI loop.')
   assert.match(await r.call('pipeline', 'ci_stop', args), /Recorded: the CI loop stops \(not_fixable\)/)
   assert.equal((await r.now()).ci.outcome, 'not_fixable')
   // The other two reasons do not need the Coding bot's verdict.

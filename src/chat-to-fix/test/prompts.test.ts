@@ -43,13 +43,21 @@ for (const def of allBotDefs()) {
   })
 }
 
-test('main names stop_bot; reviewer names only its read-only tools', () => {
+test('main names stop_bot; reviewer names only the read-only DSH tools of its preset', () => {
   assert.ok(backticked(loadPrompt('main')).includes('stop_bot'))
   const reviewer = loadPrompt('reviewer')
   assert.deepEqual(backticked(reviewer).filter(looksLikeTool), [])
-  for (const tool of allBotDefs().find((d) => d.role === 'coding').reviewer.tools) {
-    assert.ok(backticked(reviewer).includes(tool), tool)
-  }
+  assert.deepEqual(backticked(reviewer).filter((word) => /^[a-z_]+$/.test(word)), ['read', 'glob', 'grep'])
+  assert.match(reviewer, /pass or not pass on its own line/)
+  assert.doesNotMatch(reviewer, /Claude Code|\bRead\b|\bGrep\b|\bGlob\b/)
+})
+
+test('coding: no Claude Code, no shell; tests only through run_tests, the review through request_review', () => {
+  const text = loadPrompt('coding')
+  assert.doesNotMatch(text, /Claude Code|ToolSearch|mcp__|Bash/)
+  for (const tool of ['read', 'edit', 'write', 'glob', 'grep']) assert.ok(backticked(text).includes(tool), tool)
+  assert.match(text, /there is no other shell/)
+  assert.match(text, /The system allows at most three rounds/)
 })
 
 test('group notice names the eight steps in order', () => {

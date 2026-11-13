@@ -8,13 +8,13 @@
 - From the repository root, `npm start` launches the Agent and the local mock Slack page; `npm stop` stops both. Use `npm run start:agent` and `npm run stop:agent` to control only the Agent. Run the smoke check with `npm run smoke:agent` (`--sentinel-home` gives an exact list of writes under HOME).
 - The configuration file is `$CHAT_TO_FIX_DATA/chat-to-fix.json` (default `src/chat-to-fix/.data/connected/chat-to-fix.json` for `npm start`), or the path in `CHAT_TO_FIX_CONFIG`. Keep `dataDir` and `worktreesDir` under `$CHAT_TO_FIX_DATA`; the start script warns when they are not.
 - The token is read from `CHAT_TO_FIX_HTTP_TOKEN`. If that is not set, the start script creates `$CHAT_TO_FIX_DATA/http-token` (mode 600) once.
-- Claude Code: the start script passes `CLAUDE_BIN` (set by `dev-env.sh`) through, and the plugin row turns it into `claudeCommand`. Without a CLI there is no `claude-code` route, and every task fails at start.
+- Models: all five bots (the Coding bot and its reviewer included) run inside DSH on the `anthropic` route of row 1, with the one key `ANTHROPIC_API_KEY` from the environment. No Claude Code CLI is used (removed on 2026-11-13, see `docs/chat-to-fix/design/plan-dsh-coding.md`); a `CLAUDE_BIN` is ignored. How to configure it: `docs/chat-to-fix/configuration.md`.
 
 ## What the start script sets, and why
 
 The command is `node node_modules/@deepseek-ai/dsh/lib/bin.js --profile chat-to-fix --patch src/chat-to-fix/config/cordis.patch.yml [--patch …]`. The working directory is `$CHAT_TO_FIX_DATA/work`. The process runs in its own session and process group (`scripts/lib/launch-detached.ts`), with its pid in `$CHAT_TO_FIX_DATA/run/chat-to-fix.pid` and its output in `run/chat-to-fix.log`. Stopping sends SIGTERM to the group, then SIGKILL after 15 s, and never kills by name.
 
-The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM`, the proxy variables (`HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY` and their lower-case forms), `ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CLAUDE_BIN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
+The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM`, the proxy variables (`HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY` and their lower-case forms), `ANTHROPIC_API_KEY CHAT_TO_FIX_SLACK_TOKEN CHAT_TO_FIX_JIRA_TOKEN CHAT_TO_FIX_JIRA_EMAIL CHAT_TO_FIX_GITLAB_TOKEN CHAT_TO_FIX_HTTP_TOKEN` and the names in `CHAT_TO_FIX_PASS_ENV`. Removing everything else (`DSH_*`, `DS_BOT_*`, `DEEPSEEK_*`, `NODE_OPTIONS`, …) keeps settings from other installations out. The script then sets these:
 
 | Variable | Value | Closes |
 |---|---|---|
@@ -35,8 +35,9 @@ The environment is cleared except for `PATH HOME USER LOGNAME SHELL LANG LC_ALL 
 | 3 `approval: never`, `permission` with `defaultPreset: workspace-write` and three presets set to never | nothing waits for a click | yes: the row first refused to start ("defaults match no preset"), so `defaultPreset` and the approval row were added; the session logs show `read-only` / `workspace-write` pinned. A situation that would have asked was not exercised |
 | 4 telemetry rows disabled | no OTel export | yes: the composed tree shows `disabled: true`; the process had no outward socket or proxy attempt |
 | 5 headless: web-startup, webserver, web-runtime, modules, client-hmr, session-log-download, ui-deliverables, directory-picker, open-in-app, office-to-pdf, harness-dev-context and workspace-changes disabled; `connection` restated without `inject: [webStartup]` | no web server, browser or desktop integration | yes: every row activated, and the only listener is the control interface on 127.0.0.1 |
-| 6 `preset-readonly` (new) | read and search only | yes: the four API bots' own sessions record `agentPreset: readonly`; since the bot layer passes each bot's preset at every session it creates (own chat, group session, fresh part; the relay session prefers `readonly`), the shipped `standard` preset is unchanged and only the Coding bot uses it |
-| 7 plugin row `chat-to-fix/src/chat-to-fix/core/plugin.ts`, config `claudeCommand` | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts and the `claude-code` route exists |
+| 6 `preset-readonly` (new) | read and search only | yes: the four flow bots' own sessions record `agentPreset: readonly`; the bot layer passes each bot's preset at every session it creates (own chat, group session, fresh part; the relay session prefers `readonly`). The Coding bot's reviewer (a subagent started by `request_review`) runs on it too. The shipped `standard` preset is unchanged and no bot uses it |
+| 6b `preset-coding` (new, 2026-11-13) | the Coding bot: read, read_image, write, edit (no apply_patch), glob, grep, workspace instruction files, time context, compaction with the tool-result pruner; no bash, pwsh, jobs, web, subagent, schedule, ask-user, plan or plugin tools | yes: `npm run smoke:agent` checks the Coding bot's own session records `agentPreset: coding` and that its model request offers read/write/edit/glob/grep plus its role tools and none of the shell, web or delegation tools |
+| 7 plugin row `chat-to-fix/src/chat-to-fix/core/plugin.ts` (no row config) | loads chat-to-fix from the profile's `node_modules/chat-to-fix` link | yes: the plugin starts |
 
 Loader rules confirmed against the real runtime:
 
@@ -48,7 +49,6 @@ Loader rules confirmed against the real runtime:
 
 ## Known leaks and what remains open
 
-- **npm debug log.** The bot layer (`bot/src/host/local-agents/discover.ts`) runs `npm prefix --global`, which writes `~/.npm/_logs/<time>-debug-0.log`. With a sentinel HOME, this was the only file the process wrote under HOME. Fix: skip `refreshSearchDirs()` when `claudeCommand` is an absolute path, or give that call `npm_config_logs_max=0`.
-- **Login shell.** The same file runs `$SHELL -l -c`, which reads `~/.zprofile` and `~/.zshenv`. These are reads only; that no file is written was shown with the sentinel HOME.
-- **Claude Code.** In real runs, Claude Code writes under `~/.claude` (projects, settings). This is known and accepted.
-- **Node binary.** Node comes from `~/Documents/mywork/ds-bot/.toolchain` (`dev-env.sh`). It is executed only, never written.
+- The npm debug log (`npm prefix --global`), the login-shell read of `~/.zprofile` and Claude Code's writes under `~/.claude` came from the bot layer's local-agents module (`discover.ts`) and the CLI. Both were removed on 2026-11-13; a smoke run now leaves no new file under `~/.npm/_logs`.
+- **Node binary.** Node comes from the folder `dev-env.sh` names (`CHAT_TO_FIX_NODE_BIN`). It is executed only, never written.
+- **File reads.** DSH's sandbox confines writes, not reads: a bot can read files outside its working folder (the four flow bots and the Coding bot alike). They have no shell and no network tool, so what they read can only end up in the group chat. The boundary of a deployment is its container.

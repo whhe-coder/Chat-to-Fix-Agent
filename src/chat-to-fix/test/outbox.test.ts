@@ -101,7 +101,7 @@ test('adapters.slack "outbox" in the app: fix, mention (in progress, no task) an
     dataDir: join(root, 'data'), worktreesDir: join(root, 'worktrees'), httpPort: 0, apiModel: 'anthropic/test', language: 'zh',
     adapters: { slack: 'outbox' }, bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const app = createApp({ config, botlayer: createFakeBotLayer(), token: 'tok', warn: () => {} })
   const port = await app.start()
   t.after(() => app.stop())

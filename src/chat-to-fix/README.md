@@ -12,13 +12,13 @@
 | Slack bot | 读讨论、回复"已收到"和结果 |
 | Jira bot | 建单、写评论、改状态 |
 | Git Pipeline bot | 准备代码目录和分支、开 Draft MR；负责整个 CI 步骤：读失败日志、叫修复 bot 修、追加提交 |
-| 修复 bot | 用 Claude Code 改代码、跑测试；内置一个只读的评审子 agent |
+| 修复 bot | 在代码目录里读写改代码，用 `run_tests` 跑频道配好的测试命令，用 `request_review` 请系统起一个只读评审者 |
 
 八步：取讨论 → 建工单 → 准备代码（工作目录，分支 `ai/<单号>`）→ 写代码 → 开 Draft MR → CI（读 pipeline，失败就在同一个 MR 上修，最多 3 轮）→ 回写 Slack 和 Jira → 结束。
 
 - 流程和状态归系统，内容和判断归 bot。每一步要有记录在案的证据才能推进，没有评审通过就不能开 MR。
 - 提交是一行的 Conventional Commit；MR 一直是 Draft，bot 从不合并、批准或部署。
-- 运行在 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）上；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
+- 五个 bot 都是 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）里的会话，共用一个 Anthropic API key；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
 
 ## 现在做到哪（2026-11-12）
 
@@ -27,22 +27,23 @@
 - 调试页：左边是 bot 之间的实时时序图，右边是竖屏群聊；每个任务、每个 bot 的花费和速度。
 - 真实的 Slack、Jira、GitLab 适配器已经写好，只在本机模拟服务上测过，还没有接真实服务（等 token 和权限）。
 - CI 修复循环已实现（Git Pipeline bot 负责），只在本机模拟 CI 上测过；`/fix` 入口已实现，只在本机模拟服务上测过。
+- 2026-11-13：修复 bot 从 Claude Code 改为 DSH 原生（分支 `dsh-coding`）。单元测试和冒烟（模拟模型）通过；还没用真实模型跑过，上面那些真实运行都是 Claude Code 时期的。
 
 ## 运行
 
-以下命令都从仓库根目录执行。需要 Node 24 和 Claude Code 命令行；设置 `ANTHROPIC_API_KEY` 时，四个流程 bot 使用 Anthropic API；未设置时，它们使用已登录的 Claude Code。修复 bot 始终使用 Claude Code。更改认证方式后，先运行 `npm stop`，再重新启动 Agent。
+以下命令都从仓库根目录执行。需要 Node 24 和 `ANTHROPIC_API_KEY`（五个 bot 共用这一个 key；放在根目录的 `.env.local` 里，或放在环境变量里）。不再需要 Claude Code 命令行。没有 key 时 `npm start` 直接报错并说明。怎么配、模型和上限怎么改、怎么确认能用，见 [Agent 配置说明](../../docs/chat-to-fix/configuration.md)。更改 key 或模型后，先运行 `npm stop`，再重新启动 Agent。
 
 ```bash
 npm ci
 ```
 
-运行其他脚本前，在项目根目录加载本机的 Node 24 和 Claude Code 路径。`npm start` 会自动加载：
+运行其他脚本前，在项目根目录加载本机的 Node 24 路径。`npm start` 会自动加载：
 
 ```bash
 . src/chat-to-fix/scripts/dev-env.sh
 ```
 
-本机路径（node 或 claude 不在 PATH 上时）写在 `src/chat-to-fix/scripts/dev-env.local.sh`，这个文件不进 git，写法见 `dev-env.sh` 开头。
+本机路径（node 不在 PATH 上时）写在 `src/chat-to-fix/scripts/dev-env.local.sh`，这个文件不进 git，写法见 `dev-env.sh` 开头。
 
 | 做什么 | 命令 |
 |---|---|
@@ -63,7 +64,7 @@ npm ci
 
 ## 接入现有 GitLab、Jira、Slack 配置
 
-根目录的 `.env.local` 保存现有连接的 token，并需设置 `CHAT_TO_FIX_LOCAL_REPO` 为本机 F2P 仓库路径。`npm start` 复用这些变量，生成不含 token 的 Agent 配置，建立隔离的 F2P 仓库，然后先启动 Agent、再启动本机模拟 Slack 页面。两个进程独立运行。Agent 的配置和隔离仓库放在 `src/chat-to-fix/.data/connected/`。迁移前保存在旧目录的本地数据可通过 `CHAT_TO_FIX_DATA` 指向原路径。
+根目录的 `.env.local` 保存 `ANTHROPIC_API_KEY` 和现有连接的 token，并需设置 `CHAT_TO_FIX_LOCAL_REPO` 为本机 F2P 仓库路径。`npm start` 复用这些变量，生成不含 token 的 Agent 配置，建立隔离的 F2P 仓库，然后先启动 Agent、再启动本机模拟 Slack 页面。两个进程独立运行。Agent 的配置和隔离仓库放在 `src/chat-to-fix/.data/connected/`。迁移前保存在旧目录的本地数据可通过 `CHAT_TO_FIX_DATA` 指向原路径。
 
 ```bash
 npm run check:agent-connections
@@ -82,7 +83,7 @@ Agent 使用现有 `GITLAB_TOKEN` 和 `JIRA_TOKEN`，不再需要 Slack 令牌�
 
 真实 Slack 安装、GitLab 写入和三方完整链路仍待验证。
 
-Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读；`first-run.ts` 也能从 macOS 钥匙串读（服务名 `chat-to-fix-anthropic`）。代码、配置和日志里都没有凭据。
+Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读（`npm start` 先从根目录 `.env.local` 读进环境）；`first-run.ts` 和 `e2e/run.ts` 也能从 macOS 钥匙串读（服务名 `chat-to-fix-anthropic`）。代码、配置和日志里都没有凭据。
 
 ## 目录
 
@@ -92,7 +93,7 @@ Anthropic key 只从环境变量 `ANTHROPIC_API_KEY` 读；`first-run.ts` 也能
 | `core/task/` | 监听、队列、建群和收尾、监控、记录、任务存储、门禁、计费 |
 | `core/flow/`、`core/registry/` | 八步流程表、五个 bot 的注册表 |
 | `core/tools/`、`core/adapters/` | bot 的工具；Slack、Jira、GitLab 适配器（模拟和真实） |
-| `core/engine/`、`core/prompts/` | Claude Code 驱动与各 bot 的指令 |
+| `core/prompts/` | 各 bot 和评审者的指令 |
 | `bot/src/` | 从 DS Bot 裁剪并保留内部结构的 Bot 层，由 `core/bot/` 接入 Agent |
 | `scripts/` | 启动停止、冒烟、首跑、调试页、端到端测试集 |
 | `config/` | DSH 配置补丁和说明 |
