@@ -101,12 +101,7 @@ Bot 以当前 MR commit 对应的最新 pipeline 为准。它不能用旧 pipeli
 | [Plan：实施计划](plans/chat-to-fix-agent.md) | 整体目标、里程碑、验收标准和实施待办。已完成的事项从待办中移走，验收标准仍保留。 | Feature 开始、范围、里程碑或验收标准变化时。 |
 | [Issues：已确认问题](docs/issues/README.md) | 实际运行中确认的问题、证据、影响和验收条件；每个问题单独成文。 | 发现问题、修复问题或验证结果变化时。 |
 | [Done：已完成事项](plans/done.md) | 已落实并核对的配置、代码和验证结果。记录完成事实，不把待审批或未验证的工作写成完成。 | 一项工作完成且得到验证后，从 Plan 移入 Done。 |
-| [Spec：固定频道 `/fix` 入口](spec/slack-fix-command.md) | 当前目标入口的行为、权限、状态和验收标准。其他 Feature 按需在 `spec/` 下建文档。 | 入口行为或验收标准变化时。 |
-| [Spec：旧私信入口](spec/slack-dm-entry.md) | 旧版 Bot 的行为和本地测试记录；不作为新入口的验收标准。 | 旧版代码或历史记录需要更正时。 |
-| [Spec：模拟 Slack Bot](spec/mock-slack-bot.md) | 本机频道的 `/fix` 转发、讨论串回传和旧私信接口。 | 模拟入口行为改变时。 |
-| [Spec：GitLab 连接函数](spec/gitlab-connection.md) | 可复用连接函数、凭据来源、返回值和验证边界。 | GitLab 连接行为改变时。 |
-| [Spec：GitLab MR 客户端](spec/gitlab-mr-client.md) | Draft MR 创建与更新规则，以及主、下游 pipeline 的检查规则。 | GitLab MR 或 CI 行为改变时。 |
-| [Spec：Jira board 连接](spec/jira-board-connection.md) | 独立只读连接函数、凭据方式和验证边界。 | Jira 连接行为改变时。 |
+| [Spec：功能规格](spec/) | 按 Feature 记录行为、权限、状态和验收标准；旧私信入口保留为历史规格。 | 对应 Feature 的行为、权限、状态或验收标准变化时。 |
 | [本地环境变量配置](config/local-env/README.md) | 统一记录变量来源、保存方式、读取优先级和本机验证。 | 新增变量或改变本地凭据加载方式时。 |
 | [Slack 配置记录](config/slack/README.md) | Slack 应用权限、安装状态和验证步骤；不保存凭据值。 | Slack 配置、权限或安装状态变化后立即更新。 |
 | [GitLab 接入记录](config/gitlab/README.md) | GitLab 当前连接方式、已配置的凭据能力和待验证的写入操作；不保存凭据值。 | GitLab 授权或接入方式变化后立即更新。 |
