@@ -228,7 +228,8 @@ export function createHttp({ config, token, store, outbox, queue, runner, notify
     const limit = num('limit', OUTBOX_DEFAULT_LIMIT, 1)
     if (after === null) return [400, { error: 'invalid_after' }]
     if (limit === null) return [400, { error: 'invalid_limit' }]
-    return [200, await outbox.read(after, Math.min(limit, OUTBOX_MAX_LIMIT))]
+    const page = await outbox.read(after, Math.min(limit, OUTBOX_MAX_LIMIT))
+    return [200, { ...page, outboxId: await outbox.id(), lastSeq: await outbox.last() }]
   }
 
   async function getTask(id, url) {
@@ -378,7 +379,7 @@ export function createHttp({ config, token, store, outbox, queue, runner, notify
   async function health() {
     const queued = (await store.listTasks({ state: 'queued' })).length
     const running = (await store.listTasks({ state: 'running' })).length
-    return [200, { up: true, queued, running, maxConcurrent: config.limits.maxConcurrent, queueMax: config.limits.queueMax, queueFull: await queue.full() }]
+    return [200, { up: true, queued, running, maxConcurrent: config.limits.maxConcurrent, queueMax: config.limits.queueMax, queueFull: await queue.full(), channels: (config.bindings ?? []).map((b) => b.channel) }]
   }
 
   async function route(request) {

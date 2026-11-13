@@ -230,7 +230,7 @@ test('health', async () => {
   await post(event({ eventId: 'E2', threadTs: '2' }))
   const r = await call('GET', '/health')
   assert.equal(r.status, 200)
-  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false })
+  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false, channels: ['C1'] })
 })
 
 test('health: queueFull turns true when the queue is at queueMax', async () => {
@@ -492,14 +492,17 @@ test('no source: the older format still starts a task from an @ and carries an e
 })
 
 test('GET /outbox: messages after a cursor, limit, next; token required; bad after or limit -> 400', async () => {
-  assert.deepEqual(await (await call('GET', '/outbox')).body, { messages: [], next: 0 })
+  const empty = (await call('GET', '/outbox')).body
+  assert.deepEqual(empty.messages, []); assert.equal(empty.next, 0); assert.equal(empty.lastSeq, 0)
+  assert.match(empty.outboxId, /^[0-9a-f-]{36}$/)
   for (const text of ['a', 'b', 'c']) await outbox.append({ channel: 'C1', threadTs: '1.1', purpose: 'ack', text })
   const all = await call('GET', '/outbox')
   assert.equal(all.status, 200)
   assert.deepEqual(all.body.messages.map((m) => [m.seq, m.text]), [[1, 'a'], [2, 'b'], [3, 'c']]); assert.equal(all.body.next, 3)
   const page = await call('GET', '/outbox?after=1&limit=1')
   assert.deepEqual(page.body.messages.map((m) => m.seq), [2]); assert.equal(page.body.next, 2)
-  assert.deepEqual((await call('GET', '/outbox?after=3')).body, { messages: [], next: 3 })
+  assert.deepEqual((await call('GET', '/outbox?after=3')).body, { messages: [], next: 3, outboxId: empty.outboxId, lastSeq: 3 })
+  assert.equal(page.body.lastSeq, 3); assert.equal(page.body.outboxId, empty.outboxId) // lastSeq does not depend on the page
   assert.equal((await call('GET', '/outbox?limit=1000')).status, 200)
   for (const q of ['after=-1', 'after=x', 'after=1.5', 'limit=0', 'limit=x', 'limit=']) assert.equal((await call('GET', `/outbox?${q}`)).status, 400, q)
   assert.equal((await call('GET', '/outbox', undefined, {})).status, 401)

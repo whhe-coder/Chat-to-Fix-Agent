@@ -33,7 +33,7 @@ test('the plugin entry builds both layers, connects them, and serves the control
   const port = await app.start()
   t.after(() => app.stop())
   const health = await (await fetch(`http://127.0.0.1:${port}/health`, { headers: { 'x-chat-to-fix-token': 'tok' } })).json()
-  assert.deepEqual(health, { up: true, queued: 0, running: 0, maxConcurrent: 1, queueMax: 20, queueFull: false })
+  assert.deepEqual(health, { up: true, queued: 0, running: 0, maxConcurrent: 1, queueMax: 20, queueFull: false, channels: ['C1'] })
   const refused = await fetch(`http://127.0.0.1:${port}/health`)
   assert.equal(refused.status, 401)
 })

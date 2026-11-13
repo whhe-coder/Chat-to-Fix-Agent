@@ -1,7 +1,7 @@
 // The outbox (core/task/outbox.ts): append-only <dataDir>/outbox.jsonl, global seq, paging, taskId from the thread.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createOutbox } from '../core/task/outbox.ts'
@@ -137,4 +137,27 @@ test('adapters.slack "outbox" in the app: fix, mention (in progress, no task) an
   const last = out.body.next
   const next = await app.outbox.append({ channel: 'C1', threadTs: '5.1', purpose: 'result', text: 'done' })
   assert.equal(next.seq, last + 1)
+})
+
+test('id: a random UUID in <dataDir>/outbox-id, stable across reads and a new outbox on the same dir, new after the file is removed', async () => {
+  const dataDir = await dir()
+  const outbox = createOutbox({ dataDir })
+  const id = await outbox.id()
+  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  assert.equal(await outbox.id(), id)
+  assert.equal((await readFile(join(dataDir, 'outbox-id'), 'utf8')).trim(), id)
+  assert.equal(await createOutbox({ dataDir }).id(), id)
+  await rm(join(dataDir, 'outbox-id'))
+  const fresh = await createOutbox({ dataDir }).id()
+  assert.notEqual(fresh, id)
+  assert.equal(await createOutbox({ dataDir }).id(), fresh)
+})
+
+test('last: 0 when empty, the maximum seq otherwise, independent of after and limit', async () => {
+  const outbox = createOutbox({ dataDir: await dir() })
+  assert.equal(await outbox.last(), 0)
+  for (let i = 1; i <= 4; i++) await outbox.append(msg())
+  assert.equal(await outbox.last(), 4)
+  await outbox.read(1, 1)
+  assert.equal(await outbox.last(), 4)
 })

@@ -53,6 +53,8 @@
 
 ### 4.2 接口（Chat-to-Fix 提供）
 
+`outboxId`、`lastSeq`、`channels` 三个字段的来由见 [架构文档第 5 节](architecture.md)。
+
 - **地址**：`http://127.0.0.1:<httpPort>`，默认端口 3090，只监听本机。
 - **鉴权**：每个请求都带头 `x-chat-to-fix-token`。令牌是 Chat-to-Fix 启动时写在 `<数据目录>/http-token` 里的值，Slack Bot 从环境变量 `CHAT_TO_FIX_API_TOKEN` 读。
 - **格式**：请求和返回都是 JSON。
@@ -107,11 +109,15 @@
     { "seq": 12, "at": "2026-11-12T10:00:00.000Z", "taskId": "T-3", "channel": "C0123", "threadTs": "1731377400.000100",
       "purpose": "result", "kind": null, "text": "已修复：…（Jira F2PGBA-12），Draft MR：…，CI 通过。" }
   ],
-  "next": 12
+  "next": 12,
+  "outboxId": "6f1c2d9e-3b1a-4c55-9a53-0c7d8b2f4e11",
+  "lastSeq": 12
 }
 ```
 
 - **字段**：
+  - `outboxId`：发件箱编号，存在 `<数据目录>/outbox-id`，第一次用时生成随机 UUID，之后不变；数据目录清空会重新生成。
+  - `lastSeq`：发件箱当前最大 `seq`，空时为 `0`；和本次返回的 `messages`（`after`、`limit`）无关。
   - `purpose`：`ack`（已收到）、`question`（追问）、`result`（结果）或 `system`（系统通知）。
   - `kind`：只有 `system` 才有。进度：`jira_created`、`mr_opened`、`ci_failed`、`ci_fix_pushed`、`ci_passed`、`ci_rounds_exhausted`、`ci_no_pipeline`；结束：`failed`、`needs_person`、`timed_out`、`stopped`、`interrupted`、`expired`、`needs_info_resubmit`；讨论串：`in_progress`、`resumed`、`no_open_task`；拒绝：`queue_full`、`channel_not_bound`。Slack Bot 一般不用看它，原样发 `text` 就行。
 - **顺序和保存**：
@@ -121,14 +127,17 @@
 - **Slack Bot 怎么发**：
   - 把 `text` 原样发进 `channel` 里 `threadTs` 那个讨论串（`chat.postMessage`，`thread_ts` 填 `threadTs`）。
   - 每发成功一条，就把游标推到这条的 `seq` 并存盘。
+- **发现发件箱被重置**：Slack Bot 把 `outboxId` 和游标一起存盘。某次返回的 `outboxId` 和存的不同，或 `lastSeq` 小于游标，就说明数据目录被清过，`seq` 重新从 1 开始：把游标重置为 0、换存新的 `outboxId`，再照常拉取。不重置的话，新消息会因为 `seq` 小于游标永远发不出去。
 - **至少发一次**：发完还没存游标就崩溃的话，重启后这条会再发一次。可以接受，不做“正好一次”。
 - **文字已处理好**：广播式提及（`<!channel>`、`@here` 等）已经去掉，长度不超过 4000 个字符。
 
 **(3) 其他已有的口**
 
+- `GET /health` 多一个 `channels: string[]`，是配置里绑定的频道 ID（`bindings[].channel`）。Slack Bot 启动时拿它和自己的频道配置比对，不一致就报错，见 [架构文档 4.3](architecture.md)。
+
 - `GET /tasks/<号>`：查状态，字段有 `state`、`step`、`endReason`、`closeNote`、`jira`、`mr`、`ci`、`origin`。排查用，Slack Bot 平时不用调。
 - `POST /tasks/<号>/stop`：停止任务（详见下面的 (4)）。
-- `GET /health`：返回 `{ up, queued, running, maxConcurrent, queueMax, queueFull }`。Slack Bot 每次 `/fix` 发任务消息之前先调一次：连不上或 `queueFull` 为真，就只给发起人回临时消息（Logan 规格里“拒绝只给发起人看”的做法），不发任务消息。
+- `GET /health`：返回 `{ up, queued, running, maxConcurrent, queueMax, queueFull, channels }`。Slack Bot 每次 `/fix` 发任务消息之前先调一次：连不上或 `queueFull` 为真，就只给发起人回临时消息（Logan 规格里“拒绝只给发起人看”的做法），不发任务消息。
 
 **(4) 任务级操作（给 Slack Bot 预留）**
 
