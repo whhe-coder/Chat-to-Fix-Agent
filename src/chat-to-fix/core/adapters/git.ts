@@ -30,6 +30,18 @@ const COMMIT_MESSAGE = new RegExp(`^(${COMMIT_TYPES.join('|')})(\\([A-Za-z0-9][A
 /** True when `text` is `type(scope)?!?: summary` on one line, at most 100 characters, with a known type. */
 export const isCommitMessage = (text) => typeof text === 'string' && text.length <= COMMIT_MESSAGE_MAX && COMMIT_MESSAGE.test(text)
 
+const KEYED_PREFIX = /^([A-Za-z][A-Za-z0-9_]*-\d+): /
+
+/** The company commit format: `<KEY>: <type(scope): summary>`. A message that already starts with that key is returned as it is. */
+export function withJiraKey(key, message) {
+  if (typeof key !== 'string' || !JIRA_KEY.test(key)) throw new Error('the task has no valid Jira key to put in front of the commit message')
+  const text = String(message).trim()
+  return text.startsWith(`${key}: `) ? text : `${key}: ${text}`
+}
+
+/** True when `text` is a Conventional Commit line, optionally with a Jira key in front (`KEY-1: fix: x`). The 100 characters count the part after the key. */
+export const isCommitMessageOptionallyKeyed = (text) => typeof text === 'string' && isCommitMessage(text.replace(KEYED_PREFIX, ''))
+
 /** `fix: <title>` from an MR title: newlines and runs of blanks become one space, cut to 100 characters. */
 export function commitMessageFromTitle(title) {
   const line = String(title ?? '').replace(/\s+/g, ' ').trim()

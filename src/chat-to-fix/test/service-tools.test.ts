@@ -417,7 +417,7 @@ test('mr_open_draft opens the MR, writes mr.url, and a repeat updates and return
   const [{ args }] = r.fake.named('repo.openDraftMR')
   assert.equal(args[0].repo, 'group/project')
   // The Jira key is added to the description when neither title nor description names it; the commit message is derived.
-  assert.deepEqual(args.slice(1), ['/work/T-1', 'ai/DEMO-1', { title: 'Fix', description: 'Fixes it\n\nJira: DEMO-1', jiraKey: 'DEMO-1', commitMessage: 'fix: Fix' }])
+  assert.deepEqual(args.slice(1), ['/work/T-1', 'ai/DEMO-1', { title: 'Fix', description: 'Fixes it\n\nJira: DEMO-1', jiraKey: 'DEMO-1', commitMessage: 'DEMO-1: fix: Fix' }])
   // Spec 7, 4.3: iid and sha of the MR are stored for the CI step; ci itself is started by the monitor in step ci.
   assert.deepEqual((await r.now()).mr, { url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: 'sha-mr-1' })
   assert.equal((await r.now()).ci, null)
@@ -454,19 +454,42 @@ test('mr_open_draft: commit_message is one Conventional Commit line; the default
   // accepted forms
   for (const good of ['feat: add x', 'fix(price): subtract the discount', 'refactor(core/api)!: drop v1', 'revert: x', `fix: ${'x'.repeat(95)}`]) {
     assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: good }), /Draft MR/, good)
-    assert.equal(sent().commitMessage, good)
+    assert.equal(sent().commitMessage, `DEMO-1: ${good}`)
   }
   // absent or blank: derived from the title, newlines stripped, cut to 100 characters, never a body
   await r.call('pipeline', 'mr_open_draft', { title: 'Line one\n  line two', description: 'd' })
-  assert.equal(sent().commitMessage, 'fix: Line one line two')
+  assert.equal(sent().commitMessage, 'DEMO-1: fix: Line one line two')
   await r.call('pipeline', 'mr_open_draft', { title: 'A'.repeat(200), description: 'd', commit_message: '  ' })
-  assert.equal(sent().commitMessage.length, 100)
-  assert.match(sent().commitMessage, /^fix: A+$/)
+  assert.equal(sent().commitMessage.length, 'DEMO-1: '.length + 100)
+  assert.match(sent().commitMessage, /^DEMO-1: fix: A+$/)
   // the key: in the title or the description already -> description unchanged
   await r.call('pipeline', 'mr_open_draft', { title: 'DEMO-1 Fix', description: 'd' })
   assert.equal(sent().description, 'd')
   await r.call('pipeline', 'mr_open_draft', { title: 'Fix', description: 'Fixes demo-1? no: DEMO-1 done' })
   assert.equal(sent().description, 'Fixes demo-1? no: DEMO-1 done')
+})
+
+test('mr_open_draft: the tool puts the task Jira key in front of the commit message, never doubles it, refuses without a key', async () => {
+  const r = await rig()
+  await prepared(r)
+  r.fake.state.diff = { files: [{ path: 'a', added: 1, removed: 0 }], patch: '+a', totalFiles: 1, totalLines: 1 }
+  await r.store.patchTask(r.task.id, { review: { verdict: 'pass', comments: 'ok', rounds: 1, at: 't' } })
+  await r.step('mr')
+  const sent = () => r.fake.named('repo.openDraftMR').at(-1).args[3]
+  await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: 'fix(price): subtract the discount instead of adding it' })
+  assert.equal(sent().commitMessage, 'DEMO-1: fix(price): subtract the discount instead of adding it')
+  // the bot already put the key in: not doubled
+  await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: 'DEMO-1: fix(price): x' })
+  assert.equal(sent().commitMessage, 'DEMO-1: fix(price): x')
+  // the part after the key is still checked
+  assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: 'DEMO-1: just a sentence' }), /^tool failed: commit_message must/)
+  // another issue's key is not the task's: it is not a Conventional Commit, so refused
+  assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: 'OTHER-2: fix: x' }), /^tool failed: commit_message must/)
+  // no Jira key on the task: refused, nothing reaches the adapter
+  const calls = r.fake.named('repo.openDraftMR').length
+  await r.store.patchTask(r.task.id, { jira: { key: null } })
+  assert.match(await r.call('pipeline', 'mr_open_draft', { title: 'T', description: 'd', commit_message: 'fix: x' }), /^tool failed: the task has no Jira issue/)
+  assert.equal(r.fake.named('repo.openDraftMR').length, calls)
 })
 
 test('mr_get reads the state of the MR of this branch', async () => {

@@ -2,7 +2,7 @@
 // (task.repo.dir) and branch: there is no directory parameter. Purposes are from
 // tools-and-limits.md section 2. What comes out of the repository is marked as material.
 import { posix } from 'node:path'
-import { COMMIT_MESSAGE_MAX, COMMIT_TYPES, commitMessageFromTitle, isCommitMessage } from '../adapters/git.ts'
+import { COMMIT_MESSAGE_MAX, COMMIT_TYPES, commitMessageFromTitle, isCommitMessage, withJiraKey } from '../adapters/git.ts'
 import { announce, currentRun, cutText, material } from './material.ts'
 
 // No key in the configuration's limits fits these, so they are named constants here.
@@ -58,6 +58,18 @@ export function checkCommitMessage(value, title) {
 const formatCommit = (commit) => (typeof commit === 'string'
   ? commit
   : [commit.hash ?? commit.sha ?? commit.id, commit.date ?? commit.at, commit.author?.name ?? commit.author, commit.subject ?? commit.message ?? commit.title].filter(Boolean).join(' | '))
+
+/**
+ * The final commit message: the bot's Conventional Commit with the task's Jira key in front, `<KEY>: <type(scope): summary>`
+ * (the company GitLab push rule needs the key). The bot's own message is checked without the key (a key it already put
+ * in front is taken off first, so it is not doubled). No key on the task: refused, nothing is committed.
+ */
+export function keyedCommitMessage(task, value, title) {
+  const key = task?.jira?.key
+  if (!key) throw new Error('the task has no Jira issue key; the commit message needs it (push rule of the repository), so nothing is committed')
+  const given = typeof value === 'string' && value.trim().startsWith(`${key}: `) ? value.trim().slice(key.length + 2) : value
+  return withJiraKey(key, checkCommitMessage(given, title))
+}
 
 /** The RoleTool definitions of the repository tools. */
 export function repoTools() {
@@ -155,11 +167,11 @@ export function repoTools() {
       name: 'mr_open_draft',
       roles: ['pipeline'],
       write: true,
-      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory as one commit with a one-line Conventional Commit message (no body), pushes the branch (a normal push, never a force push) and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is reused and its link returned; the new changes are added to the branch as a further commit. A rejected push means someone else pushed to the branch.',
+      description: 'Open the Draft merge request for this task (step mr): commits the changes of the code directory as one commit with a one-line Conventional Commit message (no body; the tool puts the Jira key in front, "<KEY>: type(scope): summary"), pushes the branch (a normal push, never a force push) and opens a Draft MR to the default branch. Allowed only when the review passed and the change is within the size limit. If the task already has an MR it is reused and its link returned; the new changes are added to the branch as a further commit. A rejected push means someone else pushed to the branch.',
       parameters: {
         title: { type: 'string', required: true, description: 'Title of the MR, one line' },
         description: { type: 'string', required: true, description: 'What the change does and why' },
-        commit_message: { type: 'string', description: `The commit message: ONE line "type(scope): summary", scope optional, type one of ${COMMIT_TYPES.join(', ')}, at most ${COMMIT_MESSAGE_MAX} characters, no body. Default: "fix: <title>"` },
+        commit_message: { type: 'string', description: `The commit message: ONE line "type(scope): summary", scope optional, type one of ${COMMIT_TYPES.join(', ')}, at most ${COMMIT_MESSAGE_MAX} characters, no body, WITHOUT the Jira key (the tool adds it). Default: "fix: <title>"` },
       },
       async run(ctx, args) {
         const { task } = ctx
@@ -169,7 +181,7 @@ export function repoTools() {
         if (!task.binding) throw new Error('this task has no channel binding')
         const title = need(args.title, 'title')
         const body = need(args.description, 'description')
-        const commitMessage = checkCommitMessage(args.commit_message, title)
+        const commitMessage = keyedCommitMessage(task, args.commit_message, title)
         // The Jira key is part of the MR: the title or the description names it (the branch name has it too).
         const key = task.jira.key
         const description = `${title}\n${body}`.includes(key) ? body : `${body}\n\nJira: ${key}`

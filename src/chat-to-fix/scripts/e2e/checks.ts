@@ -130,13 +130,17 @@ export const CHECKS = [
     },
   },
   {
-    id: 'commit_message', title: '每个提交信息都是一行 Conventional Commit',
+    id: 'commit_message', title: '每个提交信息都是一行 `<Jira 单号>: <Conventional Commit>`',
     run: (ctx) => {
       const w = needWs(ctx)
       if (w) return w
       if (ctx.ws.commits.length === 0) return fail('no commit')
-      const bad = ctx.ws.commits.filter((c) => !(isCommitMessage(c.subject) && c.body === ''))
-      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 100)}"${c.body ? ' (has a body)' : ''}`).join(' | '))
+      // Company push rule: every commit starts with the task's Jira key, then one Conventional Commit line, no body.
+      const key = ctx.task?.jira?.key
+      if (!key) return fail('the task has no Jira key, so the key in the commit messages cannot be checked')
+      const prefix = `${key}: `
+      const bad = ctx.ws.commits.filter((c) => !(typeof c.subject === 'string' && c.subject.startsWith(prefix) && isCommitMessage(c.subject.slice(prefix.length)) && c.body === ''))
+      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 120)}"${c.body ? ' (has a body)' : ''} (want "${key}: type(scope): summary")`).join(' | '))
     },
   },
   {

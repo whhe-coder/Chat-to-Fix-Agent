@@ -67,6 +67,7 @@ async function rig({ limits = {} } = {}) {
 async function failed(r, patch: any = {}) {
   await r.store.patchTask(r.task.id, {
     step: 'ci',
+    jira: { key: 'DEMO-1', url: 'fake://jira/DEMO-1', status: 'In Review' },
     repo: { dir: '/work/T-1', branch: 'ai/DEMO-1', base: 'abc123' },
     mr: { url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: 'sha-mr-1' },
     ci: { ...newCi('sha-mr-1', '2026-11-12T00:00:00.000Z', { waitedMs: 5000 }), status: 'failed', pipelineUrl: 'fake://gitlab/pipelines/7', failedJobs: JOBS, ...patch },
@@ -156,8 +157,8 @@ test('mr_push_fix: success appends one fix commit, starts a fresh pending ci for
   await failed(r)
   await pass(r)
   const text = await r.call('pipeline', 'mr_push_fix', PUSH)
-  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: fix\(lint\): remove the unused import/)
-  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'fix(lint): remove the unused import' }])
+  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: DEMO-1: fix\(lint\): remove the unused import/)
+  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'DEMO-1: fix(lint): remove the unused import' }])
   const after = await r.now()
   assert.equal(after.ci.status, 'pending')
   assert.equal(after.ci.sha, 'sha-fix-1')
@@ -244,6 +245,20 @@ test('mr_push_fix: commit_message must be one Conventional Commit line, like mr_
   assert.match(await r.call('pipeline', 'mr_push_fix', {}), /missing required argument commit_message/)
   assert.equal(r.of('pushFix').length, 0)
   assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: 'refactor(core/api)!: drop v1' }), /Pushed the fix/)
+})
+
+test('mr_push_fix: the Jira key is put in front of the fix commit, not doubled, and a task without a key is refused', async () => {
+  const r = await rig()
+  await failed(r)
+  await pass(r)
+  await r.call('pipeline', 'mr_push_fix', { commit_message: 'DEMO-1: fix(lint): remove the unused import' })
+  assert.equal(r.of('pushFix')[0].args[3].message, 'DEMO-1: fix(lint): remove the unused import')
+  const r2 = await rig()
+  await failed(r2)
+  await pass(r2)
+  await r2.store.patchTask(r2.task.id, { jira: { key: null } })
+  assert.match(await r2.call('pipeline', 'mr_push_fix', PUSH), /^tool failed: the task has no Jira issue key/)
+  assert.equal(r2.of('pushFix').length, 0)
 })
 
 test('mr_push_fix: nothing_to_commit is refused with a plain reason and ci stays as it was', async () => {

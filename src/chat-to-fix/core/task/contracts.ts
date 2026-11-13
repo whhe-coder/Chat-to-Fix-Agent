@@ -155,7 +155,7 @@ export function newCi(sha: string, at: string, carry: { round?: number, waitedMs
  *
  *   ci_read_log   pipeline  read   any step   job (name or id; must be in task.ci.failedJobs). Returns the log tail
  *                                              (limits.ciLogMaxChars) marked as material; sets ci.logRead = true.
- *   mr_push_fix   pipeline  write  ci         commit_message (one-line Conventional Commit, checkCommitMessage).
+ *   mr_push_fix   pipeline  write  ci         commit_message (one-line Conventional Commit, checkCommitMessage; the tool puts the Jira key in front).
  *                                              Refuses unless ci.status == failed and ci.round < ciMaxRounds; extra evidence
  *                                              review.verdict == pass and diff.withinLimits. On success writes
  *                                              ci = newCi(newSha, now, {round: round + 1, waitedMs}) and mr.sha. A rejected
@@ -171,7 +171,7 @@ export const CI_TOOL_PARAMETERS = Object.freeze({
     job: Object.freeze({ type: 'string', required: true, description: 'The failed job: its name or its id, as listed in task.ci.failedJobs' }),
   }),
   mr_push_fix: Object.freeze({
-    commit_message: Object.freeze({ type: 'string', required: true, description: 'The fix commit message: ONE line "type(scope): summary", Conventional Commit, no body' }),
+    commit_message: Object.freeze({ type: 'string', required: true, description: 'The fix commit message: ONE line "type(scope): summary", Conventional Commit, no body, without the Jira key (the tool adds it)' }),
   }),
   ci_stop: Object.freeze({
     reason: Object.freeze({ type: 'string', required: true, enum: CI_STOP_REASONS, description: 'Why the CI loop stops: not_locatable, out_of_scope or not_fixable' }),

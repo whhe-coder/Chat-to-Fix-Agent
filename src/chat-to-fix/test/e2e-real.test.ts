@@ -32,25 +32,27 @@ const gitIn = (args: string[], cwd: string) => {
 }
 
 /** A repository for the case, a worktree on ai/<KEY> with `files` laid over it, committed and pushed. */
-function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', pushTo = [] as string[], after = (_wt: string) => {}, more = [] as Array<{ files: any, message: string }> } = {}) {
+function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', keyed = true, pushTo = [] as string[], after = (_wt: string) => {}, more = [] as Array<{ files: any, message: string }> } = {}) {
   const root = temp('e2e-sim-')
   const repo = createCaseRepo({ dir: join(root, 'repos'), files: caseDef.repoFiles })
   const branch = `ai/${key}`
+  // the company push rule: every commit message starts with the Jira key (keyed: false builds the old, key-less form)
+  const msg = (m: string) => (keyed ? `${key}: ${m}` : m)
   const worktree = join(root, 'chat-to-fix', 'worktrees', 'T-1')
   gitIn(['worktree', 'add', '-q', '-b', branch, worktree, 'master'], repo.localRepo)
   writeTree(worktree, files)
   after(worktree)
   gitIn(['add', '-A'], worktree)
-  gitIn(['commit', '-q', '--allow-empty', '-m', message], worktree)
+  gitIn(['commit', '-q', '--allow-empty', '-m', msg(message)], worktree)
   for (let i = 1; i < commits; i += 1) {
     writeFileSync(join(worktree, `extra-${i}.txt`), 'x\n')
     gitIn(['add', '-A'], worktree)
-    gitIn(['commit', '-q', '-m', `chore: extra ${i}`], worktree)
+    gitIn(['commit', '-q', '-m', msg(`chore: extra ${i}`)], worktree)
   }
   for (const next of more) { // later commits, e.g. the fix of a CI round
     writeTree(worktree, next.files)
     gitIn(['add', '-A'], worktree)
-    gitIn(['commit', '-q', '-m', next.message], worktree)
+    gitIn(['commit', '-q', '-m', msg(next.message)], worktree)
   }
   gitIn(['push', '-q', 'origin', branch], worktree)
   for (const target of pushTo) gitIn(['push', '-q', 'origin', `HEAD:${target}`], worktree)
@@ -411,6 +413,9 @@ test('checks: a change outside the allowed files, two commits and a prose commit
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { commits: 2 }))), ['one_commit', 'changed_files_allowed'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'Fixed the typo.' }))), ['commit_message'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'fix: x\n\nlong body here' }))), ['commit_message'])
+  // the Jira key of the task must be in front of every commit (company push rule): none, or another issue's, fails
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `OTHER-9: fix(e2e): x`, keyed: false }))), ['commit_message'])
 })
 
 test('checks: a run that fixed nothing fails the tests, the hidden test and the changed-files check', () => {
