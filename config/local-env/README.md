@@ -22,14 +22,14 @@ chmod 600 .env.local
 | 模拟 Slack Bot | `MOCK_SLACK_USER_NAME` | 模拟发起人的显示名；留空时使用“模拟用户”。 |
 | 模拟 Slack Bot | `MOCK_SLACK_USER_EMAIL` | 模拟发起人的邮箱；留空时使用 `mock.user@example.com`。真实邮箱只填入本机 `.env.local`。页面把这三个身份字段作为可编辑默认值；每条新命令按当前输入发送，刷新页面恢复本机默认值。失败重试保留原命令的身份。 |
 | Slack | `SLACK_APP_TOKEN` | Slack API 当前应用的 **Basic Information → App-Level Tokens**；只选 `connections:write`。 |
-| Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准安装后生成。当前尚未取得。 |
+| Slack | `SLACK_BOT_TOKEN` | Slack API 当前应用的 **OAuth & Permissions**；工作区批准后已配置在本机；Slack `auth.test` 已验证。 |
 | 模型 | `ANTHROPIC_API_KEY` | 必填。Anthropic Console 的 **API Keys**。Agent 的五个 bot（含修复 bot 和它的评审）都在 DSH 里调用 Anthropic API，共用这一个 key；没有它 `npm start` 直接报错。不再使用本机登录的 Claude Code。见 [Agent 配置说明](../../docs/chat-to-fix/configuration.md)。 |
 | 模型 | `CHAT_TO_FIX_API_MODEL` | 可选。四个流程 bot 的模型线路，默认 `anthropic/claude-sonnet-5-5`。 |
 | 模型 | `CHAT_TO_FIX_CODING_MODEL` | 可选。修复 bot 和它的评审的模型线路，默认 `anthropic/claude-sonnet-5-5`。 |
 | Slack Bot | `CHAT_TO_FIX_API_URL` | 本机 Agent 控制接口地址；默认 `http://127.0.0.1:3090`。 |
 | Slack Bot | `CHAT_TO_FIX_HTTP_TOKEN` | 可选；Agent 控制接口令牌。留空时每次请求读取 Agent 数据目录（`CHAT_TO_FIX_DATA`，默认 `src/chat-to-fix/.data/connected`）里的 `http-token`，和模拟频道相同。 |
 | Slack Bot | `SLACK_BOT_STATE_DIR` | 可选；发件箱游标的保存目录，留空时使用 `src/slackBot/.data/`（已被 Git 忽略）。没有游标时从发件箱最新一条之后开始转发。 |
-| Agent、Slack Bot | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；安装获批并确定频道后填写。Slack Bot 只接受这个频道的 `/fix`，没有就不启动；Agent 用它绑定仓库，两边是同一个值。为空时，`npm start` 暂用本机频道 `CLOCAL`，不接收真实 Slack 命令。 |
+| Agent、Slack Bot | `CHAT_TO_FIX_SLACK_CHANNEL` | 唯一允许使用 `/fix` 的频道 ID；`.env.example` 已填目标频道，本机 `.env.local` 已同步。Slack Bot 只接受这个频道的 `/fix`，没有就不启动；Agent 用它绑定仓库，两边是同一个值。为空时，`npm start` 暂用本机频道 `CLOCAL`，不接收真实 Slack 命令。 |
 | Agent | `CHAT_TO_FIX_LOCAL_REPO` | 本机 F2P 仓库路径；Agent 会复制到独立目录。 |
 | Agent | `CHAT_TO_FIX_JIRA_SITE_URL` | Jira 浏览器地址；可留空，由只读站点查询发现。 |
 | Agent | `CHAT_TO_FIX_WORK_TYPE` | Agent 创建 `Task` 工单时的 `Work type` 值；默认 `Tech Research`。 |
@@ -45,4 +45,4 @@ chmod 600 .env.local
 
 ## 当前验证
 
-用户确认后，现有 Slack App、GitLab 和 Jira token 已从钥匙串复制到本机 `.env.local`。文件权限为 `600`；`SLACK_BOT_TOKEN` 保持空白。此前用该文件启动过渡服务后，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`；该服务现已删除。真实值未进入 Git 跟踪文件。
+用户确认后，现有 Slack App、GitLab 和 Jira token 已从钥匙串复制到本机 `.env.local`。文件权限为 `600`；工作区批准后 `SLACK_BOT_TOKEN` 已配置。Slack `auth.test` 返回 `ok: true`，响应权限为 `commands`、`chat:write`、`users:read`、`users:read.email`。目标频道 ID 已写入 `.env.example` 和本机 `.env.local`；Bot 已在该频道成功发送接入测试消息。此前用该文件启动过渡服务后，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`；该服务现已删除。真实值未进入 Git 跟踪文件。

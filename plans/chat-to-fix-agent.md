@@ -2,7 +2,7 @@
 
 目标工作流的最终指导版本见[从 Jira 到交付：工作流](from-jira-to-ship-workflow.zh.md)。本文记录当前实施路径和验收状态。开发应尽量遵循目标工作流；遇到无法避免的问题时，记录偏离原因、影响和实际做法，再更新本计划。目标工作流不代表当前代码已经具备相应能力。
 
-下列里程碑状态最后核对于 2026-11-13。**当前里程碑仍是 M0：配置固定频道 `/fix` 入口。**应用权限调整和命令注册已完成；待审申请仍显示旧权限，指定频道与安装审批仍未完成。整体功能尚未完成。
+下列里程碑状态最后核对于 2026-11-13。**M0：配置固定频道 `/fix` 入口已通过验收。**应用权限、命令、工作区安装和指定频道均已核对；Bot 已在目标频道成功发送接入测试消息。下一步按计划推进 M1；整体功能尚未完成。
 
 ## 与目标工作流的待对齐项
 
@@ -41,28 +41,29 @@ Slack Bot 负责接收 `/fix`、提交任务和发送进度。Chat-to-Fix Agent 
 | 里程碑 | 当前状态 | 验收标准 |
 | --- | --- | --- |
 | M0a 旧版模拟私信入口 | 已完成，仅作历史测试工具 | 无 Slack token 时，可通过本机接口提交模拟私信、读取原 thread 回复；相同事件只处理一次。行为见 [模拟 Bot 规格](../spec/mock-slack-bot.md)。 |
-| M0 固定频道 `/fix` 配置 | 进行中：应用配置已调整，待审申请仍是旧权限 | Bot scopes 为 `commands`、`chat:write`、`users:read`、`users:read.email`，User scopes 为空；无消息事件，关闭私信标签和 Slack MCP；注册 `/fix`；确定唯一允许的频道 ID；核对审批人看到的安装申请采用这四项 scopes。真实安装和调用在 M6 验收。 |
+| M0 固定频道 `/fix` 配置 | 已完成：指定频道发信成功 | Bot scopes 为 `commands`、`chat:write`、`users:read`、`users:read.email`，User scopes 为空；无消息事件，关闭私信标签和 Slack MCP；注册 `/fix`；确定唯一允许的频道 ID；验证已安装 Bot token 具有这四项 scopes。真实调用在 M6 验收。 |
 | M1 Bot 与本地 agent 对接 | 本机模拟入口已通过接口验收；真实 Slack Bot 待 M6 | 模拟入口改为 `/fix` 任务输入；将问题正文、发送者和频道标识交给 agent；异步状态可追踪；相同命令不会重复启动任务。 |
 | M2 Jira 工单 | 写入能力已验证，任务联动未开始 | 每个任务在 `F2PGBA` 创建一个工单；Slack thread 收到工单编号、链接和摘要；失败时报告具体原因。 |
 | M3 代码修改与 Draft MR | 进行中：T-1 已真实推送、创建 Draft MR，并向模拟讨论串和 Jira 回写链接 | Agent 在 `account-platform/free-to-play-pc` 的任务分支修改代码和相关测试，创建一个 Draft MR，并在 Slack 与 Jira 记录链接。 |
 | M4 CI 观察与修复 | 进行中：T-12 将 Smartcat push pipeline 误判为 MR CI；来源筛选已修复并加载，端到端复测待完成 | 只按当前 MR commit 的最新 pipeline 判定；读取失败检查的具体日志；在原 MR 分支最多追加 3 轮修复 commit；每轮检查新 pipeline。 |
 | M5 模拟入口端到端验收 | 进行中：T-1 完成；T-12 误报 CI 通过，需修复后重新验收 | 从模拟 `/fix` 到 Jira、Draft MR、CI 结果、thread/Jira 回报的整条链路通过验证；失败路径明确报告阻塞；无凭据进入仓库或聊天记录。 |
-| M6 真实 Slack 切换与验收 | 待审批 | 工作区安装采用新 scopes 并取得 Bot token；真实 Bot 仅接受指定频道的 `/fix`，其他频道拒绝；验证命令到最终回报的链路。 |
+| M6 真实 Slack 切换与验收 | 待真实 `/fix` 及任务回报验收 | 工作区安装采用新 scopes 并取得 Bot token；真实 Bot 仅接受指定频道的 `/fix`，其他频道拒绝；验证命令到最终回报的链路。 |
 
-## 当前里程碑 M0
+## M0 验收记录
 
-应用配置已调整，见 [Done](done.md)。审批同事报告待审申请仍列出旧的 `im:history`、`chat:write`。本里程碑还需完成以下配置：
+应用已获工作区批准。已配置的 Bot token 通过 Slack `auth.test`，响应列出四项预期 scopes，见 [Done](done.md)。验收结果如下：
 
-- [ ] 确定指定频道及其 ID，并确保 Bot 可在该频道发消息。频道类型和 ID 尚未确定。
-- [ ] 请审批人取消旧待审申请，按当前四项 Bot scopes 重新提交，并核对审批人看到的新申请。解释邮箱权限的用途。
+- [x] 确定指定频道及其 ID；写入本机 `.env.local` 和 `.env.example`。
+- [x] 确保 Bot 可在该频道发消息。首次测试返回 `channel_not_found`；加入应用后，`chat.postMessage` 返回 `ok: true` 且频道一致。
+- [x] 用户确认工作区批准；本机 Bot token 通过 Slack `auth.test`，响应列出四项预期 scopes。审批人端的旧待审记录是否取消尚未核对。
 
-本里程碑完成后再推进真实 Slack Bot 对接。管理员审批阻塞真实安装和 M6 验收。已完成事项见 [done.md](done.md)。
+M0 已通过验收。M6 的真实 `/fix` 调用和任务回报仍待验收。已完成事项见 [done.md](done.md)。
 
-用户要求在真实 Slack 配置尚未完成时先建立本机模拟频道。M1 的本地接口部分已独立验证：页面转发 `/fix` 到 Agent 的实际 HTTP 接口，并读取发件箱和任务状态；重复事件只启动一个任务。M0 仍是当前未完成的外部配置里程碑。本机模拟测试未提交真实 Jira 或 GitLab 写入。
+用户要求在真实 Slack 配置尚未完成时先建立本机模拟频道。M1 的本地接口部分已独立验证：页面转发 `/fix` 到 Agent 的实际 HTTP 接口，并读取发件箱和任务状态；重复事件只启动一个任务。M0 的外部配置现已通过验收。本机模拟测试未提交真实 Jira 或 GitLab 写入。
 
-根目录 `package.json` 直接调用两个独立入口：`npm start` 依次在后台启动 Agent 和模拟页面，`npm stop` 停止两者。Agent 已运行时，启动入口用当前数据目录的 token 验证其健康状态，然后继续启动页面。隔离端口验证了现有 Agent 加新页面的启动输出和 `CLOCAL`。旧模拟页面已停止，默认 4001 端口待复测。当前 3090 的旧 Agent 仍在运行，但其 PID 文件缺失；当前执行环境不能发送停止信号，需要在本机 Terminal 停止该旧进程。新版停止命令对此明确报错，保留无法确认已停止的 PID 文件。此项不阻止 M0 的 Slack 配置工作。真实 Slack Bot 接入后，再调整 `package.json` 的启动入口。
+根目录 `package.json` 直接调用两个独立入口：`npm start` 依次在后台启动 Agent 和模拟页面，`npm stop` 停止两者。Agent 已运行时，启动入口用当前数据目录的 token 验证其健康状态，然后继续启动页面。隔离端口验证了现有 Agent 加新页面的启动输出和 `CLOCAL`。旧模拟页面已停止，默认 4001 端口待复测。当前 3090 的旧 Agent 仍在运行，但其 PID 文件缺失；当前执行环境不能发送停止信号，需要在本机 Terminal 停止该旧进程。新版停止命令对此明确报错，保留无法确认已停止的 PID 文件。2026-11-13 再次读取其 `/health`，返回的频道仍不是新目标频道。此项不阻止 M0 的 Slack 配置工作；真实接入前必须按新配置重启 Agent 并核对频道。真实 Slack Bot 接入后，再调整 `package.json` 的启动入口。
 
-接入代码已提前准备：`src/chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。此项不改变 M0 的验收状态。真实 Slack 安装获批、频道 ID 确定后，才能完成真实入口验证；GitLab 写入和完整 CI 循环仍需真实环境验证。
+接入代码已提前准备：`src/chat-to-fix/scripts/connected.ts` 复用根目录的 GitLab、Jira 和 Slack 变量，并为 Agent 生成独立配置。Bot 已加入指定频道并通过发信测试；GitLab 写入和完整 CI 循环仍需真实环境验证。
 
 ## 执行规则
 
