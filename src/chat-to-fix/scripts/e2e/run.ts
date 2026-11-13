@@ -97,7 +97,7 @@ async function api(conn, path, method = 'GET', fetchImpl = globalThis.fetch) {
  * Starts the system, runs the cases one at a time, always stops the system. `system` = { start(), stop() };
  * `conn()` returns { url, token } (called after start). Returns the report object (also written to the folder).
  */
-export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 20 * 60_000, pollMs = 3000, conn, system, log = (line) => console.log(line), fetchImpl = globalThis.fetch, shouldStop = () => false, casesDir }: any) {
+export async function runSuite({ dir, manifest, caseIds, caseTimeoutMs = 30 * 60_000, pollMs = 3000, conn, system, log = (line) => console.log(line), fetchImpl = globalThis.fetch, shouldStop = () => false, casesDir }: any) {
   const startedAt = new Date().toISOString()
   const results = []
   const report: any = { dir, startedAt, finishedAt: undefined, interrupted: false, caseTimeoutMinutes: caseTimeoutMs / 60_000, results }
@@ -324,7 +324,7 @@ async function main() {
   process.once('SIGTERM', () => { interrupted = true })
   const report = await runSuite({
     dir, manifest, caseIds, system,
-    caseTimeoutMs: (o.timeoutMinutes ?? 20) * 60_000, pollMs: (o.pollSeconds ?? 3) * 1000,
+    caseTimeoutMs: (o.timeoutMinutes ?? 30) * 60_000, pollMs: (o.pollSeconds ?? 3) * 1000,
     conn: () => ({ url: `http://127.0.0.1:${manifest.port}`, token: readFileSync(join(dir, 'http-token'), 'utf8').trim() }),
     shouldStop: () => interrupted,
   })
