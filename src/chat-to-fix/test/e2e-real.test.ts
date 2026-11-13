@@ -206,6 +206,15 @@ test('secret and not-run patterns: what they catch and what they leave alone', (
   for (const s of ['I ran `sh test.sh`. All 4 checks printed ok.', 'Tests: sh test.sh was run by the Coding bot', "I didn't add tests for discounts below 0", '没有自动化测试']) assert.ok(!NOT_RUN_PATTERNS.some((p) => p.test(s)), s)
 })
 
+test('tests_were_run: the DSH reviewer\'s own words ("评审员无法运行测试", "审查方也没能运行 sh test.sh") are no admission', () => {
+  const c = loadCase('copy-typo')
+  const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
+  const check = (description) => evaluate(c, ws, { mr: { description } }).checks.find((k) => k.id === 'tests_were_run')
+  assert.equal(check('测试：run_tests 跑了 sh test.sh，通过。评审员无法运行测试。').ok, true)
+  assert.equal(check('审查方也没能运行 `sh test.sh` 和 `changeset` 作业。').ok, true)
+  assert.equal(check('sh test.sh 没有运行。').ok, false)
+})
+
 test('tests_were_run: "CI has not run yet" in the MR text is about the pipeline, not an admission; a real admission next to it still counts', () => {
   const c = loadCase('copy-typo')
   const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })

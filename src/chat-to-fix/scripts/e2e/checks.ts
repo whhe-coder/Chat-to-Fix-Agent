@@ -29,7 +29,7 @@ export const CI_NOT_RUN = /\b(?:CI|pipelines?)\b[^。.;；,，]{0,20}?(?:has|hav
 /** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
 /** DSH's built-in file tools of the readonly and coding presets (config/cordis.patch.yml). */
 export const DSH_FILE_TOOLS = new Set(['read', 'read_image', 'write', 'edit', 'glob', 'grep'])
-export const REVIEWER_CLAUSE = /reviewer|评审者|审阅者|审查者|评审(?:子 ?agent)?自己|评审时/i
+export const REVIEWER_CLAUSE = /reviewer|评审者|评审员|评审方|审阅者|审阅方|审查者|审查员|审查方|评审(?:子 ?agent)?自己|评审时/i
 
 const text = (v) => (typeof v === 'string' ? v : '')
 const ok = (detail = '') => ({ ok: true, detail })
