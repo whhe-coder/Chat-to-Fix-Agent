@@ -316,3 +316,15 @@
 - { id: session-log-deepseek, disabled: true }
 - { id: plugin-package-inventory-deepseek, disabled: true }
 - { id: deepseek-llm-api-extensions, disabled: true }
+
+# 8.7 unused agent presets and PTC. The shipped default preset `standard` is switched off below, so the
+#     registry's default (used only by a session created without a preset; the bot layer names one for every
+#     session) becomes the read-only one.
+- id: agent-preset-registry
+  config:
+    default: readonly
+- { id: preset-standard, disabled: true }
+- { id: preset-ptc, disabled: true }
+- { id: preset-minimal, disabled: true }
+- { id: preset-cordis, disabled: true }
+- { id: ptc-runtime, disabled: true }
