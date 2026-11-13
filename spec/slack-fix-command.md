@@ -1,6 +1,6 @@
 # 固定频道 `/fix` 入口规格
 
-状态：Slack 应用权限已调整；真实 Slack 的 `/fix` 命令、固定频道、Bot 处理代码和真实调用尚未实现。本机模拟频道已可接收 `/fix` 并转发给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
+状态：Slack 应用权限已调整；Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；真实 Slack 的 `/fix` 命令、固定频道和真实调用尚未完成。本机模拟频道已可接收 `/fix` 并转发给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
 
 ## 目标行为
 
@@ -9,6 +9,44 @@
 - Bot 在 Slack 要求的时间内确认命令，再在指定频道发布一条任务消息。后续 Jira、Draft MR 和 CI 进度回复到该消息的 thread。
 - 相同命令重试不得重复启动任务。完整的持久去重在任务接入里程碑实现。
 - 普通频道消息、私信和 thread 回复不启动任务。
+- 回报的内容来自 Chat-to-Fix 的发件箱，Bot 原样发到任务消息的 thread，不自己写进度文案，见 [Slack Bot 接口](../docs/chat-to-fix/slack/slackbot.md) 4.2(2)。
+
+### 每种情况的处理
+
+按表中顺序判断，命中一条即停。临时消息走 `/fix` 载荷的 `response_url`，只有发起者可见，不需要 Bot 在频道里。
+
+| 情况 | Bot 做什么 |
+| --- | --- |
+| 收到任何 `/fix` | 先确认命令（Slack 要求 3 秒内），再往下判断 |
+| 同一个 `trigger_id` 重复送达 | 不再处理（进程内去重，保留一小时） |
+| 正文为空 | 临时消息：`用法：/fix 问题描述，例如：/fix 登录页的“忘记密码”链接点了没反应。` |
+| 在私信或其他频道里用 | 临时消息：`请在指定频道里用 /fix。`，不启动任务 |
+| 通过上面几条后 | 调 Chat-to-Fix 的 `GET /health` |
+| `/health` 连不上、超时或不是 200 | 临时消息：`Chat-to-Fix 服务暂时连不上，这次请求没有开始处理，请稍后再用 /fix 提交。`，频道里不发任何东西 |
+| `/health` 的 `queueFull` 为真 | 临时消息：`修复队列已满，这次请求没有接收，请稍后再试。`，频道里不发任何东西 |
+| `/health` 正常 | 在频道发任务消息 `<@发起者> 提交了修复请求：<原文>`（先去掉广播式提及），再调 `POST /events`：`source: "fix"`，`eventId` 为 `slash:<trigger_id>`，`threadTs` 和 `messageTs` 都是任务消息的 `ts` |
+| 任务消息发不出去（例如 Bot 不在频道里） | 临时消息：`机器人没能在频道里发出任务消息，这次请求没有开始处理。请稍后再试；一直这样请联系维护人员。`，不调 `POST /events` |
+| `POST /events` 连不上、超时或返回 5xx | 在任务消息的 thread 里回 `Chat-to-Fix 服务暂时连不上，这次请求没有开始处理，请稍后再用 /fix 提交。` |
+| `POST /events` 返回 4xx | Bot 不另外说话，说明由 Chat-to-Fix 放进发件箱 |
+
+先问 `/health`，是为了“拒绝只向发起者返回”：服务没开或队列满时，频道里不留一条没人处理的任务消息。
+
+## Slack Bot 实现
+
+代码在 [`src/slackBot/`](../src/slackBot/)，`npm run start:slack` 启动。Chat-to-Fix 接口的字段和返回码以 [Slack Bot 接口](../docs/chat-to-fix/slack/slackbot.md) 4.2 为准，这里不重复。
+
+| 文件 | 作用 |
+| --- | --- |
+| `slack-bot.js` | Bolt Socket Mode 入口；挂 `app.command('/fix')` 和发件箱转发；没有 `CHAT_TO_FIX_SLACK_CHANNEL` 不启动 |
+| `fix-command.js` | 上表的 `/fix` 处理 |
+| `outbox-relay.js` | 每 3 秒拉 `GET /outbox`，把每条 `text` 发到 `channel` 的 `threadTs` thread，每发成功一条把游标存进文件 |
+| `chat-to-fix-api.js` | Chat-to-Fix 本机接口客户端，请求头带 `x-chat-to-fix-token` |
+
+- **游标**：存在 `SLACK_BOT_STATE_DIR`（默认 `src/slackBot/.data/`）的 `outbox-cursor`。没有游标文件时从发件箱最新一条之后开始，不重发旧消息。投递是“至少一次”：发完一条还没存游标就崩溃，重启后这条会再发一次。
+- **发送失败**：限流、网络错误和 `not_in_channel` 停在这一条，下一轮重发；`channel_not_found`、`is_archived`、`msg_too_long`、`no_text` 记录后跳过，不挡住后面的消息。
+- **接口令牌**：`CHAT_TO_FIX_HTTP_TOKEN`，留空时每次请求读 Agent 数据目录的 `http-token`，和模拟频道相同。地址为 `CHAT_TO_FIX_API_URL`，默认 `http://127.0.0.1:3090`。
+- **部署**：Bot 和 Chat-to-Fix 跑在同一台机器上，接口只听本机。同一个 Slack 应用同一时间只让 Bot 一个程序连 Socket Mode。
+- **已知缺口**：Bot 重启后 Slack 重投同一条 `/fix`，可能多发一条任务消息，但不会重复建任务（Chat-to-Fix 按 `eventId` 持久去重）。Agent 数据目录清空后发件箱序号从 1 重来，需要删掉游标文件。
 
 ## Slack 配置与权限
 
@@ -26,4 +64,4 @@
 
 ## 验收
 
-在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；Bot 在任务消息的 thread 回报结果。真实 Slack 安装获批前，只能用模拟入口测试任务处理器。
+在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；服务不通、队列满时只有发起者看到提示；Bot 在任务消息的 thread 回报发件箱里的进度和结果。真实 Slack 安装获批前，只能用模拟入口测试任务处理器。
