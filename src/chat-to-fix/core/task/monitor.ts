@@ -485,12 +485,14 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     // fix a failed round the usual limits apply, counted from that failure.
     let waiting = false
     let waited = 0
+    let settledNow = false
     w.lead = 'main'
     if (w.step === 'ci') {
       let ci = await ciCheck(w, task)
       ci = await ciSettledNotice(w, ci)
       t = now()
       waiting = !!ci && !ci.settled && ci.status === 'pending'
+      settledNow = !!ci?.settled
       waited = (ci?.waitedMs ?? 0) + (waiting ? Math.max(0, t - (ms(ci.since) ?? t)) : 0)
       // The Pipeline bot leads a fix round; once settled it is the Main bot's turn to advance.
       if (ci && !ci.settled) w.lead = 'pipeline'
@@ -505,7 +507,11 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       const phaseAt = waiting ? null : ms(phaseAtText)
       if (phaseAt !== null) w.stepStart = Math.max(w.stepStart, phaseAt)
       if (waiting) w.quietSince = null
-    } else w.ciPhaseKey = null
+    } else {
+      w.ciPhaseKey = null
+      // Past the CI step the waiting already done stays out of the task time (task.ci.waitedMs is final once settled).
+      waited = task.ci?.waitedMs ?? 0
+    }
 
     // 1. Total task time, counted from the start of this run (the time spent waiting for CI is not counted).
     if (t - w.runStart - waited > limits.taskMinutes * MINUTE) {
@@ -515,12 +521,15 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     const spent = Number(task.usage?.totalUsd ?? 0)
 
     // 1b. Soft limits (time, spend): no end, a wrap-up. Each fires once per run; the Main bot is told once.
+    // Not once the CI step is settled or the task is in writeback / close: the work is delivered, finishing the flow
+    // is the wrap-up (a needs_person there would turn a delivered task into a failed one).
+    const delivered = w.step === 'writeback' || w.step === 'close' || (w.step === 'ci' && settledNow)
     const runMs = t - w.runStart - waited
-    if (limits.softTaskMinutes !== undefined && !w.softFired.time && runMs > limits.softTaskMinutes * MINUTE) {
+    if (!delivered && limits.softTaskMinutes !== undefined && !w.softFired.time && runMs > limits.softTaskMinutes * MINUTE) {
       w.softFired.time = true
       await softLimit(w, 'soft_time', `The task has run for more than ${limits.softTaskMinutes} minutes (the soft time limit).`, `soft time limit of ${limits.softTaskMinutes} minutes reached`, t)
     }
-    if (limits.softTaskUsd !== undefined && !w.softFired.usd && spent > limits.softTaskUsd) {
+    if (!delivered && limits.softTaskUsd !== undefined && !w.softFired.usd && spent > limits.softTaskUsd) {
       w.softFired.usd = true
       await softLimit(w, 'soft_budget', `The task has spent ${usd(spent)}, more than its soft budget of ${usd(limits.softTaskUsd)}.`, `soft budget of ${usd(limits.softTaskUsd)} reached (${usd(spent)} spent)`, t)
     }

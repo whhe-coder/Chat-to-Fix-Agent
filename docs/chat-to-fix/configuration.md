@@ -54,7 +54,7 @@ key 怎么走到模型：启动脚本清空环境，只把一张白名单传给 
 | 跑命令 | 没有 shell。只能用 `run_tests` 跑频道绑定里列出的测试命令，每条原样用 `sh -c` 在代码目录里运行；环境变量只放行白名单（`PATH`、`HOME`、`LANG` 等），不带任何令牌 | 绑定的 `testCommands`（每条一行）；`limits.testMinutes`（默认 10） |
 | 审查 | `request_review`：系统起一个只读审查者（预设 `readonly`），给它任务、修复 bot 的说明和真实 diff，等它答完，记结论和轮数 | `limits.reviewMinutes`（默认 15）、`limits.reviewMaxRounds`（默认 3） |
 | 看守 | 一轮里没动静 `engineSilentMinutes` 分钟（测试、审查进行中不算）就停掉重叫；一轮工具调用超过 `codingMaxSteps` 就停掉，任务失败 | `limits.engineSilentMinutes`（默认 10）、`limits.codingMaxSteps`（默认 200）、`limits.stepMinutes.code`（默认 40） |
-| 软上限 | 任务花的钱（`task.usage.totalUsd`，所有 bot 加审查者，按价格表算；没有定价的模型记 0）或运行时间（扣掉等 CI 的时间）到软上限，系统给主 bot 发一条消息：停止工作，不再叫 coding bot，以 `needs_person` 收尾并写给提问人看的说明；有 Jira 单就让 Jira bot 留一条同样原因的评论；有 Draft MR 就提一句。coding bot 的回合还在跑就先停掉。每个软上限每次运行只触发一次。到硬上限直接结束任务，只是兜底 | `limits.softTaskUsd`（默认 2.5 美元）、`limits.softTaskMinutes`（默认 20）。任务总时限 `limits.taskMinutes`（默认 80）不变，仍是兜底；`softTaskMinutes` 必须小于它，否则配置无效。没有硬预算 |
+| 软上限 | 任务花的钱（`task.usage.totalUsd`，所有 bot 加审查者，按价格表算；没有定价的模型记 0）或运行时间（扣掉等 CI 的时间）到软上限，系统给主 bot 发一条消息：停止工作，不再叫 coding bot，以 `needs_person` 收尾并写给提问人看的说明；有 Jira 单就让 Jira bot 留一条同样原因的评论；有 Draft MR 就提一句。coding bot 的回合还在跑就先停掉。每个软上限每次运行只触发一次。CI 等待时间在 CI 步骤之后也一直扣除；CI 步骤已定论（settled）或任务在写回、收尾步骤时不再触发软上限（成果已交付，走完流程就是收尾）。到硬上限直接结束任务，只是兜底 | `limits.softTaskUsd`（默认 2.5 美元）、`limits.softTaskMinutes`（默认 20）。任务总时限 `limits.taskMinutes`（默认 80）不变，仍是兜底；`softTaskMinutes` 必须小于它，否则配置无效。没有硬预算 |
 
 注意：
 

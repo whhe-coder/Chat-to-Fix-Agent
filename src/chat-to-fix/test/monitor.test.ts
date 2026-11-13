@@ -410,6 +410,41 @@ test('both soft limits: two records, one message', async () => {
   assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time', 'soft_budget'])
 })
 
+for (const step of ['writeback', 'close']) {
+  test(`soft limits: no wrap-up in step ${step} (the work is delivered)`, async () => {
+    const s = setup({ step, stepAgoMin: 1, runAgoMin: 31, usd: 2.6, limits: SOFT })
+    s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+    assert.equal(s.calls.post.length, 0)
+    assert.equal(limitRecords(s).length, 0)
+  })
+}
+
+test('soft limits: no wrap-up once the CI step is settled', async () => {
+  const s = setup({ step: 'ci', stepAgoMin: 1, runAgoMin: 31, usd: 2.6, limits: SOFT })
+  ;(s.tasks.get('T-1') as any).ci = { status: 'pending', settled: true, outcome: 'no_pipeline', mainNotified: true, waitedMs: 0, since: new Date(T0).toISOString(), phaseAt: new Date(T0).toISOString() }
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(limitRecords(s).length, 0)
+})
+
+for (const outcome of ['passed', 'no_pipeline']) {
+  test(`soft time: CI waiting (${outcome}) stays out of the run time after the step has moved on`, async () => {
+    // 31 minutes since the run started, 30 of them waiting for CI: 1 minute of task time, in step writeback and in step mr
+    for (const step of ['writeback', 'mr']) {
+      const s = setup({ step, stepAgoMin: 1, runAgoMin: 31, limits: SOFT })
+      ;(s.tasks.get('T-1') as any).ci = { status: 'pending', settled: true, outcome, mainNotified: true, waitedMs: 30 * MIN, since: new Date(T0 - 30 * MIN).toISOString() }
+      s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+      assert.equal(limitRecords(s).length, 0, step)
+    }
+  })
+}
+
+test('soft time: still fires before CI when the run is long, and a later step counts only non-CI time', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, runAgoMin: 51, limits: SOFT })
+  ;(s.tasks.get('T-1') as any).ci = { status: 'failed', settled: false, waitedMs: 30 * MIN, since: new Date(T0 - 30 * MIN).toISOString() }
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time'])
+})
+
 test('the limits are configurable: a higher soft budget does not fire', async () => {
   const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: { ...SOFT, softTaskUsd: 5 } })
   s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
