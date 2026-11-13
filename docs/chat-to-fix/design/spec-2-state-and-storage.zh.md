@@ -107,11 +107,12 @@
 | `stepResults` | 记录器 | 每一步、每个负责角色最后一轮的最终答复 |
 | `slack` | Slack 的工具 | 读讨论的时间；三种用途的回复是否已发 |
 | `jira` | Jira 的工具 | 单号、链接、是否已写 MR 链接、当前状态 |
+| `issueAssessment` | `jira_assess_request` | 建单前的判断：来源原文、具体问题、可检查的结果；新运行时清空 |
 | `repo` | 仓库的工具 | 代码目录、分支、基准提交 |
 | `review` | `review_report` | `verdict`、`comments`、`rounds`、`at` |
 | `mr` | `mr_open_draft`、`mr_push_fix` | `url`、`iid`（MR 编号）、`sha`（当前提交） |
 | `ci` | 监控、`mr_push_fix`、`ci_read_log`、`ci_stop` | CI 状态：`status`、`sha`、`round`、`retried`、`since`、`waitedMs`、`pipelineUrl`、`failedJobs`、`logRead`、`settled`、`outcome`、`note`；监控第一次在步骤 `ci` 看到任务时才建，之前是 `null`。字段含义见规格 7 的 4.3 |
-| `needsInfo` | `needs_info_confirm` | 两个角色各自的确认文字和时间 |
+| `needsInfo` | `needs_info_confirm` | `main`、`jira`、`coding` 的确认文字和时间；一次追问只需当前步骤的两方确认 |
 | `runs` | 运行器 | 每次运行：序号、群编号、各角色的 bot 编号、起止时间、结束原因 |
 | `usage` | 记录器（经 `store.addUsage`） | 本任务的 token 和费用汇总，见下 |
 

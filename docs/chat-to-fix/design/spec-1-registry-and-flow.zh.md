@@ -47,7 +47,7 @@
 |---|---|---|---|---|---|
 | `main` | `Main` | Flow | 配置项 `apiModel` | `read-only` | `task_records`、`task_advance`、`task_close`、`needs_info_confirm` |
 | `slack` | `Slack` | Slack | 配置项 `apiModel` | `read-only` | `slack_read_thread`、`slack_reply` |
-| `jira` | `Jira` | Jira | 配置项 `apiModel` | `read-only` | `jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition` |
+| `jira` | `Jira` | Jira | 配置项 `apiModel` | `read-only` | `jira_assess_request`、`jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition`、`needs_info_confirm` |
 | `pipeline` | `Pipeline` | GitLab | 配置项 `apiModel` | `read-only` | `repo_prepare`、`repo_diff`、`repo_read_file`、`repo_log`、`mr_open_draft`、`mr_get`、`ci_read_log`、`mr_push_fix`、`ci_stop` |
 | `coding` | `Coding` | Claude Code | 配置项 `codingModel`，默认 `claude-code/default` | 配置项 `codingPermission`，默认 `workspace-write` | `request_code`、`review_report`、`needs_info_confirm` |
 
@@ -72,7 +72,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | `no` | `id` | 名称 | `roles` | `evidence` | `writeTools` |
 |---|---|---|---|---|---|
 | 1 | `fetch` | 取讨论 | `slack` | `slack.readAt` 有值；`slack.sent.ack` 为真；`stepResults.fetch` 有值 | `slack_reply`（用途 `ack`） |
-| 2 | `issue` | 建单 | `jira` | `jira.key` 有值 | `jira_create_issue` |
+| 2 | `issue` | 判断并建单 | `jira` | `jira.key` 有值 | `jira_assess_request`、`jira_create_issue` |
 | 3 | `prepare` | 备代码 | `pipeline` | `repo.dir`、`repo.branch`、`repo.base` 都有值 | `repo_prepare` |
 | 4 | `code` | 编码 | `coding` | 代码目录相对 `repo.base` 有改动；`review.verdict` 为 `pass` | `review_report` |
 | 5 | `mr` | 开 MR | `pipeline` | `mr.url` 有值 | `mr_open_draft` |
@@ -91,7 +91,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | 工具 | 什么时候可以调 |
 |---|---|
 | `needs_info_confirm` | 任何步骤 |
-| `slack_reply`（用途 `question`） | `needsInfo.main` 和 `needsInfo.coding` 都有值之后 |
+| `slack_reply`（用途 `question`） | `needsInfo.main` 和当前步骤的确认方都有值之后；`issue` 步骤由 `jira` 确认，其余步骤由 `coding` 确认 |
 | `task_advance`、`task_close` | 任何步骤，条件见第 4 节 |
 
 ## 3. 接口
@@ -102,7 +102,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 |---|---|---|
 | `advance(taskId, toStep)` | 把任务推进到 `toStep` | `{ ok: true }`，或 `{ ok: false, missing, reason }`（`missing` 是缺少的证据列表；步骤不对时给 `reason`） |
 | `allow(taskId, toolName, purpose)` | 一个写工具现在能不能调 | `{ ok: true }`，或 `{ ok: false, reason }` |
-| `confirmNeedsInfo(taskId, role, text)` | 记下一方对“信息不足”的确认 | `{ other }`：另一方是否已确认；角色不是 `main`、`coding` 时抛错 |
+| `confirmNeedsInfo(taskId, role, text)` | 记下一方对“信息不足”的确认 | `{ other }`：另一方是否已确认；`issue` 步骤只接受 `main`、`jira`，其余步骤只接受 `main`、`coding` |
 | `close(taskId, outcome, note)` | 结束任务 | `{ ok: true }`，或 `{ ok: false, reason }` |
 
 依赖：任务库（I2，规格 2）读写任务；代码仓库适配器的 `diff`（I5，规格 4）判断有没有改动；流程定义（本文 2.3）。
@@ -128,9 +128,10 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 
 ### 4.3 信息不足
 
-- `confirmNeedsInfo` 只接受 `main` 和 `coding` 两个角色，各记一条到 `needsInfo`。其他角色：记一条拒绝的执行记录并抛错。
+- `issue` 步骤由 `jira` 和 `main` 确认信息不足；其余步骤由 `coding` 和 `main` 确认。其他角色：记一条拒绝的执行记录并抛错。
 - 两条都有之后，`slack_reply`（用途 `question`）才放行。
 - 新的一次运行开始时清空 `needsInfo`。
+- Jira bot 使用模型判断讨论能否支持具体问题与可检查的结果；`jira_assess_request` 登记模型的肯定判断。它通过前不得调用 `jira_create_issue`。只有问候或测试字样的请求不能通过判断；信息不足时先追问，不产生 Jira 单。
 
 ### 4.4 结束
 
@@ -139,7 +140,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | `outcome` | 条件 | 任务的状态 | 结束原因 |
 |---|---|---|---|
 | `done` | 当前步骤是 `close` | `done` | `completed`；CI 没过时是 `completed_ci_failed`（修满轮数仍失败）、`completed_ci_stopped`（`ci_stop` 或分支被别人改了）、`completed_no_ci`（没有 pipeline） |
-| `needs_info` | `needsInfo` 两条都有；`slack.sent.question` 为真 | `needs_info` | `needs_info` |
+| `needs_info` | `needsInfo.main` 与当前步骤的确认方都有值；`slack.sent.question` 为真 | `needs_info` | `needs_info` |
 | `failed` | `note` 不为空 | `failed` | `note` 的内容 |
 | `needs_person` | `note` 不为空 | `failed` | `needs_person` |
 
@@ -159,7 +160,7 @@ coding bot 的定义另带一项 `reviewer`，是审查子 agent 的定义：名
 | `task_records` | `main` | `step`（可选） | 读执行记录 | 以文本行返回记录，可按步骤过滤；只显示最新的 200 条，每行截到 300 个字符 |
 | `task_advance` | `main` | `to` | 调用 `advance` | 成功，或缺少的证据 |
 | `task_close` | `main` | `outcome`、`note` | 调用 `close` | 成功，或拒绝的原因 |
-| `needs_info_confirm` | `main`、`coding` | `text` | 调用 `confirmNeedsInfo` | 已记下；另一方是否已确认 |
+| `needs_info_confirm` | `main`、`jira`、`coding`；按步骤限制 | `text` | 调用 `confirmNeedsInfo` | 已记下；另一方是否已确认 |
 | `review_report` | `coding` | `verdict`（`pass`、`fail` 或 `cannot_fix`）、`comments`、`rounds` | 把审查结论写到任务的 `review` 上 | 已记下 |
 
 规则：

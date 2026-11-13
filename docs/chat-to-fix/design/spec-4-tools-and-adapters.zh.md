@@ -122,7 +122,8 @@
 
 | 工具 | 参数 | 规则 | 写入任务 |
 |---|---|---|---|
-| `jira_create_issue` | `title`、`description`、`acceptance` | 写工具。任务已有 `jira.key` 时直接返回它。项目、类型、标签取自 `binding`。描述末尾由工具附上 Slack 讨论的链接。三个参数都不能为空 | `jira.key`、`jira.url` |
+| `jira_assess_request` | `sourceQuote`、`problem`、`outcome` | 写工具。引用 Slack 讨论中的原文，登记具体问题和可检查的结果。只有问候或测试字样的内容，以及找不到引用原文的内容，不能通过 | `issueAssessment` |
+| `jira_create_issue` | `title`、`description`、`acceptance` | 写工具。任务已有 `jira.key` 时直接返回它；否则必须先通过 `jira_assess_request`。项目、类型、标签取自 `binding`。描述末尾由工具附上 Slack 讨论的链接。三个参数都不能为空 | `jira.key`、`jira.url` |
 | `jira_get_issue` | 无 | 读本任务的单：标题、状态、描述、评论。文字超过 6000 个字符时截断，评论只显示最近 20 条 | — |
 | `jira_add_comment` | `text` | 写工具。在步骤 `writeback` 调用时，工具在文字后附上 MR 链接（任务还没有 MR 时失败） | `jira.commentedMr` 为真 |
 | `jira_transition` | `status` | 写工具。`status` 必须在配置项 `jiraTransitions` 允许的范围内（默认 `In Review`；比较时不分大小写） | `jira.status` |
@@ -200,7 +201,8 @@ Jira 的工具只能访问 `jira.key` 那一张单。新建的单不带现有自
 | 场景 | 预期 |
 |---|---|
 | 正常 | 任务走完八步，状态 `done`；假 Jira 里有一张单并带 MR 链接；裸仓库里有分支 `ai/<单号>`；回复文件里有“ack”和“result” |
-| 信息不足 | coding bot 和主 bot 都确认后，回复文件里有“question”；状态 `needs_info`；同一讨论再次提交事件后开始第二次运行，不产生第二张单 |
+| 建单前信息不足 | Jira bot 和主 bot 都确认后，回复文件里有“question”；状态 `needs_info`；假 Jira 没有新单 |
+| 编码时信息不足 | coding bot 和主 bot 都确认后，回复文件里有“question”；状态 `needs_info`；同一讨论再次提交事件后开始第二次运行，不产生第二张单 |
 | 审查未通过 | `review_report` 记下 `fail`；`mr_open_draft` 被拒绝；状态 `failed`；分支保留 |
 
 另有 CI 修复循环的场景（`ci 1` 至 `ci 9`：一次通过、失败后读日志修复、flaky 重跑、允许失败的 job、三轮仍失败、`ci_stop` 的前提、没有 pipeline、别人推了提交导致推送被拒、补信息重跑时追加提交不强推），见规格 7。设计里的超时场景不在端到端文件里。规格 3 的时限规则由 `test/monitor.test.ts` 测；一次因超时结束并向原讨论发系统通知的端到端运行未实现。
@@ -303,7 +305,7 @@ R1：
 
 ## 7. 验收
 
-- Jira bot 的会话里有四个 Jira 工具，没有 Slack 和仓库的工具；coding bot 的 Claude Code 里能调用 `task_read`、`request_code`、`review_report`、`needs_info_confirm`。
+- Jira bot 的会话里有五个 Jira 工具和 `needs_info_confirm`，没有 Slack 和仓库的工具；coding bot 的 Claude Code 里能调用 `task_read`、`request_code`、`review_report`、`needs_info_confirm`。
 - 在错误的步骤调用任何写工具都被拒绝，bot 收到的是原因，任务不受影响。
 - 同一个任务调两次 `jira_create_issue`，假 Jira 里只有一张单；调两次 `mr_open_draft`，只有一条 MR 记录。
 - coding bot 新建一个文件后，`repo_diff` 的列表里有它。

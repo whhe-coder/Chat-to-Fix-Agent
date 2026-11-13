@@ -215,7 +215,7 @@ stateDiagram-v2
 | 步 | 名称 | 负责 | 用到的工具 | 完成证据（代码检查） |
 |---|---|---|---|---|
 | 1 | 取讨论 | Slack bot | `slack_read_thread`、`slack_reply`（已收到） | 读讨论成功；“已收到”已发出；任务上有摘要 |
-| 2 | 建单 | Jira bot | `jira_create_issue` | 任务上有 Jira 单号 |
+| 2 | 判断并建单 | Jira bot | `jira_assess_request`、`jira_create_issue`；信息不足时 `needs_info_confirm` | 任务上有 Jira 单号；无法生成有效工单时先追问，不建单 |
 | 3 | 备代码 | Git Pipeline bot | `repo_prepare` | 任务上有代码目录和分支 |
 | 4 | 编码 | coding bot | Claude Code、内置的审查子 agent、`request_code`、`review_report` | 代码目录相对基准提交有改动；任务上记有“审查通过” |
 | 5 | 开 MR | Git Pipeline bot | `repo_diff`、`mr_open_draft` | 任务上有 MR 链接 |
@@ -232,6 +232,7 @@ stateDiagram-v2
 | 工具 | 允许的步骤 |
 |---|---|
 | `slack_reply`（已收到） | 1 |
+| `jira_assess_request` | 2 |
 | `jira_create_issue` | 2 |
 | `repo_prepare` | 3 |
 | `review_report` | 4、6 |
@@ -314,7 +315,7 @@ sequenceDiagram
 
 ### 5.7 信息不足
 
-1. coding bot 判断信息不够修，调用 `needs_info_confirm` 写明缺什么，并在最终答复里说明。
+1. 第 2 步由 Jira bot 先判断讨论能否支持具体问题和可检查的结果；不能时调用 `needs_info_confirm`，不创建 Jira 单。第 4 步以后由 coding bot 判断信息是否足够修复。
 2. 主 bot 同意时也调用 `needs_info_confirm`，写明要追问的问题。
 3. 主 bot @ Slack bot，Slack bot 用 `slack_reply`（追问）在原讨论里提问。
 4. 主 bot 调用 `task_close`（待补充信息）。任务上没有两方的确认时，这个调用被拒绝。
@@ -394,14 +395,14 @@ Slack 讨论是不可信输入。读它的 bot 没有任何碰代码、Jira 和 
 | 项 | 规格 |
 |---|---|
 | 对应的服务 | Jira |
-| 职责 | 根据任务上的摘要建 Jira 单；流程末尾写上 MR 链接和 CI 结论，CI 通过才改状态 |
+| 职责 | 先判断讨论能否支持有效工单，再建 Jira 单；流程末尾写上 MR 链接和 CI 结论，CI 通过才改状态 |
 | 引擎 | Claude，走 Anthropic API |
 | 权限 | 只读预设 |
-| 工具 | `task_read`、`jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition` |
+| 工具 | `task_read`、`jira_assess_request`、`jira_create_issue`、`jira_get_issue`、`jira_add_comment`、`jira_transition`、`needs_info_confirm` |
 | 输入 | 主 bot 的调用；任务上的摘要 |
 | 产出 | Jira 单号；Jira 单上的评论和状态 |
 | 不做 | 不碰本任务以外的单；项目、类型、标签由工具固定，不由它选 |
-| 说明要点 | 标题一句话说清问题；描述里放摘要和 Slack 讨论链接；验收条件写可检查的结果；回写如实写 CI 结论，CI 没过不改状态 |
+| 说明要点 | 不从问候或含糊描述编造问题；建单前登记来源原文、具体问题和可检查的结果；信息不足先追问；回写如实写 CI 结论，CI 没过不改状态 |
 
 ### 6.4 Git Pipeline bot
 
@@ -539,7 +540,7 @@ coding bot 的对接方式照搬 DS Bot 的“本地 Agent”功能：每个会�
 | MR 链接 | 第 5 步写入 |
 | CI 状态 | 第 6 步写入：当前轮次、失败的 job、有结论时的结果（`ci`，字段见 spec-7 第 4.3 节） |
 | 用量和费用 | `usage`：按 bot、模型、运行累加的 token、费用（美元）、输出速度；没有价格的调用标“未定价”，不计入合计 |
-| 信息不足的确认 | 主 bot 和 coding bot 各一条 |
+| 信息不足的确认 | 建单前由主 bot 和 Jira bot 各一条；编码阶段由主 bot 和 coding bot 各一条 |
 | 运行列表 | 每次运行的群编号、起止时间、结束原因 |
 
 ### 8.2 配置
