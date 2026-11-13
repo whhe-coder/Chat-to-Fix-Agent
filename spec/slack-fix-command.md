@@ -59,10 +59,12 @@
 | Bot Token Scopes | `commands`、`chat:write`、`users:read`、`users:read.email` | 已在应用页面核对；真实 Bot 读取发起人邮箱的代码尚未实现 |
 | User Token Scopes | 无 | 已核对 |
 | Event Subscriptions | 不订阅消息事件 | 已移除 `message.im`，页面显示 Off |
+| App Home Messages | 关闭私信标签 | 已关闭 |
+| Slack MCP Server | 关闭 | 已关闭；`/fix` 不调用 Slack MCP 工具 |
 | Socket Mode | 开启 | 已开启 |
 | Slash Commands | 注册 `/fix` | 已创建；说明与用法提示均为英文 |
 | 固定频道 | 确定频道 ID 并让 Bot 加入；代码只接受其 ID | 未完成 |
-| 工作区安装与 Bot token | 使用新权限完成审批和安装 | 待审批；新权限是否已进入待审记录尚未证实 |
+| 工作区安装与 Bot token | 使用四项当前权限完成审批和安装 | 审批同事报告旧待审记录仍列出 `im:history`、`chat:write`；需取消旧申请并按当前权限重新申请 |
 
 `commands` 接收命令载荷；`chat:write` 用于发布任务消息和长期进度；`users:read` 与 `users:read.email` 为后续通过 `users.info` 获取发起人邮箱准备。当前不申请频道历史读取权限。Slack App-level token 的 `connections:write` 保持不变。实际配置操作见 [Slack 配置记录](../config/slack/README.md)。
 

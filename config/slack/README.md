@@ -14,13 +14,14 @@
 
 | 页面 | 已核对的状态 | 用途 |
 | --- | --- | --- |
-| `App Home` | `Messages` 标签页仍开启 | 待关闭；新入口不使用私信 |
+| `App Home` | `Messages` 标签页已关闭 | 新入口不使用私信 |
+| `Agents → Slack MCP Server` | 已关闭 | `/fix` 工作流不调用 Slack MCP 工具 |
 | `Socket Mode` | 已开启 | Bot 通过 WebSocket 接收 Slack 事件，无需公开 HTTP 接收地址 |
 | `Event Subscriptions` | 页面显示 Off；无 Bot 事件 | `/fix` 使用 Slash Commands，不订阅普通消息 |
 | `OAuth & Permissions → Bot Token Scopes` | `commands`、`chat:write`、`users:read`、`users:read.email` | 接收 slash command、以 Bot 身份回报，并为读取发起人邮箱准备权限 |
 | `OAuth & Permissions → User Token Scopes` | 无 | Bot 不代表用户访问 Slack |
 | `Slash Commands` | `/fix` 已创建；说明为 `Report an issue and track its fix` | 接收指定频道的命令；真实 Bot 处理代码已实现，尚未完成真实 Slack 验收 |
-| `Install App` | 工作区和组织申请仍显示 `Request ... Submitted`；链接列出新 scopes | 等待审批；待审记录是否同步更新为新 scopes 尚未证实，Bot OAuth token 尚未取得 |
+| `Install App` | 工作区和组织申请仍显示 `Request ... Submitted`；页面链接列出四项当前 scopes | 审批同事报告待审记录仍是旧权限 `im:history`、`chat:write`；Bot OAuth token 尚未取得 |
 
 目标入口改为指定频道内的 `/fix 问题描述`。频道类型和 ID 尚未确定。频道 `@提及`、普通频道消息和私信都不启动任务。应用不申请频道历史读取权限。完整目标行为见 [固定频道命令规格](../../spec/slack-fix-command.md)。
 
@@ -51,10 +52,12 @@
 
 2026-11-13，在用户确认后，为 Bot 增加 `users:read` 与 `users:read.email`。OAuth 页面核对到四项 Bot scopes，User scopes 仍为空；安装页仍显示工作区和组织申请已提交，申请链接已列出四项 scopes。页面没有证明待审记录已同步更新。当前 Bot 代码尚未调用 `users.info` 读取发起人邮箱。
 
+2026-11-13，审批同事报告旧待审申请仍显示 `im:history`、`chat:write`，缺少 `commands`，并指出 Slack MCP 已开启。再次核对应用页面：Bot scopes 是 `commands`、`chat:write`、`users:read`、`users:read.email`；User scopes 为空；Event Subscriptions 为 Off。已关闭 `Agents → Slack MCP Server` 和 `App Home → Messages` 标签页。应用配置及安装页链接已更新，但旧待审申请没有得到更新证据。不能请审批人按旧记录直接批准。
+
 ## 接下来的配置与验证
 
 1. 确定固定频道并让 Bot 加入。只允许该频道 ID 启动任务。
-2. 核对待审申请确实包含四项 Bot scopes，如需重新提交则按新权限办理。等待管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
+2. 请审批人取消旧待审申请，再按四项 Bot scopes 提交并核对新申请；解释 `users:read` 与 `users:read.email` 用于读取 `/fix` 发起人邮箱，`im:history` 和 Slack MCP 不使用。等待管理员批准安装，然后按 [本地环境变量配置](../local-env/README.md) 提供 `SLACK_BOT_TOKEN`。
 3. 真实 Bot 的 `/fix` 处理代码和发件箱转发已实现，`npm run start:slack` 启动它；读取发起人邮箱还需实现 `users.info` 调用。取得 Bot token 后再做真实验收。`npm start` 启动 Agent 和本机模拟页面，不连接真实 Slack。
 4. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
 
