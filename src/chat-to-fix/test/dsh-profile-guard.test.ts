@@ -103,16 +103,16 @@ const REMOVED: string[] = [
   'ui-settings-session-log', 'ui-settings-plugins', 'ui-settings-shell', 'ui-settings-agent-loop',
   'ui-settings-subagent', 'ui-settings-web-search', 'ui-plan', 'ui-user-questions',
   'ui-trajectory',
-]
-
-// Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
-// (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
-const PENDING: string[] = [
   // step 2
   'api-remotes', 'job-controller', 'terminal-controller', 'workspace-files',
   'account-controller', 'settings-controller', 'workspace-controller', 'plugin-inventory',
   'message-feedback', 'command-feedback', 'session-turn-outline', 'session-reference',
   'cordis-host-runner', 'cordis-inspect-providers',
+]
+
+// Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
+// (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
+const PENDING: string[] = [
   // step 3
   'goal', 'goal-round-driver', 'schedule', 'mcp-resources',
   'otel',

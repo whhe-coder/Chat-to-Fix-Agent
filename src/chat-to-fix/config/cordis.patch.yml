@@ -276,3 +276,19 @@
 - { id: ui-plan, disabled: true }
 - { id: ui-user-questions, disabled: true }
 - { id: ui-trajectory, disabled: true }
+
+# 8.2 host APIs for the browser (no consumer in chat-to-fix)
+- { id: api-remotes, disabled: true }
+- { id: job-controller, disabled: true }
+- { id: terminal-controller, disabled: true }
+- { id: workspace-files, disabled: true }
+- { id: account-controller, disabled: true }
+- { id: settings-controller, disabled: true }
+- { id: workspace-controller, disabled: true }
+- { id: plugin-inventory, disabled: true }
+- { id: message-feedback, disabled: true }
+- { id: command-feedback, disabled: true }
+- { id: session-turn-outline, disabled: true }
+- { id: session-reference, disabled: true }
+- { id: cordis-host-runner, disabled: true }
+- { id: cordis-inspect-providers, disabled: true }
