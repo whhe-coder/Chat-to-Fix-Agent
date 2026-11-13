@@ -16,9 +16,12 @@ export const NUDGE = Object.freeze({
   ciQuiet: (minutes) =>
     `[system] Nobody in the group has done anything for ${minutes} minutes. Continue this CI round: read the log, ask the Coding bot to fix it, push the fix with mr_push_fix, or stop the loop with ci_stop.`,
   ciEngineSilent: (minutes) =>
-    `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
+    `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
+  // The soft limit: not an end, a wrap-up. `why` says which limit was reached.
+  wrapUp: (why) =>
+    `[system] ${why} Stop the work now: do not call the Coding bot again and do not start another fix round. Finish the flow: close the task with task_close as needs_person, with a note for the requester (in the language of the discussion) saying that the problem looks too hard or not suitable for an automatic change, why, and what was tried. If the task has a Jira issue, first have the Jira bot add one comment with the same reason. If a Draft MR is open, mention it in the note.`,
   engineSilent: (minutes) =>
-    `[system] The Coding bot (Claude Code) produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
+    `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
 })
 
 const where = (task) => {
@@ -38,12 +41,13 @@ export const NOTICE = Object.freeze({
   failed: (task) => `${ref(task)} could not be completed${task?.endReason ? ` (${task.endReason})` : ''}.${where(task)}`,
   expired: (task) => `${ref(task)} waited too long in the queue and expired. Mention the bot again to retry.${where(task)}`,
   stopped: (task) => `${ref(task)} was stopped.${where(task)}`,
+  interrupted: (task) => `${ref(task)} was restarted with the new information.`,
   resumed: (task) => `Got the extra information; ${task?.id ? `task ${task.id}` : 'this request'} is queued again.`,
   no_open_task: () => 'There is no open task in this discussion; please submit a new problem with /fix.',
   // Progress facts, sent by the system right when they are written (src/tools: jira_create_issue, mr_open_draft, mr_push_fix).
-  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? ` (${task.jira.url})` : ''}.`,
-  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}.`,
-  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` (${task.commitUrl})` : ''}.`,
+  jira_created: (task) => `${ref(task)}: Jira issue ${task?.jira?.key ?? ''} created${task?.jira?.url ? `: ${task.jira.url}` : '.'}`,
+  mr_opened: (task) => `${ref(task)}: Draft MR opened: ${task?.mr?.url ?? ''}`,
+  ci_fix_pushed: (task) => `${ref(task)}: CI fix round ${task?.ci?.round ?? ''} pushed: commit ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `: ${task.commitUrl}` : '.'}`,
   // Only with slack.mentions false: the requester cannot answer in the thread.
   needs_info_resubmit: (task) => `${ref(task)} needs more information; please submit it again with /fix, with the original description and the missing details together.`,
 })
@@ -55,10 +59,11 @@ export const NOTICE_KINDS = Object.freeze(Object.keys(NOTICE))
 const zhRef = (task) => (task?.id ? `任务 ${task.id}` : '这个请求')
 const zhWhere = (task) => {
   const extra = []
-  if (task?.jira?.key) extra.push(`Jira：${task.jira.key}${task.jira.url ? `（${task.jira.url}）` : ''}`)
+  if (task?.jira?.key) extra.push(`Jira：${task.jira.key}${task.jira.url ? ` ${task.jira.url}` : ''}`)
   if (task?.repo?.branch) extra.push(`分支：${task.repo.branch}`)
-  if (task?.mr?.url) extra.push(`Draft MR：${task.mr.url}`)
-  return extra.length > 0 ? `${extra.join('，')}。` : ''
+  if (task?.mr?.url) extra.push(`Draft MR： ${task.mr.url}`)
+  // One item per line: a link is always followed by a line break or the end, never by punctuation (Slack would link it too).
+  return extra.length > 0 ? `\n${extra.join('\n')}` : ''
 }
 const ZH_END_REASON = { task_timeout: '任务总时长超限', coding_timeout: '编码步骤超时', step_timeout: '某一步超时' }
 const zhReason = (task) => {
@@ -78,15 +83,16 @@ export const NOTICE_ZH = Object.freeze({
       return `${zhRef(task)} 需要人来处理${why ? `：${why}` : ''}。${zhWhere(task)}`
     }
     const why = zhReasonOf(task)
-    return `${zhRef(task)} 没能自动修好${why ? `：${why}` : ''}。${zhWhere(task)}补充信息后可以用 /fix 重新提交。`
+    return `${zhRef(task)} 没能自动修好${why ? `：${why}` : ''}。补充信息后可以用 /fix 重新提交。${zhWhere(task)}`
   },
   expired: (task) => `${zhRef(task)} 在队列里等太久，已过期。想继续的话，请用 /fix 重新提交。${zhWhere(task)}`,
   stopped: (task) => `${zhRef(task)} 已停止。${zhWhere(task)}`,
+  interrupted: (task) => `${zhRef(task)} 已按新的信息重新开始。`,
   resumed: (task) => `收到补充信息，${zhRef(task)} 重新开始处理。`,
   no_open_task: () => '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。',
-  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? `（${task.jira.url}）` : ''}。`,
-  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开：${task?.mr?.url ?? ''}。`,
-  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? `（${task.commitUrl}）` : ''}。`,
+  jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? ` ${task.jira.url}` : '。'}`,
+  mr_opened: (task) => `${zhRef(task)}：Draft MR 已开： ${task?.mr?.url ?? ''}`,
+  ci_fix_pushed: (task) => `${zhRef(task)}：CI 第 ${task?.ci?.round ?? ''} 轮修复已推送：提交 ${shortSha(task?.mr?.sha)}${task?.commitUrl ? ` ${task.commitUrl}` : '。'}`,
   needs_info_resubmit: (task) => `${zhRef(task)} 缺的信息补全后，请用 /fix 重新提交（把原来的描述和补充一起写上）。`,
 })
 
@@ -105,8 +111,9 @@ export const noticeText = (language, kind, task) => {
 // ---------------------------------------------------------------------------------------------
 
 const jobNames = (ci) => (ci?.failedJobs ?? []).map((j) => j.name).join(', ') || '-'
-const jobLinks = (ci, sep) => (ci?.failedJobs ?? []).map((j) => (j.url ? `${j.name} (${j.url})` : j.name)).join(sep) || '-'
-const pipelineLink = (ci, zh) => (ci?.pipelineUrl ? `${zh ? 'Pipeline：' : 'Pipeline: '}${ci.pipelineUrl}` : '')
+// Links never sit directly before punctuation: each job link and the pipeline link is on its own line, after a label and a space.
+const jobLinks = (ci) => (ci?.failedJobs ?? []).map((j) => (j.url ? `${j.name} ${j.url}` : j.name)).join('\n') || '-'
+const pipelineLink = (ci, zh) => (ci?.pipelineUrl ? `\n${zh ? 'Pipeline： ' : 'Pipeline: '}${ci.pipelineUrl}` : '')
 
 // The audience of `failed` is the Pipeline bot, which leads a fix round (it reads the log, asks the Coding bot
 // through message_bot, pushes with mr_push_fix or stops with ci_stop). `settled` goes to the Main bot, which
@@ -131,15 +138,15 @@ export const CI_NUDGE = Object.freeze({
 const CI_NOTICE_TEXT = {
   zh: {
     ci_passed: (task, ci) => `${ref(task, true)}CI 通过${ci.round > 0 ? `（修复 ${ci.round} 轮后）` : ''}。${pipelineLink(ci, true)}`,
-    ci_failed: (task, ci) => `${ref(task, true)}CI 第 ${ci.round + 1} 轮失败：${jobLinks(ci, '、')}。${pipelineLink(ci, true)}`,
-    ci_rounds_exhausted: (task, ci) => `${ref(task, true)}CI 修了 ${ci.round} 轮后仍未通过，没过的 job：${jobLinks(ci, '、')}。Draft MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
+    ci_failed: (task, ci) => `${ref(task, true)}CI 第 ${ci.round + 1} 轮失败，没过的 job：\n${jobLinks(ci)}${pipelineLink(ci, true)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task, true)}CI 修了 ${ci.round} 轮后仍未通过，Draft MR 已开，需要人看一下。没过的 job：\n${jobLinks(ci)}${pipelineLink(ci, true)}`,
     ci_no_pipeline: (task, ci) => `${ref(task, true)}没有拿到 CI 结果（${ci.waitTimedOut ? '等待超时' : '没有触发 pipeline'}）。MR 已开，需要人看一下。${pipelineLink(ci, true)}`,
   },
   en: {
-    ci_passed: (task, ci) => `${ref(task)}: CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}. ${pipelineLink(ci, false)}`,
-    ci_failed: (task, ci) => `${ref(task)}: CI failed in round ${ci.round + 1}: ${jobLinks(ci, ', ')}. ${pipelineLink(ci, false)}`,
-    ci_rounds_exhausted: (task, ci) => `${ref(task)}: CI still fails after ${ci.round} fix round(s): ${jobLinks(ci, ', ')}. The draft MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
-    ci_no_pipeline: (task, ci) => `${ref(task)}: no CI result (${ci.waitTimedOut ? 'the wait timed out' : 'no pipeline was triggered'}). The MR is open; a person needs to look. ${pipelineLink(ci, false)}`,
+    ci_passed: (task, ci) => `${ref(task)}: CI passed${ci.round > 0 ? ` after ${ci.round} fix round(s)` : ''}.${pipelineLink(ci, false)}`,
+    ci_failed: (task, ci) => `${ref(task)}: CI failed in round ${ci.round + 1}, failed jobs:\n${jobLinks(ci)}${pipelineLink(ci, false)}`,
+    ci_rounds_exhausted: (task, ci) => `${ref(task)}: CI still fails after ${ci.round} fix round(s). The draft MR is open; a person needs to look. Failed jobs:\n${jobLinks(ci)}${pipelineLink(ci, false)}`,
+    ci_no_pipeline: (task, ci) => `${ref(task)}: no CI result (${ci.waitTimedOut ? 'the wait timed out' : 'no pipeline was triggered'}). The MR is open; a person needs to look.${pipelineLink(ci, false)}`,
   },
 }
 
@@ -155,11 +162,16 @@ export const IDLE_RELAY_NOTICE = /went back and forth \d+ times without progress
 // Session events of the Coding bot. DSH emits 'turn/start' when a turn opens and 'turn/end' when it
 // closes (DSB:src/host/turns.js:667 and :896). Only these two change whether a turn is running;
 // every other session event (text, tool calls, results...) counts as output and refreshes the clock.
-// A RoundEndEvent from the facade also closes the turn.
+// A RoundEndEvent from the facade also closes the turn. Every 'tool/call' of the turn is a step: DSH has no
+// step limit of its own, so the monitor counts them (limits.codingMaxSteps). The Coding bot's two long
+// tools (a test run, a review) are silent while they run: a call of one of them in flight is not silence.
 const TURN_START = 'turn/start'
 const TURN_END = 'turn/end'
+const TOOL_CALL = 'tool/call'
+const LONG_TOOLS = new Set(['run_tests', 'request_review'])
 
 const MINUTE = 60_000
+const usd = (v) => `$${Number(v).toFixed(2).replace(/\.?0+$/, '')}`
 
 export function createMonitor({ store, botlayer, limits, end, send, repo, language = 'en', now = () => Date.now(), warn = (...a) => console.warn(...a), intervalMs = 5000 }: any) {
   /** @type {Map<string, object>} */
@@ -193,8 +205,24 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     const w = taskOfSession(ev.sessionId, ev.botId)
     if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
     w.lastCodingEventAt = now()
-    if (ev.type === TURN_START) w.turnRunning = true
-    else if (ev.type === TURN_END) w.turnRunning = false
+    if (ev.type === TURN_START) {
+      w.turnRunning = true
+      w.codingSteps = 0
+      w.longCalls = 0
+    } else if (ev.type === TURN_END) {
+      w.turnRunning = false
+      w.longCalls = 0
+    } else if (ev.type === TOOL_CALL) {
+      w.codingSteps += 1
+      if (LONG_TOOLS.has(ev.event?.data?.name)) w.longCalls += 1
+    }
+  }
+
+  function onToolResult(ev) {
+    const w = taskOfSession(ev.sessionId, ev.botId)
+    if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
+    w.lastCodingEventAt = now()
+    if (LONG_TOOLS.has(ev.tool)) w.longCalls = Math.max(0, w.longCalls - 1)
   }
 
   function onRoundEnd(ev) {
@@ -202,6 +230,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     if (!w || !isCoding(w, ev.sessionId, ev.botId)) return
     w.lastCodingEventAt = now()
     w.turnRunning = false
+    w.longCalls = 0
   }
 
   function onGroupLine(ev) {
@@ -221,7 +250,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
   function subscribe() {
     if (unsubscribers.length > 0) return
     const subs: [string, any][] = [
-      ['onSessionEvent', onSessionEvent], ['onRoundEnd', onRoundEnd],
+      ['onSessionEvent', onSessionEvent], ['onToolResult', onToolResult], ['onRoundEnd', onRoundEnd],
       ['onGroupLine', onGroupLine], ['onApproval', onApproval],
     ]
     for (const [name, fn] of subs) {
@@ -261,8 +290,8 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       taskId, watchedAt: t, baseAt: opts.restarted ? t : 0, restarted: !!opts.restarted,
       groupId: null, bots: {}, runNo: null, taskNo: null, lead: 'main', step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,
-      lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, idleRelay: false, ended: false,
-      ciPolledAt: 0, ciPhaseKey: null,
+      lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, codingSteps: 0, longCalls: 0, idleRelay: false, ended: false,
+      ciPolledAt: 0, ciPhaseKey: null, softFired: { time: false, usd: false }, wrappingUp: false,
     }
     watched.set(taskId, w)
     subscribe()
@@ -296,6 +325,21 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     try { await record(w, check, action) } catch (error) { warn('chat-to-fix: monitor cannot record %s: %s', check, error?.message ?? error) }
     try { await end(w.taskId, state, endReason) } catch (error) { warn('chat-to-fix: monitor cannot end %s: %s', w.taskId, error?.message ?? error) }
     watched.delete(w.taskId)
+  }
+
+  // A soft limit was reached: record it, stop a running Coding turn, and (the first time only) tell the Main bot
+  // to wrap up. The task goes on; the Main bot closes it as needs_person (the task time limit is the backstop).
+  async function softLimit(w, check, why, action, t) {
+    const first = !w.wrappingUp
+    w.wrappingUp = true
+    try { await record(w, check, first ? `${action}; told the Main bot to wrap up` : `${action}; already wrapping up`) } catch (error) { warn('chat-to-fix: monitor cannot record %s: %s', check, error?.message ?? error) }
+    if (!first) return
+    if (w.turnRunning) {
+      w.turnRunning = false
+      w.lastCodingEventAt = t
+      try { if (w.bots.coding) await botlayer.stopBot(w.bots.coding) } catch (error) { warn('chat-to-fix: monitor cannot stop the Coding bot: %s', error?.message ?? error) }
+    }
+    try { await nudge(w, NUDGE.wrapUp(why), 'wrapup', 'main') } catch (error) { warn('chat-to-fix: monitor cannot tell the Main bot to wrap up: %s', error?.message ?? error) }
   }
 
   // ---- CI wait (spec 7, 4.4): the eighth check ------------------------------------------------
@@ -443,12 +487,14 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     // fix a failed round the usual limits apply, counted from that failure.
     let waiting = false
     let waited = 0
+    let settledNow = false
     w.lead = 'main'
     if (w.step === 'ci') {
       let ci = await ciCheck(w, task)
       ci = await ciSettledNotice(w, ci)
       t = now()
       waiting = !!ci && !ci.settled && ci.status === 'pending'
+      settledNow = !!ci?.settled
       waited = (ci?.waitedMs ?? 0) + (waiting ? Math.max(0, t - (ms(ci.since) ?? t)) : 0)
       // The Pipeline bot leads a fix round; once settled it is the Main bot's turn to advance.
       if (ci && !ci.settled) w.lead = 'pipeline'
@@ -463,11 +509,31 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       const phaseAt = waiting ? null : ms(phaseAtText)
       if (phaseAt !== null) w.stepStart = Math.max(w.stepStart, phaseAt)
       if (waiting) w.quietSince = null
-    } else w.ciPhaseKey = null
+    } else {
+      w.ciPhaseKey = null
+      // Past the CI step the waiting already done stays out of the task time (task.ci.waitedMs is final once settled).
+      waited = task.ci?.waitedMs ?? 0
+    }
 
     // 1. Total task time, counted from the start of this run (the time spent waiting for CI is not counted).
     if (t - w.runStart - waited > limits.taskMinutes * MINUTE) {
       return endTask(w, 'timed_out', 'task_timeout', 'task_timeout', 'ended the task (timed_out)')
+    }
+
+    const spent = Number(task.usage?.totalUsd ?? 0)
+
+    // 1b. Soft limits (time, spend): no end, a wrap-up. Each fires once per run; the Main bot is told once.
+    // Not once the CI step is settled or the task is in writeback / close: the work is delivered, finishing the flow
+    // is the wrap-up (a needs_person there would turn a delivered task into a failed one).
+    const delivered = w.step === 'writeback' || w.step === 'close' || (w.step === 'ci' && settledNow)
+    const runMs = t - w.runStart - waited
+    if (!delivered && limits.softTaskMinutes !== undefined && !w.softFired.time && runMs > limits.softTaskMinutes * MINUTE) {
+      w.softFired.time = true
+      await softLimit(w, 'soft_time', `The task has run for more than ${limits.softTaskMinutes} minutes (the soft time limit).`, `soft time limit of ${limits.softTaskMinutes} minutes reached`, t)
+    }
+    if (!delivered && limits.softTaskUsd !== undefined && !w.softFired.usd && spent > limits.softTaskUsd) {
+      w.softFired.usd = true
+      await softLimit(w, 'soft_budget', `The task has spent ${usd(spent)}, more than its soft budget of ${usd(limits.softTaskUsd)}.`, `soft budget of ${usd(limits.softTaskUsd)} reached (${usd(spent)} spent)`, t)
     }
 
     // 3. Coding time limit.
@@ -493,8 +559,14 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       }
     }
 
-    // 6. Claude Code produces no output while its turn is running.
-    if (w.turnRunning && t - w.lastCodingEventAt > limits.engineSilentMinutes * MINUTE) {
+    // 7. The Coding bot made more tool calls in one turn than codingMaxSteps (a model going round in circles).
+    if (limits.codingMaxSteps !== undefined && w.codingSteps > limits.codingMaxSteps) {
+      try { if (w.bots.coding) await botlayer.stopBot(w.bots.coding) } catch (error) { warn('chat-to-fix: monitor cannot stop the Coding bot: %s', error?.message ?? error) }
+      return endTask(w, 'failed', 'coding_max_steps', 'coding_max_steps', `stopped the Coding bot after ${w.codingSteps} tool calls in one turn and ended the task (failed)`)
+    }
+
+    // 6. The Coding bot produces no output while its turn is running (a test run or a review in flight excepted).
+    if (w.turnRunning && w.longCalls === 0 && t - w.lastCodingEventAt > limits.engineSilentMinutes * MINUTE) {
       w.engineSilentCount += 1
       if (w.engineSilentCount >= 2) {
         return endTask(w, 'failed', 'engine_silent', 'engine_silent', 'ended the task (failed), second silence')

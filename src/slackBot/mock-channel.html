@@ -18,7 +18,10 @@
     <main class="main">
       <header class="topbar">
         <div><div class="eyebrow">模拟频道</div><h1># <span id="channel-title">chat-to-fix</span></h1></div>
-        <div id="agent-status" class="status" role="status">正在连接 Agent…</div>
+        <div class="topbar-actions">
+          <div id="agent-status" class="status" role="status">正在连接 Agent…</div>
+          <button id="clear-history" type="button" title="仅清空模拟页面的消息记录，不会停止 Agent 任务" disabled>清空记录</button>
+        </div>
       </header>
       <section class="conversation" aria-label="频道消息">
         <div class="welcome"><div class="welcome-icon">#</div><h2>欢迎来到模拟频道</h2><p>输入 <code>/fix 问题描述</code>。模拟 Bot 会把命令交给本机 Agent，并在下方显示进度。</p></div>

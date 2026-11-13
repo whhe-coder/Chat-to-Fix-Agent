@@ -38,6 +38,7 @@
 | `GET /outbox?after=<游标>` | 每 3 秒 | 把每条 `text` 原样发到 `channel` 的 `threadTs` 讨论串；发成功一条就存一次游标 |
 | `GET /tasks/<号>` | 排查时 | 状态、Jira、MR、CI、失败原因 |
 | `POST /tasks/<号>/stop` | 要停一个任务时 | |
+| `POST /tasks/<号>/messages`、`/interrupt`、`GET /tasks?eventId=`（`?thread=`） | 预留：追加信息、打断重来、`POST /events` 超时后查任务 | Agent 侧已做好，Slack Bot 还没接，见 [slackbot.md](slackbot.md) 4.2 (4) |
 
 Slack Bot 不写进度文案，讨论串里的话都来自发件箱。它只自己写两句“服务暂时连不上”，外加 `/fix` 的拒绝说明。
 

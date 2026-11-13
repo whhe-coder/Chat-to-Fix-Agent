@@ -55,16 +55,13 @@ export function createApp({ config, botlayer, adapters: givenAdapters, token, de
   registerAllTools(tools)
   const undefinedTools = tools.validate()
   if (undefinedTools.length) throw new Error(`chat-to-fix: the tool definitions do not match the bot registry: ${undefinedTools.join('; ')}`)
-  const http = createHttp({ config, token, store, outbox, queue, runner, notify: monitor.notify, startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
+  const http = createHttp({ config, token, store, outbox, queue, runner, notify: monitor.notify, postGroup: (groupId, text, requestId) => botlayer.postTask(groupId, text, requestId), startThread: adapters.slack?.startThread ? (channel, text) => adapters.slack.startThread(channel, text) : undefined })
 
   return {
     store, outbox, gate, queue, runner, monitor, recorder, tools, http,
-    // The functions the bot layer calls back (spec 5, section 3). `codingOptions(taskId)` gives the
-    // Claude Code launcher the test commands of the task's binding (bot/src/host/local-agents/launch.ts).
+    // The function the bot layer calls back (spec 5, section 3): a bound session gets its role tools.
     taskLayer: {
       attachRoleTools: agent => tools.attachRoleTools(agent),
-      bridgedToolNames: sessionId => tools.bridgedToolNames(sessionId),
-      codingOptions: taskId => runner.codingOptions(taskId),
     },
     async start() {
       recorder.start()

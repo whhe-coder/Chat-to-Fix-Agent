@@ -11,8 +11,16 @@ import { loadConfig } from '../core/config.ts'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PROJECT_ROOT = resolve(ROOT, '../..')
 const text = (value) => typeof value === 'string' && value.trim() !== ''
-const apiModelOf = (env) => env.CHAT_TO_FIX_API_MODEL || (text(env.ANTHROPIC_API_KEY) ? 'anthropic/claude-sonnet-5-5' : 'claude-code/claude-sonnet-5-5')
-const engineAuthOf = (env) => text(env.ANTHROPIC_API_KEY) ? 'apiKey' : 'login'
+// Every bot runs on the Anthropic API (the Claude Code route was removed on 2026-11-13), so the key is required.
+const DEFAULT_MODEL = 'anthropic/claude-sonnet-5-5'
+const apiModelOf = (env) => env.CHAT_TO_FIX_API_MODEL || DEFAULT_MODEL
+const codingModelOf = (env) => env.CHAT_TO_FIX_CODING_MODEL || DEFAULT_MODEL
+export const MISSING_KEY = 'ANTHROPIC_API_KEY is not set. Chat-to-Fix runs all five bots on the Anthropic API and needs the key: put ANTHROPIC_API_KEY in the repository root .env.local or in the environment. (The logged-in Claude Code is no longer used.)'
+
+/** Stops early, with one clear message, when the Anthropic API key is missing. */
+export function requireApiKey(env: any) {
+  if (!text(env.ANTHROPIC_API_KEY)) throw new Error(MISSING_KEY)
+}
 
 export function bridgeEnv(env: any) {
   return {
@@ -58,10 +66,8 @@ export async function discoverJiraSite(env: any, fetchImpl = globalThis.fetch) {
 export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = join(ROOT, '.data', 'connected') }: any) {
   if (!/^C[A-Z0-9]+$/.test(channel ?? '')) throw new Error('set --channel to the allowed Slack channel ID')
   if (!text(localRepo)) throw new Error('set --repo to a local checkout of the target GitLab project')
+  requireApiKey(env)
   const apiModel = apiModelOf(env)
-  if (apiModel.startsWith('anthropic/') && !text(env.ANTHROPIC_API_KEY)) {
-    throw new Error('ANTHROPIC_API_KEY is required for an anthropic/ API model')
-  }
   if (!text(env.GITLAB_URL) || !text(env.GITLAB_PROJECT) || !text(env.JIRA_CLOUD_ID) || !text(env.JIRA_WORK_TYPE_FIELD_ID)) {
     throw new Error('GitLab or Jira settings are missing from the existing .env.local')
   }
@@ -75,8 +81,7 @@ export function connectedConfig({ env, channel, localRepo, jiraSite, dataRoot = 
   return {
     dataDir: join(data, 'tasks'), worktreesDir: join(data, 'worktrees'), httpPort: 3090,
     apiModel,
-    codingModel: env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5',
-    engineAuth: engineAuthOf(env),
+    codingModel: codingModelOf(env),
     // Slack: the company Slack Bot (src/slackBot) is the only program connected to Slack; this service has no Slack token
     // and talks to it through the outbox (docs/chat-to-fix/slack/slackbot.md).
     adapters: { slack: 'outbox', jira: 'real', gitlab: 'real' },
@@ -178,13 +183,13 @@ async function main() {
     let active
     try { active = JSON.parse(readFileSync(join(resolve(dataRoot), 'chat-to-fix.json'), 'utf8')) }
     catch { /* The authenticated Agent is running even when its saved configuration is unavailable. */ }
-    if (active && (active.apiModel !== apiModelOf(env) || active.engineAuth !== engineAuthOf(env)
-      || active.codingModel !== (env.CHAT_TO_FIX_CODING_MODEL || 'claude-code/claude-sonnet-5-5'))) {
+    if (active && (active.apiModel !== apiModelOf(env) || active.codingModel !== codingModelOf(env))) {
       throw new Error('Agent 正在使用旧模型配置；请先运行 npm stop，再运行 npm run start:dev')
     }
     console.log(`Agent 已在 http://127.0.0.1:${port} 运行；继续启动模拟 Slack 页面。`)
     return
   }
+  requireApiKey(env)
   const jiraSite = args.jiraSite ?? await discoverJiraSite(env)
   const config = connectedConfig({ env, channel, localRepo: args.localRepo ?? env.CHAT_TO_FIX_LOCAL_REPO, jiraSite, dataRoot })
   config.bindings[0].localRepo = prepareAgentRepo(config.bindings[0].localRepo, dataRoot, config.bindings[0].remote)

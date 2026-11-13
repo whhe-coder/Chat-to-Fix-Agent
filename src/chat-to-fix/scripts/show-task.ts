@@ -36,7 +36,8 @@ export function formatTask(task) {
   return lines.join('\n')
 }
 
-// Where a speed comes from: DSH's own measurement (API bots) or derived from the CLI result (Coding bot).
+// Where a speed comes from: DSH's own measurement (every bot), or derived from a CLI result (old records of the
+// removed Claude Code route).
 const BASIS = { 'dsh-decode': 'DSH sessionStats: decodeTokens / decodeMs', 'cli-api': 'derived: CLI output tokens / duration_api_ms', 'cli-wall': 'derived: CLI output tokens / duration_ms' }
 const tokensOf = (b) => `in ${fmtTokens(b.input)} / out ${fmtTokens(b.output)} / cache read ${fmtTokens(b.cacheRead)} / cache write ${fmtTokens(b.cacheWrite)}`
 

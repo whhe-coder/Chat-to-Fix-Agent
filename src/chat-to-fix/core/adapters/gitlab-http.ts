@@ -250,18 +250,23 @@ export function createRealGitlab(config, options: any = {}) {
 
   /**
    * One pipeline and what it triggers: { pending, failed: [CiJob] }.
-   * Active pipeline: pending (nothing more is read). Otherwise the failed jobs that count (allow_failure ones do not),
-   * trigger jobs without a downstream pipeline that failed, and the downstream pipelines, read with their own project id.
+   * Only work that counts is waited for: a running or queued allow_failure job or trigger job (and the downstream
+   * pipeline of an allow_failure trigger job, which is not even read) neither holds the result back nor fails it.
+   * Pending = a counting job or trigger job is still going, or the pipeline is active with no job that explains it.
+   * Failed jobs that count (allow_failure ones do not), trigger jobs without a downstream pipeline that failed, and the
+   * downstream pipelines, read with their own project id.
    * A downstream pipeline we cannot read (403/404) counts as failed, and the failed job's name says so.
    */
   async function evaluate(projectId, pipeline, depth) {
     const ref = refOf(projectId)
-    if (ACTIVE.has(pipeline.status)) return { pending: true, failed: [] }
     const failed: any[] = []
     let pending = false
+    let sawActive = false // some job or trigger job of this pipeline is still going (counting or not)
     const entry = (job, name = job.name) => ({ id: job.id, name, url: job.web_url ?? pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })
     for (const bridge of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/trigger_jobs`)) {
       const down = bridge?.downstream_pipeline
+      if (ACTIVE.has(bridge?.status)) sawActive = true
+      if (bridge?.allow_failure === true) continue // its result, and its downstream pipeline, do not count
       if (down?.id === undefined || down === null) {
         if (BAD.has(bridge?.status) && bridge?.allow_failure !== true) failed.push(entry(bridge))
         else if (ACTIVE.has(bridge?.status)) pending = true
@@ -285,8 +290,13 @@ export function createRealGitlab(config, options: any = {}) {
     }
     // Jobs of the pipeline (retried-and-replaced jobs are not listed by default).
     for (const job of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/jobs`)) {
-      if (BAD.has(job?.status) && job?.allow_failure !== true) failed.push(entry(job))
+      if (ACTIVE.has(job?.status)) sawActive = true
+      if (job?.allow_failure === true) continue
+      if (BAD.has(job?.status)) failed.push(entry(job))
+      else if (ACTIVE.has(job?.status)) pending = true
     }
+    // An active pipeline in which no job explains it (jobs not created yet, a status in transition): keep waiting.
+    if (ACTIVE.has(pipeline.status) && !sawActive) pending = true
     // A failed pipeline without any failed job (a broken CI file, a pipeline cancelled before its jobs existed) still counts.
     if (BAD.has(pipeline.status) && failed.length === 0 && !pending) {
       failed.push({ id: `pipeline:${pipeline.id}`, name: `pipeline ${pipeline.id} (${pipeline.status}, no failed job listed)`, url: pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })

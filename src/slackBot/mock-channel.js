@@ -168,7 +168,14 @@ export function createMockChannel({
     return syncing;
   }
 
-  return { submit, sync, snapshot: () => ({ channelId, mockUser: { ...mockUser }, threads: [...threads.values()].map(visible).reverse() }) };
+  function clearHistory() {
+    const cleared = threads.size;
+    events.clear();
+    threads.clear();
+    return cleared;
+  }
+
+  return { submit, sync, clearHistory, snapshot: () => ({ channelId, mockUser: { ...mockUser }, threads: [...threads.values()].map(visible).reverse() }) };
 }
 
 export function createMockChannelServer({ channel, serviceId } = {}) {
@@ -199,6 +206,7 @@ export function createMockChannelServer({ channel, serviceId } = {}) {
       if (request.method === 'GET' && path === '/mock-channel-client.js') return respond(response, 200, SCRIPT, 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && path === '/mock-channel.css') return respond(response, 200, STYLE, 'text/css; charset=utf-8');
       if (request.method === 'GET' && path === '/api/channel') return json(response, 200, { ok: true, agent: await channel.sync(), ...channel.snapshot() });
+      if (request.method === 'DELETE' && path === '/api/messages') return json(response, 200, { ok: true, cleared: channel.clearHistory() });
       if (request.method === 'POST' && path === '/api/messages') {
         const result = await channel.submit(await readJson(request));
         return json(response, result.ok ? (result.duplicate ? 200 : 202) : result.errorStatus, {

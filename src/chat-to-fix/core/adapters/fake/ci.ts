@@ -208,7 +208,7 @@ export function createFakeCi(config, { findMr }) {
         continue
       }
       const status = effective(job)
-      if (status === 'running') pending = true
+      if (status === 'running') pending ||= !job.allowFailure // an allow_failure job still running is not waited for
       else if ((status === 'failed' || status === 'canceled') && !job.allowFailure) failed.push({ pipeline, job })
     }
     return { pending, failed }

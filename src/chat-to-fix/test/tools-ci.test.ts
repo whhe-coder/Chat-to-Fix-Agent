@@ -26,7 +26,7 @@ async function rig({ limits = {} } = {}) {
     dataDir: join(dir, 'data'), worktreesDir: join(dir, 'worktrees'), httpPort: 0, apiModel: 'anthropic/test',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }], limits,
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
   const calls = []
   const state = {
@@ -67,6 +67,7 @@ async function rig({ limits = {} } = {}) {
 async function failed(r, patch: any = {}) {
   await r.store.patchTask(r.task.id, {
     step: 'ci',
+    jira: { key: 'DEMO-1', url: 'fake://jira/DEMO-1', status: 'In Review' },
     repo: { dir: '/work/T-1', branch: 'ai/DEMO-1', base: 'abc123' },
     mr: { url: 'fake://gitlab/group/project/mr/1', iid: 1, sha: 'sha-mr-1' },
     ci: { ...newCi('sha-mr-1', '2026-11-12T00:00:00.000Z', { waitedMs: 5000 }), status: 'failed', pipelineUrl: 'fake://gitlab/pipelines/7', failedJobs: JOBS, ...patch },
@@ -156,8 +157,8 @@ test('mr_push_fix: success appends one fix commit, starts a fresh pending ci for
   await failed(r)
   await pass(r)
   const text = await r.call('pipeline', 'mr_push_fix', PUSH)
-  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: fix\(lint\): remove the unused import/)
-  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'fix(lint): remove the unused import' }])
+  assert.match(text, /Pushed the fix \(round 1 of 3\) as commit sha-fix-1: fix\(lint\): remove the unused import \(DEMO-1\)/)
+  assert.deepEqual(r.of('pushFix')[0].args.slice(1), ['/work/T-1', 'ai/DEMO-1', { message: 'fix(lint): remove the unused import (DEMO-1)' }])
   const after = await r.now()
   assert.equal(after.ci.status, 'pending')
   assert.equal(after.ci.sha, 'sha-fix-1')
@@ -238,12 +239,30 @@ test('mr_push_fix: commit_message must be one Conventional Commit line, like mr_
   await failed(r)
   await pass(r)
   for (const bad of ['fix: a\n\nbody', 'bugfix: a', 'fix:a', 'fix: ', 'just a sentence', `fix: ${'x'.repeat(96)}`]) {
-    assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: bad }), /^tool failed: commit_message must/, JSON.stringify(bad))
+    assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: bad }), /^tool failed: commit_message (must|is too long)/, JSON.stringify(bad))
   }
   assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: '   ' }), /^tool failed: commit_message must not be empty/)
   assert.match(await r.call('pipeline', 'mr_push_fix', {}), /missing required argument commit_message/)
   assert.equal(r.of('pushFix').length, 0)
   assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: 'refactor(core/api)!: drop v1' }), /Pushed the fix/)
+})
+
+test('mr_push_fix: the Jira key is put at the end of the fix commit once, other keys and long lines are refused, a task without a key is refused', async () => {
+  const r = await rig()
+  await failed(r)
+  await pass(r)
+  assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): x (OTHER-2)' }), /^tool failed: .*another Jira key \(OTHER-2\)/)
+  const max = 100 - ' (DEMO-1)'.length
+  assert.match(await r.call('pipeline', 'mr_push_fix', { commit_message: `fix: ${'x'.repeat(max)}` }), new RegExp(`^tool failed: .*at most ${max} characters`))
+  assert.equal(r.of('pushFix').length, 0)
+  await r.call('pipeline', 'mr_push_fix', { commit_message: 'DEMO-1: fix(lint): remove the unused import' }) // old format: prefix stripped
+  assert.equal(r.of('pushFix')[0].args[3].message, 'fix(lint): remove the unused import (DEMO-1)')
+  const r2 = await rig()
+  await failed(r2)
+  await pass(r2)
+  await r2.store.patchTask(r2.task.id, { jira: { key: null } })
+  assert.match(await r2.call('pipeline', 'mr_push_fix', PUSH), /^tool failed: the task has no Jira issue key/)
+  assert.equal(r2.of('pushFix').length, 0)
 })
 
 test('mr_push_fix: nothing_to_commit is refused with a plain reason and ci stays as it was', async () => {
@@ -318,8 +337,8 @@ test('ci_stop: not_fixable only when the Coding bot recorded cannot_fix this rou
   await pass(r, 'pass')
   assert.match(await r.call('pipeline', 'ci_stop', args), /not_fixable must come from the Coding bot/)
   assert.equal((await r.now()).ci.settled, false)
-  // The Coding bot records it with review_report (allowed in step ci); then the Pipeline bot may stop.
-  assert.equal(await r.call('coding', 'review_report', { verdict: 'cannot_fix', comments: 'needs a service we cannot start', rounds: 1 }), 'Recorded: review cannot_fix, round 1.')
+  // The Coding bot records it with review_report (step ci only); then the Pipeline bot may stop.
+  assert.equal(await r.call('coding', 'review_report', { verdict: 'cannot_fix', comments: 'needs a service we cannot start' }), 'Recorded: cannot_fix. The Pipeline bot can now stop the CI loop.')
   assert.match(await r.call('pipeline', 'ci_stop', args), /Recorded: the CI loop stops \(not_fixable\)/)
   assert.equal((await r.now()).ci.outcome, 'not_fixable')
   // The other two reasons do not need the Coding bot's verdict.

@@ -3,11 +3,8 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 import { start, startApp, settle } from './host.ts'
 
-const FAKE = fileURLToPath(new URL('../fixtures/fake-claude.ts', import.meta.url))
-const CLI = { command: process.execPath, args: [FAKE] }
 
 // Drives the I1 facade on DS Bot's fake DSH context, in the style of bot/test/group-work.test.js.
 const NAMES = ['Boss', 'Slacker', 'Jirer', 'Piper', 'Coder']
@@ -251,12 +248,11 @@ test('a profile without the readonly preset still makes the relay session; a bot
   await assert.rejects(host.botlayer.createBot({ name: 'Reader', label: 'Role', instructions: 'x', preset: 'readonly' }), /not available/)
 })
 
-// Creating the Coding bot sets its model, which switches its engine: a bot that never had a model
-// has no conversation to carry, so it must not get a fresh part (a second session).
-test('the Coding bot is made with one session; setting its Claude Code model opens no fresh part', async (t) => {
-  const { host, post } = await startApp(t, { cli: CLI, runtime: { presets: ['standard', 'readonly'] } })
-  await host.localAdapter()
-  assert.equal(host.rt.isLocalAgentRoute('claude-code'), true, 'the claude-code route is a local agent route')
+// Creating a bot sets its model, preset and thinking level once: a bot that never had a model has no
+// conversation to carry, so it must not get a fresh part (a second session). The Coding bot is an ordinary
+// DSH session on its own agent preset `coding`, with the configured thinking level.
+test('the Coding bot is one DSH session on the coding preset, with its model and thinking level; no fresh part', async (t) => {
+  const { host, post } = await startApp(t, { runtime: { presets: ['standard', 'readonly', 'coding'], efforts: ['low', 'high'] } })
   const parts = []
   const newPart = host.rt.newPart
   host.rt.newPart = (...args) => { parts.push(args); return newPart(...args) }
@@ -264,11 +260,24 @@ test('the Coding bot is made with one session; setting its Claude Code model ope
   await new Promise(resolve => setTimeout(resolve, 150))
   // Five own sessions and the group's own session; no extra one for the Coding bot.
   assert.equal(host.creates.length, 6)
-  assert.deepEqual(host.creates.map(c => c.agentPreset).sort(), ['readonly', 'readonly', 'readonly', 'readonly', 'readonly', 'standard'])
+  assert.deepEqual(host.creates.map(c => c.agentPreset).sort(), ['coding', 'readonly', 'readonly', 'readonly', 'readonly', 'readonly'])
   assert.deepEqual(parts, [], 'no part switch was started')
   assert.equal(host.rt.chatOf(bots.coding), bots.coding)
-  assert.equal(host.rt.botOf(bots.coding).appliedModel ?? host.rt.botOf(bots.coding).model, 'claude-code/default')
-  assert.equal(host.rt.state.switching?.[bots.coding], undefined)
+  const coding = host.rt.botOf(bots.coding)
+  assert.equal(coding.appliedModel ?? coding.model, 'deepseek/v4-flash')
+  assert.equal(coding.effort, 'high')
+  assert.equal(coding.preset, 'coding')
+  assert.equal(host.rt.botOf(bots.main).effort, undefined)
+  assert.equal(host.rt.isLocalAgentRoute, undefined, 'no local-agent (CLI) module is installed')
+})
+
+test('a thinking level the model does not serve is warned about and the bot is still made', async (t) => {
+  const warnings = []
+  const host = await start(t, { presets: ['readonly', 'coding'] })
+  host.rt.warn = (...args) => warnings.push(args.join(' '))
+  const id = await host.botlayer.createBot({ name: 'Coder', label: 'Coding', instructions: 'x', model: 'deepseek/v4-flash', effort: 'high', permission: 'workspace-write', preset: 'coding' })
+  assert.equal(host.rt.botOf(id).effort, undefined)
+  assert.ok(warnings.some(text => /thinking level %s was not set|thinking level/.test(text)), warnings.join(' | '))
 })
 
 // ---- token billing: the usage events of the facade
@@ -346,42 +355,59 @@ test('a stalled and an aborted round are billed as well; two rounds are two even
   assert.deepEqual(usages.map(u => [u.input, u.output, u.outputTps, u.tpsBasis]), [[3, 20, null, null], [2, 30, 30, 'dsh-decode']])
 })
 
-test('the Coding bot is not counted twice: its DSH session is not read, the CLI turn is reported per model with the CLI cost', async (t) => {
-  const host = await start(t, { projections: true, claudeCommand: CLI.command, claudeCommandArgs: CLI.args, codingEffort: 'high' })
-  await host.localAdapter()
+// ---- the reviewer: a DSH subagent the system starts for request_review (core/tools/review.ts)
+
+// A stand-in for @deepseek-ai/dsh-subagent's service: startActivation(spec) -> { childId, result, dispose }.
+function fakeSubagents({ result, hang = false }: any = {}) {
+  const starts = []
+  const disposed = []
+  return {
+    starts, disposed,
+    async startActivation(spec) {
+      starts.push(spec)
+      const childId = `child-${starts.length}`
+      return {
+        childId,
+        result: hang ? new Promise(() => {}) : Promise.resolve(result),
+        dispose: async () => { disposed.push(childId) },
+      }
+    },
+  }
+}
+
+test('runReview starts a fresh spawn child of the exact live session on the preset, with caller delivery, waits for it and books its usage to the bot', async (t) => {
+  const host = await start(t, { projections: true })
   const { ids } = await team(host)
-  const events = []
-  host.botlayer.onUsage(e => events.push(e))
-  const id = ids[4]
-  // the Coding bot's own DSH session is not read: no projections, no usage event from DSH
-  host.rt.botOf(id).model = 'claude-code/default'
-  host.totals.set(id, totals({ outputTokens: 3915 }, {}))
-  host.emit(id, 'turn/start', { turn: 1 })
-  host.emit(id, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(() => true)
-  assert.equal(events.length, 0)
-  // what adapter.reportUsage passes on: the rows of model_usage_since_last_result and the turn's time
-  host.botlayer.reportEngineUsage({
-    sessionId: id, route: 'claude-code', model: 'claude-sonnet-5-5', durationMs: 30_000, durationApiMs: 20_000, failed: false,
-    models: [
-      { model: 'claude-sonnet-5-5', input: 28, output: 3000, cacheRead: 248_280, cacheWrite: 26_070, costUsd: 0.2 },
-      { model: 'claude-opus-5-5', input: 5, output: 1000, cacheRead: 9000, cacheWrite: 0, costUsd: 0.05 },
-    ],
-  })
-  assert.deepEqual(events.map(e => [e.source, e.model, e.effort, e.input, e.output, e.cacheRead, e.cacheWrite, e.costUsd, e.durationMs, e.outputTps, e.tpsBasis]), [
-    ['cli', 'claude-sonnet-5-5', 'high', 28, 3000, 248_280, 26_070, 0.2, 15_000, 200, 'cli-api'],
-    ['cli', 'claude-opus-5-5', 'high', 5, 1000, 9000, 0, 0.05, 5_000, 200, 'cli-api'],
-  ])
-  assert.ok(events.every(e => e.sessionId === id && e.botId === id))
+  const coding = ids[4]
+  const agent = host.agentOf(coding)
+  const subagents = fakeSubagents({ result: { output: [{ type: 'text', text: 'pass\nLooks right.' }], stopReason: 'completed' } })
+  host.services.subagents = subagents
+  host.services.agents = { get: id => (id === coding ? agent : undefined) }
+  host.totals.set('child-1', totals({ uncachedInputTokens: 900, outputTokens: 300, cacheReadTokens: 2000 }, { decodeMs: 3000, decodeTokens: 300 }))
+  const usages = []
+  host.botlayer.onUsage(e => usages.push(e))
+  const result = await host.botlayer.runReview({ sessionId: coding, prompt: 'REVIEW THIS', preset: 'readonly', timeoutMs: 5000 })
+  assert.deepEqual(result, { childId: 'child-1', text: 'pass\nLooks right.', stopReason: 'completed' })
+  const [spec] = subagents.starts
+  assert.equal(spec.provider, 'spawn')
+  assert.equal(spec.delivery, 'caller')
+  assert.equal(spec.label, 'review')
+  assert.ok(spec.signal instanceof AbortSignal)
+  assert.equal(spec.request.parent, agent, 'the exact live parent agent')
+  assert.equal(spec.request.agentPreset, 'readonly')
+  assert.deepEqual(spec.request.prompt, [{ type: 'text', text: 'REVIEW THIS' }])
+  assert.equal(usages.length, 1)
+  assert.deepEqual([usages[0].sessionId, usages[0].botId, usages[0].source, usages[0].input, usages[0].output, usages[0].cacheRead, usages[0].outputTps], [coding, coding, 'dsh', 900, 300, 2000, 100])
 })
 
-test('a CLI turn without duration_api_ms is measured over duration_ms; without model rows the summed usage is booked under the init model; a failed turn is marked', async (t) => {
+test('runReview: a review that does not end in time is stopped and disposed; no subagents service is an error', async (t) => {
   const host = await start(t)
   const { ids } = await team(host)
-  const events = []
-  host.botlayer.onUsage(e => events.push(e))
-  host.botlayer.reportEngineUsage({ sessionId: ids[4], model: 'claude-sonnet-5-5', durationMs: 10_000, usage: { inputTokens: 5, outputTokens: 500, cacheReadTokens: 3, cacheCreationTokens: 7 }, models: [], failed: true })
-  host.botlayer.reportEngineUsage({ sessionId: 'not-a-team-session', model: 'm', models: [{ model: 'm', output: 1 }] })
-  assert.equal(events.length, 1)
-  assert.deepEqual([events[0].model, events[0].output, events[0].cacheWrite, events[0].costUsd, events[0].tpsBasis, events[0].outputTps, events[0].failed], ['claude-sonnet-5-5', 500, 7, null, 'cli-wall', 50, true])
+  const subagents = fakeSubagents({ hang: true })
+  host.services.subagents = subagents
+  await assert.rejects(host.botlayer.runReview({ sessionId: ids[4], prompt: 'x', preset: 'readonly', timeoutMs: 30 }), /the review did not end within/)
+  assert.deepEqual(subagents.disposed, ['child-1'])
+  assert.equal(subagents.starts[0].signal.aborted, true)
+  delete host.services.subagents
+  await assert.rejects(host.botlayer.runReview({ sessionId: ids[4], prompt: 'x', timeoutMs: 30 }), /subagents service is not available/)
 })

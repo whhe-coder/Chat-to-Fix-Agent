@@ -11,7 +11,7 @@ const TOKEN = 'test-token'
 const binding = { channel: 'C1', repo: 'g/p', jiraProject: 'DEMO', issueType: 'Bug', labels: [], defaultBranch: 'master' }
 const event = (o = {}) => ({ eventId: 'Ev1', channel: 'C1', threadTs: '1.1', messageTs: '1.1', user: { id: 'U1', name: 'n' }, text: 'broken', ...o })
 
-let outbox, tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax, opened, startThreadImpl
+let outbox, tasks, events, threads, records, runnerCalls, notices, srv, base, clock, n, maxConcurrent, queueMax, opened, startThreadImpl, posted, postFails
 
 function fakeStore() {
   return {
@@ -45,7 +45,7 @@ async function start() {
   const limits = { maxConcurrent, queueMax, queueWaitHours: 4 }
   const queue = createQueue({ store, limits, runner, notify: (t, k) => notices.push([t.id, k]), now: () => clock.t })
   outbox = createOutbox({ dataDir: mkdtempSync(join(tmpdir(), 'chat-to-fix-http-outbox-')), store })
-  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, outbox, queue, runner, notify: (t, k) => notices.push([t.id, k]), startThread: (channel, text) => startThreadImpl(channel, text) })
+  const http = createHttp({ config: { httpPort: 0, bindings: [binding], limits }, token: TOKEN, store, outbox, queue, runner, notify: (t, k) => notices.push([t.id, k]), startThread: (channel, text) => startThreadImpl(channel, text), postGroup: async (g, text, rid) => { if (postFails) throw new Error('down'); posted.push([g, text, rid]) }, log: () => {} })
   await http.listen()
   srv = http
   base = `http://127.0.0.1:${http.port}`
@@ -55,7 +55,7 @@ beforeEach(async () => {
   tasks = new Map(); events = new Map(); threads = new Map(); records = new Map()
   runnerCalls = []; notices = []; n = 0; clock = { t: Date.parse('2026-11-12T00:00:00Z') }
   maxConcurrent = 1; queueMax = 20
-  opened = []
+  opened = []; posted = []; postFails = false
   startThreadImpl = async (channel, text) => { opened.push({ channel, text }); return { ts: `9${opened.length}.000100`, permalink: `https://slack.test/archives/${channel}/p9${opened.length}` } }
   await start()
 })
@@ -72,7 +72,7 @@ test('listens on 127.0.0.1 with a real port', () => {
 })
 
 test('bad or missing token -> 401 with error field, on every route', async () => {
-  for (const [m, p] of [['POST', '/events'], ['GET', '/health'], ['GET', '/tasks'], ['GET', '/tasks/T-1'], ['POST', '/tasks/T-1/stop']]) {
+  for (const [m, p] of [['POST', '/events'], ['GET', '/health'], ['GET', '/tasks'], ['GET', '/tasks/T-1'], ['POST', '/tasks/T-1/stop'], ['POST', '/tasks/T-1/messages'], ['POST', '/tasks/T-1/interrupt']]) {
     for (const headers of [{}, { 'x-chat-to-fix-token': 'wrong' }]) {
       const r = await call(m, p, m === 'POST' ? {} : undefined, headers)
       assert.equal(r.status, 401); assert.equal(r.body.error, 'unauthorized')
@@ -230,7 +230,7 @@ test('health', async () => {
   await post(event({ eventId: 'E2', threadTs: '2' }))
   const r = await call('GET', '/health')
   assert.equal(r.status, 200)
-  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false })
+  assert.deepEqual(r.body, { up: true, queued: 1, running: 1, maxConcurrent: 1, queueMax: 20, queueFull: false, channels: ['C1'] })
 })
 
 test('health: queueFull turns true when the queue is at queueMax', async () => {
@@ -492,16 +492,145 @@ test('no source: the older format still starts a task from an @ and carries an e
 })
 
 test('GET /outbox: messages after a cursor, limit, next; token required; bad after or limit -> 400', async () => {
-  assert.deepEqual(await (await call('GET', '/outbox')).body, { messages: [], next: 0 })
+  const empty = (await call('GET', '/outbox')).body
+  assert.deepEqual(empty.messages, []); assert.equal(empty.next, 0); assert.equal(empty.lastSeq, 0)
+  assert.match(empty.outboxId, /^[0-9a-f-]{36}$/)
   for (const text of ['a', 'b', 'c']) await outbox.append({ channel: 'C1', threadTs: '1.1', purpose: 'ack', text })
   const all = await call('GET', '/outbox')
   assert.equal(all.status, 200)
   assert.deepEqual(all.body.messages.map((m) => [m.seq, m.text]), [[1, 'a'], [2, 'b'], [3, 'c']]); assert.equal(all.body.next, 3)
   const page = await call('GET', '/outbox?after=1&limit=1')
   assert.deepEqual(page.body.messages.map((m) => m.seq), [2]); assert.equal(page.body.next, 2)
-  assert.deepEqual((await call('GET', '/outbox?after=3')).body, { messages: [], next: 3 })
+  assert.deepEqual((await call('GET', '/outbox?after=3')).body, { messages: [], next: 3, outboxId: empty.outboxId, lastSeq: 3 })
+  assert.equal(page.body.lastSeq, 3); assert.equal(page.body.outboxId, empty.outboxId) // lastSeq does not depend on the page
   assert.equal((await call('GET', '/outbox?limit=1000')).status, 200)
   for (const q of ['after=-1', 'after=x', 'after=1.5', 'limit=0', 'limit=x', 'limit=']) assert.equal((await call('GET', `/outbox?${q}`)).status, 400, q)
   assert.equal((await call('GET', '/outbox', undefined, {})).status, 401)
   assert.equal((await call('GET', '/outbox', undefined, { 'x-chat-to-fix-token': 'wrong' })).status, 401)
+})
+
+// ---- task-level operations (POST /tasks/<id>/messages, /interrupt, GET /tasks?eventId= / ?thread=) ----
+
+const msg = (o = {}) => ({ eventId: 'M1', user: { id: 'U2', name: 'm' }, text: 'it is the EU region', ...o })
+const withState = (id, state, extra = {}) => { tasks.set(id, { ...tasks.get(id), state, ...extra }) }
+const RUN = { runs: [{ no: 1, groupId: 'g1', endedAt: null }] }
+
+test('messages: needs_info -> stored, queued again, resumed notice, delivered rerun', async () => {
+  await post(event()); withState('T-1', 'needs_info')
+  const r = await call('POST', '/tasks/T-1/messages', msg())
+  assert.equal(r.status, 202); assert.deepEqual(r.body, { taskId: 'T-1', state: 'queued', delivered: 'rerun', position: 1 })
+  assert.equal(tasks.get('T-1').origin.followUps[0].text, 'it is the EU region')
+  assert.deepEqual(notices, [['T-1', 'resumed']])
+  assert.deepEqual(posted, [])
+})
+
+test('messages: queued -> stored only', async () => {
+  await post(event({ eventId: 'E1' })); withState('T-1', 'running'); await post(event({ eventId: 'E2', threadTs: '2' }))
+  const r = await call('POST', '/tasks/T-2/messages', msg())
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { taskId: 'T-2', state: 'queued', delivered: 'stored' })
+  assert.equal(tasks.get('T-2').origin.followUps.length, 1); assert.deepEqual(posted, []); assert.deepEqual(notices, [])
+})
+
+test('messages: running -> stored and posted to the group as one [system] message', async () => {
+  await post(event()); withState('T-1', 'running', RUN)
+  const r = await call('POST', '/tasks/T-1/messages', msg())
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { taskId: 'T-1', state: 'running', delivered: 'group' })
+  assert.equal(tasks.get('T-1').origin.followUps.length, 1)
+  assert.equal(posted.length, 1); assert.equal(posted[0][0], 'g1')
+  assert.match(posted[0][1], /^\[system\] The requester added information to task T-1/)
+  assert.match(posted[0][1], /it is the EU region/)
+})
+
+test('messages: running, group unreachable -> still stored, delivered stored', async () => {
+  await post(event()); withState('T-1', 'running', RUN); postFails = true
+  const r = await call('POST', '/tasks/T-1/messages', msg())
+  assert.deepEqual(r.body, { taskId: 'T-1', state: 'running', delivered: 'stored' })
+  assert.equal(tasks.get('T-1').origin.followUps.length, 1)
+})
+
+test('messages: ended -> 409 task_ended, unknown -> 404, bad body -> 400, nothing stored', async () => {
+  await post(event()); withState('T-1', 'done')
+  const r = await call('POST', '/tasks/T-1/messages', msg())
+  assert.equal(r.status, 409); assert.deepEqual(r.body, { error: 'task_ended', state: 'done' })
+  assert.equal(tasks.get('T-1').origin.followUps, undefined)
+  assert.equal((await call('POST', '/tasks/T-9/messages', msg())).status, 404)
+  for (const drop of ['eventId', 'text']) {
+    const m = msg(); delete m[drop]
+    const b = await call('POST', '/tasks/T-1/messages', m)
+    assert.equal(b.status, 400); assert.match(b.body.error, new RegExp(drop))
+  }
+  assert.match((await call('POST', '/tasks/T-1/messages', msg({ user: {} }))).body.error, /user\.id/)
+  assert.equal((await call('POST', '/tasks/T-1/messages', 'not json')).status, 400)
+})
+
+test('messages: the same eventId again is a duplicate, stored and posted once', async () => {
+  await post(event()); withState('T-1', 'running', RUN)
+  await call('POST', '/tasks/T-1/messages', msg())
+  const r = await call('POST', '/tasks/T-1/messages', msg())
+  assert.equal(r.status, 200); assert.equal(r.body.duplicate, true); assert.equal(r.body.taskId, 'T-1')
+  assert.equal(tasks.get('T-1').origin.followUps.length, 1); assert.equal(posted.length, 1)
+})
+
+test('messages: two copies at once are handled once', async () => {
+  await post(event()); withState('T-1', 'running', RUN)
+  const [a, b] = await Promise.all([call('POST', '/tasks/T-1/messages', msg()), call('POST', '/tasks/T-1/messages', msg())])
+  assert.deepEqual([a.status, b.status], [200, 200]); assert.equal(posted.length, 1)
+  assert.equal(tasks.get('T-1').origin.followUps.length, 1)
+})
+
+test('interrupt: running -> runner.end(stopped, interrupted), queued again, new information stored', async () => {
+  await post(event()); withState('T-1', 'running', RUN)
+  const r = await call('POST', '/tasks/T-1/interrupt', msg())
+  assert.equal(r.status, 202); assert.deepEqual(r.body, { taskId: 'T-1', state: 'queued', delivered: 'rerun', interrupted: true, position: 1 })
+  assert.deepEqual(runnerCalls.filter((c) => c[0] === 'end'), [['end', 'T-1', 'stopped', 'interrupted']])
+  assert.equal(tasks.get('T-1').state, 'queued'); assert.equal(tasks.get('T-1').endReason, null)
+  assert.equal(tasks.get('T-1').origin.followUps[0].text, 'it is the EU region')
+  assert.deepEqual(posted, [])
+})
+
+test('interrupt: text is optional; the eventId still dedupes', async () => {
+  await post(event()); withState('T-1', 'running', RUN)
+  const r = await call('POST', '/tasks/T-1/interrupt', { eventId: 'M2', user: { id: 'U2' } })
+  assert.equal(r.status, 202); assert.equal(tasks.get('T-1').origin.followUps.length, 1)
+  withState('T-1', 'running', RUN)
+  const again = await call('POST', '/tasks/T-1/interrupt', { eventId: 'M2', user: { id: 'U2' } })
+  assert.equal(again.body.duplicate, true)
+  assert.equal(runnerCalls.filter((c) => c[0] === 'end').length, 1)
+})
+
+test('interrupt: queued -> stored, nothing stopped; needs_info -> rerun with resumed notice', async () => {
+  await post(event({ eventId: 'E1' })); withState('T-1', 'running'); await post(event({ eventId: 'E2', threadTs: '2' }))
+  const q = await call('POST', '/tasks/T-2/interrupt', msg())
+  assert.equal(q.status, 200); assert.deepEqual(q.body, { taskId: 'T-2', state: 'queued', delivered: 'stored', interrupted: false })
+  assert.deepEqual(runnerCalls.filter((c) => c[0] === 'end'), [])
+  withState('T-2', 'needs_info')
+  const r = await call('POST', '/tasks/T-2/interrupt', msg({ eventId: 'M2' }))
+  assert.equal(r.status, 202); assert.equal(r.body.delivered, 'rerun'); assert.equal(r.body.interrupted, false)
+  assert.deepEqual(notices, [['T-2', 'resumed']])
+})
+
+test('interrupt: ended -> 409, unknown -> 404, missing user -> 400', async () => {
+  await post(event()); withState('T-1', 'failed')
+  const r = await call('POST', '/tasks/T-1/interrupt', msg())
+  assert.equal(r.status, 409); assert.deepEqual(r.body, { error: 'task_ended', state: 'failed' })
+  assert.equal((await call('POST', '/tasks/T-9/interrupt', msg())).status, 404)
+  assert.equal((await call('POST', '/tasks/T-1/interrupt', { eventId: 'x' })).status, 400)
+})
+
+test('lookup: GET /tasks?eventId= finds the task of an event, also of a follow-up; none -> empty list', async () => {
+  await post(event({ eventId: 'slash:1' })); withState('T-1', 'running', RUN)
+  const r = await call('GET', '/tasks?eventId=slash:1')
+  assert.equal(r.status, 200); assert.equal(r.body.tasks.length, 1); assert.equal(r.body.tasks[0].id, 'T-1'); assert.equal(r.body.tasks[0].state, 'running')
+  await call('POST', '/tasks/T-1/messages', msg())
+  assert.equal((await call('GET', '/tasks?eventId=M1')).body.tasks[0].id, 'T-1')
+  assert.deepEqual((await call('GET', '/tasks?eventId=nope')).body, { tasks: [] })
+})
+
+test('lookup: GET /tasks?thread=<channel>:<threadTs>; bad forms -> 400', async () => {
+  await post(event({ threadTs: '1700000000.000100', messageTs: '1700000000.000100' }))
+  const r = await call('GET', '/tasks?thread=C1:1700000000.000100')
+  assert.equal(r.body.tasks[0].id, 'T-1')
+  assert.deepEqual((await call('GET', '/tasks?thread=C1:9.9')).body, { tasks: [] })
+  assert.equal((await call('GET', '/tasks?thread=nocolon')).status, 400)
+  assert.equal((await call('GET', '/tasks?eventId=a&thread=C1:1')).status, 400)
 })

@@ -28,7 +28,7 @@ async function rig(t) {
     codingModel: 'deepseek/v4-flash',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const warnings = []
   const app = createApp({ config, botlayer: host.botlayer, token: 'tok', warn: (...args) => warnings.push(args.join(' ')) })
   const port = await app.start()

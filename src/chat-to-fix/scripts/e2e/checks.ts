@@ -4,7 +4,7 @@
 // `evidence` holds the results of the commands that were run in copies of it (collectEvidence()). A check
 // returns { ok, detail }; runChecks() adds the id and the Chinese title. A missing piece of the context makes the
 // check fail with a reason, it never throws.
-import { isCommitMessage } from '../../core/adapters/git.ts'
+import { COMMIT_MESSAGE_MAX, isCommitMessage } from '../../core/adapters/git.ts'
 import { isAllowedFile } from './cases.ts'
 
 export const EXPECTED_STEPS = ['fetch -> issue', 'issue -> prepare', 'prepare -> code', 'code -> mr', 'mr -> ci', 'ci -> writeback', 'writeback -> close']
@@ -27,7 +27,9 @@ export const NOT_RUN_PATTERNS = [
 export const CI_NOT_RUN = /\b(?:CI|pipelines?)\b[^。.;；,，]{0,20}?(?:has|have|had|was|were|is)?\s*(?:not|n't)\s*(?:yet\s*)?(?:been\s*)?(?:run|executed|started|triggered)(?:\s*yet)?|(?:CI|流水线|pipeline)[^。；，]{0,8}(?:还没|尚未|未|没有)(?:运行|跑|执行|触发)/gi
 
 /** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
-export const REVIEWER_CLAUSE = /reviewer|评审者|审阅者|审查者|评审(?:子 ?agent)?自己|评审时/i
+/** DSH's built-in file tools of the readonly and coding presets (config/cordis.patch.yml). */
+export const DSH_FILE_TOOLS = new Set(['read', 'read_image', 'write', 'edit', 'glob', 'grep'])
+export const REVIEWER_CLAUSE = /reviewer|评审者|评审员|评审方|审阅者|审阅方|审查者|审查员|审查方|评审(?:子 ?agent)?自己|评审时/i
 
 const text = (v) => (typeof v === 'string' ? v : '')
 const ok = (detail = '') => ({ ok: true, detail })
@@ -64,7 +66,8 @@ export function testEvidenceTexts(ctx) {
   return [
     ...records(ctx).filter((r) => r.role === 'coding' && (r.type === 'round_end' || r.type === 'line')).map((r) => text(r.text)),
     text(ctx.task?.stepResults?.code?.coding?.text),
-    text(ctx.task?.review?.comments),
+    // Not the review comments: since the Coding bot runs on DSH (2026-11-13) they are the read-only reviewer's
+    // own words in the first person ("I could not run sh test.sh"), true of the reviewer and no admission.
     mr === undefined ? '' : text(mr.description),
   ].filter((s) => s !== '')
 }
@@ -127,13 +130,17 @@ export const CHECKS = [
     },
   },
   {
-    id: 'commit_message', title: '每个提交信息都是一行 Conventional Commit',
+    id: 'commit_message', title: '每个提交信息都是一行 `<Conventional Commit> (<Jira 单号>)`',
     run: (ctx) => {
       const w = needWs(ctx)
       if (w) return w
       if (ctx.ws.commits.length === 0) return fail('no commit')
-      const bad = ctx.ws.commits.filter((c) => !(isCommitMessage(c.subject) && c.body === ''))
-      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 100)}"${c.body ? ' (has a body)' : ''}`).join(' | '))
+      // Push rule + commitlint: every commit is one Conventional Commit line with the task's Jira key at the end, whole line at most 100 characters, no body.
+      const key = ctx.task?.jira?.key
+      if (!key) return fail('the task has no Jira key, so the key in the commit messages cannot be checked')
+      const suffix = ` (${key})`
+      const bad = ctx.ws.commits.filter((c) => !(typeof c.subject === 'string' && c.subject.endsWith(suffix) && isCommitMessage(c.subject.slice(0, -suffix.length)) && c.subject.length <= COMMIT_MESSAGE_MAX && c.body === ''))
+      return verdict(bad.length === 0, ctx.ws.commits.map((c) => c.subject).join(' | '), bad.map((c) => `subject="${clip(c.subject, 120)}"${c.body ? ' (has a body)' : ''} (want "type(scope): summary (${key})", at most ${COMMIT_MESSAGE_MAX} characters)`).join(' | '))
     },
   },
   {
@@ -169,12 +176,16 @@ export const CHECKS = [
     },
   },
   {
+    // request_review: the system records the reviewer's verdict (review.by 'reviewer'). Runs of the removed Claude Code
+    // route (before 2026-11-13) recorded it with review_report pass; their reports stay readable.
     id: 'review_pass', title: '评审已记录为通过',
     run: (ctx) => {
       const review = ctx.task?.review
-      const call = records(ctx).find((r) => r.type === 'tool_call' && r.tool === 'review_report')
-      const result = records(ctx).find((r) => r.type === 'tool_result' && r.tool === 'review_report')
-      return verdict(review?.verdict === 'pass' && (review?.rounds ?? 0) >= 1 && call !== undefined && result?.ok !== false, `pass, round ${review?.rounds}`, `review=${clip(JSON.stringify(review ?? null), 120)} review_report call=${call !== undefined} result ok=${result?.ok}`)
+      const tool = records(ctx).some((r) => r.type === 'tool_call' && r.tool === 'request_review') ? 'request_review' : 'review_report'
+      const call = records(ctx).find((r) => r.type === 'tool_call' && r.tool === tool)
+      const result = records(ctx).findLast((r) => r.type === 'tool_result' && r.tool === tool)
+      const byReviewer = tool === 'review_report' || review?.by === 'reviewer'
+      return verdict(review?.verdict === 'pass' && byReviewer && (review?.rounds ?? 0) >= 1 && call !== undefined && result?.ok !== false, `pass, round ${review?.rounds} (${tool})`, `review=${clip(JSON.stringify(review ?? null), 120)} ${tool} call=${call !== undefined} result ok=${result?.ok}`)
     },
   },
   {
@@ -199,17 +210,25 @@ export const CHECKS = [
     },
   },
   {
-    id: 'no_refusal_or_tool_errors', title: '没有 refusal / tool_error 记录，没有失败的工具调用',
+    // DSH's own file tools report a recoverable miss (an edit whose text was not found, a read of a wrong path) as a
+    // failed result; the bot corrects it in the next step, so those are not counted. Every task tool counts.
+    id: 'no_refusal_or_tool_errors', title: '没有 refusal / tool_error 记录，没有失败的任务工具调用（DSH 自带的文件工具除外）',
     run: (ctx) => {
       const rs = records(ctx)
       const refusals = rs.filter((r) => r.type === 'refusal')
-      const errors = rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false))
+      const errors = rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false && !DSH_FILE_TOOLS.has(r.tool)))
       return verdict(refusals.length + errors.length === 0, 'none', `refusals=${refusals.length}, tool errors=${errors.length}: ${clip([...refusals, ...errors].map((r) => r.text).join(' | '), 240)}`)
     },
   },
   {
-    id: 'tests_were_run', title: '测试确实运行过（编码机器人、评审、MR 描述里没有“没运行/被拒绝”）',
+    id: 'tests_were_run', title: '测试确实运行过（修复 bot 跑过 run_tests 且通过；修复 bot 的话和 MR 描述里没有“没运行/被拒绝”）',
     run: (ctx) => {
+      // Positive evidence on DSH: the Coding bot's run_tests passed at least once. Runs from the Claude Code era
+      // have no run_tests records; for them only the admission check below applies.
+      const testRuns = records(ctx).filter((r) => r.type === 'tool_result' && r.tool === 'run_tests')
+      if (testRuns.length > 0 && !testRuns.some((r) => r.ok !== false && /exit code 0\b/.test(text(r.text)))) {
+        return fail(`run_tests never passed (${testRuns.length} run(s)): ${clip(text(testRuns.at(-1).text), 120)}`)
+      }
       const hits = []
       // Clause by clause: a clause about the reviewer is skipped, because the reviewer is read-only by
       // design and never runs tests ("reviewer 自己没有运行测试" in the copy-typo run of 2026-11-12 was

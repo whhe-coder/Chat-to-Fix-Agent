@@ -32,25 +32,27 @@ const gitIn = (args: string[], cwd: string) => {
 }
 
 /** A repository for the case, a worktree on ai/<KEY> with `files` laid over it, committed and pushed. */
-function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', pushTo = [] as string[], after = (_wt: string) => {}, more = [] as Array<{ files: any, message: string }> } = {}) {
+function makeWorkspace(caseDef, { key = `${caseDef.jiraProject}-1`, files = caseDef.fixFiles, commits = 1, message = 'fix(e2e): apply the fix', keyed = true, pushTo = [] as string[], after = (_wt: string) => {}, more = [] as Array<{ files: any, message: string }> } = {}) {
   const root = temp('e2e-sim-')
   const repo = createCaseRepo({ dir: join(root, 'repos'), files: caseDef.repoFiles })
   const branch = `ai/${key}`
+  // push rule + commitlint: every commit message ends with the Jira key in parentheses (keyed: false builds the key-less form)
+  const msg = (m: string) => (keyed ? `${m} (${key})` : m)
   const worktree = join(root, 'chat-to-fix', 'worktrees', 'T-1')
   gitIn(['worktree', 'add', '-q', '-b', branch, worktree, 'master'], repo.localRepo)
   writeTree(worktree, files)
   after(worktree)
   gitIn(['add', '-A'], worktree)
-  gitIn(['commit', '-q', '--allow-empty', '-m', message], worktree)
+  gitIn(['commit', '-q', '--allow-empty', '-m', msg(message)], worktree)
   for (let i = 1; i < commits; i += 1) {
     writeFileSync(join(worktree, `extra-${i}.txt`), 'x\n')
     gitIn(['add', '-A'], worktree)
-    gitIn(['commit', '-q', '-m', `chore: extra ${i}`], worktree)
+    gitIn(['commit', '-q', '-m', msg(`chore: extra ${i}`)], worktree)
   }
   for (const next of more) { // later commits, e.g. the fix of a CI round
     writeTree(worktree, next.files)
     gitIn(['add', '-A'], worktree)
-    gitIn(['commit', '-q', '-m', next.message], worktree)
+    gitIn(['commit', '-q', '-m', msg(next.message)], worktree)
   }
   gitIn(['push', '-q', 'origin', branch], worktree)
   for (const target of pushTo) gitIn(['push', '-q', 'origin', `HEAD:${target}`], worktree)
@@ -73,7 +75,7 @@ function makeRun(caseDef, workspace, { task = {}, fake = {}, records = undefined
     origin: { channel: caseDef.channel, threadTs: '1794000000.000001', text: caseDef.message },
     binding: { channel: caseDef.channel, repo: `local/e2e-${caseDef.id}`, localRepo: repo.localRepo, remote: repo.remote, defaultBranch: 'master', jiraProject: caseDef.jiraProject },
     jira: { key, url: `fake://jira/${key}`, status: 'In Review' }, repo: { dir: worktree, branch, base: repo.commit },
-    review: { verdict: 'pass', rounds: 1, comments: 'Round 1 passed.' }, mr: { url: mrUrl },
+    review: { verdict: 'pass', rounds: 1, comments: 'pass\nRound 1 passed.', by: 'reviewer' }, mr: { url: mrUrl },
     slack: { sent: { ack: true, question: false, result: true } }, needsInfo: { main: null, coding: null },
     runs: [{ no: 1, startedAt: '2026-11-12T05:00:00Z', endedAt: '2026-11-12T05:10:00Z', endReason: 'completed' }],
     stepResults: { code: { coding: { text: 'Fixed it. I ran `sh test.sh` and it passes.' } } },
@@ -82,8 +84,8 @@ function makeRun(caseDef, workspace, { task = {}, fake = {}, records = undefined
   const recs = records ?? [
     { type: 'system', text: 'run 1 created' },
     ...EXPECTED_STEPS.map((text) => ({ type: 'advance', step: 'x', text })),
-    { type: 'tool_call', role: 'coding', tool: 'review_report', text: 'review_report {}' },
-    { type: 'tool_result', role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+    { type: 'tool_call', role: 'coding', tool: 'request_review', text: 'request_review {"summary":"Fixed it."}' },
+    { type: 'tool_result', role: 'coding', tool: 'request_review', ok: true, text: 'Review round 1 of at most 3: pass. The system recorded it on the task.' },
     { type: 'round_end', role: 'coding', text: 'Fixed it. I ran `sh test.sh` and it passes.' },
   ]
   writeFake(dataDir, {
@@ -206,6 +208,34 @@ test('secret and not-run patterns: what they catch and what they leave alone', (
   for (const s of ['I ran `sh test.sh`. All 4 checks printed ok.', 'Tests: sh test.sh was run by the Coding bot', "I didn't add tests for discounts below 0", '没有自动化测试']) assert.ok(!NOT_RUN_PATTERNS.some((p) => p.test(s)), s)
 })
 
+test('tests_were_run on DSH: run_tests must have passed; the reviewer\'s own first-person comments are not read', () => {
+  const c = loadCase('copy-typo')
+  const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
+  const base = [
+    { type: 'system', text: 'run 1 created' },
+    ...EXPECTED_STEPS.map((text) => ({ type: 'advance', step: 'x', text })),
+    { type: 'tool_call', role: 'coding', tool: 'review_report', text: 'review_report {}' },
+    { type: 'tool_result', role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  ]
+  const run = (ok, out) => [{ type: 'tool_call', role: 'coding', tool: 'run_tests', text: 'run_tests {}' }, { type: 'tool_result', role: 'coding', tool: 'run_tests', ok, text: out }]
+  const check = (records, review = 'Pass. **Unverified:** I could not run `sh test.sh`.') =>
+    evaluate(c, ws, { records, task: { review: { verdict: 'pass', rounds: 1, comments: review } } }).checks.find((k) => k.id === 'tests_were_run')
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 0, 0 s.')]).ok, true)
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 1, 0 s.')]).ok, false)
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 1, 0 s.'), ...run(true, 'sh test.sh: exit code 0, 1 s.')]).ok, true)
+  // Claude Code era records (no run_tests): only the admission check applies
+  assert.equal(check(base).ok, true)
+})
+
+test('tests_were_run: the DSH reviewer\'s own words ("评审员无法运行测试", "审查方也没能运行 sh test.sh") are no admission', () => {
+  const c = loadCase('copy-typo')
+  const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
+  const check = (description) => evaluate(c, ws, { mr: { description } }).checks.find((k) => k.id === 'tests_were_run')
+  assert.equal(check('测试：run_tests 跑了 sh test.sh，通过。评审员无法运行测试。').ok, true)
+  assert.equal(check('审查方也没能运行 `sh test.sh` 和 `changeset` 作业。').ok, true)
+  assert.equal(check('sh test.sh 没有运行。').ok, false)
+})
+
 test('tests_were_run: "CI has not run yet" in the MR text is about the pipeline, not an admission; a real admission next to it still counts', () => {
   const c = loadCase('copy-typo')
   const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
@@ -236,8 +266,8 @@ const CI_RECORDS = [
   { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'ci_read_log', text: 'ci_read_log {"job":"changeset"}' },
   { type: 'tool_result', step: 'ci', role: 'pipeline', tool: 'ci_read_log', ok: true, text: 'changeset: error: no changeset found in this merge request.' },
   { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'message_bot', text: 'message_bot {"to":"Coding-1","message":"CI job changeset failed: add a changeset"}' },
-  { type: 'tool_call', step: 'ci', role: 'coding', tool: 'review_report', text: 'review_report {}' },
-  { type: 'tool_result', step: 'ci', role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  { type: 'tool_call', step: 'ci', role: 'coding', tool: 'request_review', text: 'request_review {"summary":"Added a changeset."}' },
+  { type: 'tool_result', step: 'ci', role: 'coding', tool: 'request_review', ok: true, text: 'Review round 1 of at most 3: pass. The system recorded it on the task.' },
   { type: 'round_end', step: 'ci', role: 'coding', text: 'Added .changeset/fix-purchase-typo.md. I ran `sh test.sh` and it passes.' },
   { type: 'tool_call', step: 'ci', role: 'pipeline', tool: 'mr_push_fix', text: 'mr_push_fix {"commit_message":"chore(changeset): add a changeset"}' },
   { type: 'tool_result', step: 'ci', role: 'pipeline', tool: 'mr_push_fix', ok: true, text: 'Pushed abc1234.' },
@@ -256,8 +286,8 @@ const FOLLOW_UP_RECORDS: any[] = [
   { type: 'tool_call', run: 2, role: 'slack', tool: 'slack_read_thread', text: 'slack_read_thread {}' },
   { type: 'tool_result', run: 2, role: 'slack', tool: 'slack_read_thread', ok: true, text: '[alice] 购买流程里有个按钮…\n[alice] FOLLOW_UP_TEXT' },
   ...EXPECTED_STEPS.map((text) => ({ type: 'advance', run: 2, step: 'x', text })),
-  { type: 'tool_call', run: 2, role: 'coding', tool: 'review_report', text: 'review_report {}' },
-  { type: 'tool_result', run: 2, role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  { type: 'tool_call', run: 2, role: 'coding', tool: 'request_review', text: 'request_review {"summary":"Fixed it."}' },
+  { type: 'tool_result', run: 2, role: 'coding', tool: 'request_review', ok: true, text: 'Review round 1 of at most 3: pass. The system recorded it on the task.' },
   { type: 'round_end', run: 2, role: 'coding', text: 'Fixed it. I ran `sh test.sh` and it passes.' },
 ]
 const followUpRecords = (c) => FOLLOW_UP_RECORDS.map((r) => (r.tool === 'slack_read_thread' && r.type === 'tool_result' ? { ...r, text: r.text.replace('FOLLOW_UP_TEXT', c.followUp.text) } : r))
@@ -383,6 +413,11 @@ test('checks: a change outside the allowed files, two commits and a prose commit
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { commits: 2 }))), ['one_commit', 'changed_files_allowed'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'Fixed the typo.' }))), ['commit_message'])
   assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: 'fix: x\n\nlong body here' }))), ['commit_message'])
+  // the Jira key of the task must be at the end of every commit (push rule + commitlint): none, another issue's, a key in front, or a line over 100 characters fails
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `fix(e2e): x (OTHER-9)`, keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `${c.jiraProject}-1: fix(e2e): x`, keyed: false }))), ['commit_message'])
+  assert.deepEqual(failed(evaluate(c, makeWorkspace(c, { message: `fix(e2e): ${'x'.repeat(100)}` }))), ['commit_message'])
 })
 
 test('checks: a run that fixed nothing fails the tests, the hidden test and the changed-files check', () => {
@@ -423,6 +458,8 @@ test('checks: Jira, Slack and MR problems are caught', () => {
   assert.deepEqual(failed(evaluate(c, ws(), { replies: [{ channel: 'OTHER', threadTs: '1', purpose: 'ack', text: 'received' }, { channel: 'OTHER', threadTs: '1', purpose: 'result', text: 'x' }] })), ['slack_ack_and_result'])
   assert.deepEqual(failed(evaluate(c, ws(), { issue: { project: 'OTHER' } })), ['jira_issue'])
   assert.deepEqual(failed(evaluate(c, ws(), { task: { review: { verdict: 'fail', rounds: 3 } } })), ['review_pass'])
+  // a pass after request_review must have been recorded by the system (the reviewer), not by the Coding bot
+  assert.deepEqual(failed(evaluate(c, ws(), { task: { review: { verdict: 'pass', rounds: 1, by: 'coding' } } })), ['review_pass'])
 })
 
 test('checks: needs_info, a rerun or a skipped step is not a one-pass run', () => {
@@ -559,17 +596,17 @@ test('collectEvidence on the real run-2 worktree: test.sh passes, the hidden tes
 const FAKE_KEY = 'sk-ant-api03-FAKE-KEY-FOR-E2E-TESTS-0123456789'
 const everyFile = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && !/[\\/]\.git[\\/]/.test(join(e.parentPath, e.name)) && !/\.git$/.test(e.parentPath)).map((e) => join(e.parentPath, e.name))
 
-test('prepareE2e: one repository per case, one config with one binding per case, overlay, manifest, commands; the key is never written', async () => {
+test('prepareE2e: one repository per case, one config with one binding per case, manifest, commands; the key is never written', async () => {
   const home = temp('e2e-home-')
-  const r = await prepareE2e({ home, user: 'tester', port: 0, claudeBin: process.execPath, env: { PATH: process.env.PATH, ANTHROPIC_API_KEY: FAKE_KEY }, hasKeychainItem: () => false })
+  const r = await prepareE2e({ home, user: 'tester', port: 0, env: { PATH: process.env.PATH, ANTHROPIC_API_KEY: FAKE_KEY }, hasKeychainItem: () => false })
   assert.equal(r.ready, true)
   assert.equal(r.keySource, 'env')
   assert.ok(r.dir.startsWith(join(home, 'chat-to-fix-runs', 'e2e-')), r.dir)
   const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
   assert.equal(config.apiModel, 'anthropic/claude-sonnet-5-5')
-  assert.equal(config.codingModel, 'claude-code/claude-sonnet-5-5')
+  assert.equal(config.codingModel, 'anthropic/claude-sonnet-5-5')
   assert.equal(config.codingEffort, 'high')
-  assert.equal(config.engineAuth, 'apiKey')
+  assert.equal('engineAuth' in config, false)
   assert.deepEqual(config.adapters, { slack: 'fake', jira: 'fake', gitlab: 'fake' })
   assert.deepEqual(config.bindings.map((b) => b.jiraProject), ['COPY', 'RADIUS', 'CLICK', 'FORM', 'PRICE', 'CART', 'SEC'])
   assert.equal(new Set(config.bindings.map((b) => b.channel)).size, 7)
@@ -583,10 +620,9 @@ test('prepareE2e: one repository per case, one config with one binding per case,
   const loaded: any = loadConfig({ path: r.configPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.equal(loaded.bindings.length, 7)
 
-  const overlay = readFileSync(r.patchPath, 'utf8')
-  assert.match(overlay, /- id: chat-to-fix/)
-  assert.ok(overlay.includes(`claudeCommand: ${JSON.stringify(process.execPath)}`))
+  assert.equal(existsSync(join(r.dir, 'e2e.patch.yml')), false, 'no overlay: no Claude Code CLI to name')
   const manifest = loadManifest(r.dir)
+  assert.equal(manifest.codingModel, 'anthropic/claude-sonnet-5-5')
   assert.deepEqual(manifest.cases.map((c) => c.id), DEFAULT_CASE_IDS)
   assert.equal(manifest.cases[0].baseCommit.length, 40)
   assert.equal(loadManifest(join(r.dir, 'repos')), undefined)
@@ -599,16 +635,16 @@ test('prepareE2e: one repository per case, one config with one binding per case,
   for (const file of everyFile(r.dir)) assert.equal(readFileSync(file).includes(FAKE_KEY), false, file)
   assert.equal(existsSync(join(r.dir, 'run')), false)
   // a used folder is refused
-  await assert.rejects(prepareE2e({ dir: r.dir, home, user: 'tester', port: 0, claudeBin: process.execPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } }), /not empty/)
+  await assert.rejects(prepareE2e({ dir: r.dir, home, user: 'tester', port: 0, env: { ANTHROPIC_API_KEY: FAKE_KEY } }), /not empty/)
 })
 
 test('prepareE2e: --cases picks cases (optional ones too); an unknown name is refused; the project folder is refused', async () => {
   const home = temp('e2e-home-')
-  const r = await prepareE2e({ home, user: 'tester', port: 0, cases: ['discount', 'missing-key'], claudeBin: process.execPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
+  const r = await prepareE2e({ home, user: 'tester', port: 0, cases: ['discount', 'missing-key'], env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   assert.deepEqual(JSON.parse(readFileSync(r.configPath, 'utf8')).bindings.map((b) => b.jiraProject), ['DISC', 'MKEY'])
   assert.ok(JSON.parse(readFileSync(r.configPath, 'utf8')).bindings.every((b) => b.ciJobs === undefined), 'a case without ci gets no ciJobs')
   // the CI case: its job scripts are copied next to the repositories and its binding names them
-  const ci = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['ci-changeset'], claudeBin: process.execPath, env: { ANTHROPIC_API_KEY: FAKE_KEY } })
+  const ci = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['ci-changeset'], env: { ANTHROPIC_API_KEY: FAKE_KEY } })
   const [binding] = JSON.parse(readFileSync(ci.configPath, 'utf8')).bindings
   assert.deepEqual(binding.ciJobs.map((j) => j.name), ['test', 'changeset'])
   assert.ok(existsSync(join(ci.dir, 'ci', 'ci-changeset', 'changeset.mjs')))
@@ -622,7 +658,7 @@ test('prepareE2e: --cases picks cases (optional ones too); an unknown name is re
 
 test('prepareE2e: a command case writes slack.inputMode command; thread cases do not; mixing the two is refused', async () => {
   const env = { ANTHROPIC_API_KEY: FAKE_KEY }
-  const r = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['needs-info'], claudeBin: process.execPath, env })
+  const r = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['needs-info'], env })
   const config = JSON.parse(readFileSync(r.configPath, 'utf8'))
   assert.deepEqual(config.slack, { inputMode: 'command' })
   assert.equal(config.bindings.length, 1)
@@ -633,30 +669,28 @@ test('prepareE2e: a command case writes slack.inputMode command; thread cases do
   // the repository holds the components of the report, and test.sh passes on it (nothing visible gives the answer away)
   assert.equal(sh('sh test.sh', config.bindings[0].localRepo).code, 0)
   // thread cases: no slack section
-  const thread = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo', 'ci-changeset'], claudeBin: process.execPath, env })
+  const thread = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo', 'ci-changeset'], env })
   assert.equal('slack' in JSON.parse(readFileSync(thread.configPath, 'utf8')), false)
   // mixing
   const home = temp('e2e-home-')
-  await assert.rejects(prepareE2e({ home, user: 'tester', port: 0, cases: ['copy-typo', 'needs-info'], claudeBin: process.execPath, env }), /mix input modes[^]*copy-typo: thread[^]*needs-info: command/)
+  await assert.rejects(prepareE2e({ home, user: 'tester', port: 0, cases: ['copy-typo', 'needs-info'], env }), /mix input modes[^]*copy-typo: thread[^]*needs-info: command/)
   assert.equal(existsSync(join(home, 'chat-to-fix-runs')), false, 'nothing was written for a refused selection')
 })
 
 test('prepareE2e: with no key anywhere the run is blocked; a keychain item counts (existence only)', async () => {
-  const none = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], claudeBin: process.execPath, env: { PATH: process.env.PATH }, hasKeychainItem: () => false })
+  const none = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], env: { PATH: process.env.PATH }, hasKeychainItem: () => false })
   assert.equal(none.ready, false)
   assert.match(none.blockers.join(), /ANTHROPIC_API_KEY is not set and the keychain has no item "chat-to-fix-anthropic"/)
   const asked = []
-  const kc = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], claudeBin: process.execPath, env: { PATH: process.env.PATH }, hasKeychainItem: (service, account) => { asked.push([service, account]); return true } })
+  const kc = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], env: { PATH: process.env.PATH }, hasKeychainItem: (service, account) => { asked.push([service, account]); return true } })
   assert.equal(kc.ready, true)
   assert.equal(kc.keySource, 'keychain')
   assert.deepEqual(asked, [['chat-to-fix-anthropic', 'tester']])
-  const missingCli = await prepareE2e({ home: temp('e2e-home-'), user: 'tester', port: 0, cases: ['copy-typo'], claudeBin: '/nonexistent/claude', env: { ANTHROPIC_API_KEY: FAKE_KEY } })
-  assert.match(missingCli.blockers.join(), /Claude Code CLI was not found/)
 })
 
 test('the command line: --prepare-only in a temporary HOME writes everything, starts nothing and prints the commands', async () => {
   const home = temp('e2e-home-')
-  const env = { PATH: process.env.PATH, HOME: home, USER: 'tester', ANTHROPIC_API_KEY: FAKE_KEY, CLAUDE_BIN: process.execPath }
+  const env = { PATH: process.env.PATH, HOME: home, USER: 'tester', ANTHROPIC_API_KEY: FAKE_KEY }
   const script = join(import.meta.dirname, '..', 'scripts', 'e2e', 'run.ts')
   const { stdout } = await pexec(process.execPath, [script, '--prepare-only', '--port', '0', '--cases', 'copy-typo,injection'], { env, cwd: home })
   const runs = readdirSync(join(home, 'chat-to-fix-runs'))

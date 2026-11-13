@@ -197,7 +197,7 @@ test('failure after the re-run: failed jobs recorded, review cleared, Slack noti
   assert.equal(s.task().review, null)
   assert.equal(s.calls.retried.length, 0) // retried only once per commit
   assert.equal(s.calls.sent.length, 1)
-  assert.match(s.calls.sent[0].text, /CI 第 1 轮失败：lint \(https:\/\/gl\/job\/11\)/)
+  assert.match(s.calls.sent[0].text, /CI 第 1 轮失败，没过的 job：\nlint https:\/\/gl\/job\/11\n/)
   assert.ok(s.calls.sent[0].text.includes(PIPE))
   // the failed round goes to the Pipeline bot, which leads it; the Main bot is not told
   assert.equal(s.calls.post.length, 1)
@@ -220,7 +220,7 @@ test('failure in round N: the notice names round N+1; after ciMaxRounds fix comm
   assert.equal(e.task().ci.settled, true)
   assert.equal(e.task().ci.outcome, 'rounds_exhausted')
   assert.equal(e.task().ci.status, 'failed')
-  assert.match(e.calls.sent[0].text, /修了 3 轮后仍未通过.*test/)
+  assert.match(e.calls.sent[0].text, /修了 3 轮后仍未通过[\s\S]*test/)
   assert.equal(e.calls.post.length, 1) // only the Main bot, not the Pipeline bot
   assert.match(e.calls.post[0].text, /^\[system\] The CI outcome is in \(rounds_exhausted\): CI still fails after 3 fix round\(s\) \(test\)\. Advance to writeback/)
   assert.doesNotMatch(e.calls.post[0].text, /@Pipeline/)

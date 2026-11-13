@@ -371,6 +371,10 @@ test('commit message helpers: the Conventional Commit line check and the derived
   assert.equal(commitMessageFromTitle('y'.repeat(300)).length, 100)
   assert.equal(isCommitMessage(commitMessageFromTitle('y'.repeat(300))), true)
   assert.equal(isCommitMessage(commitMessageFromTitle('word '.repeat(40))), true)
+  assert.equal(commitMessageFromTitle('y'.repeat(300), 'DEMO-1').length, 100 - ' (DEMO-1)'.length)
+  const { isCommitMessageWithOptionalKey: optional } = await import('../core/adapters/git.ts')
+  for (const ok of ['fix: x', 'fix(a): x (DEMO-1)', `fix: ${'x'.repeat(86)} (DEMO-1)`]) assert.equal(optional(ok), true, ok)
+  for (const bad of ['DEMO-1: fix: x', `fix: ${'x'.repeat(95)} (DEMO-1)`, 7]) assert.equal(optional(bad), false, String(bad))
 })
 
 test('repo.openDraftMR refuses an empty branch', async () => {

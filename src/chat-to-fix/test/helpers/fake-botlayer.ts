@@ -12,6 +12,8 @@
 //   layer.emit.groupLine(e) / sessionEvent(e) / toolResult(e) / roundEnd(e) / approval(e) / usage(e)
 //   layer.setQuiet(groupId, bool)   what isQuiet answers (default true)
 //   layer.linkSession(sessionId, botId)   a session id other than the bot id (default: same id)
+//   layer.reviewer = (req) => result      what runReview answers (default: { text: 'pass', stopReason: 'completed' });
+//   layer.reviews                         every runReview request: { sessionId, prompt, preset, timeoutMs }
 //
 // A bot id doubles as its session id, as in DS Bot (a bot is a session).
 
@@ -19,7 +21,7 @@ const FUNCTIONS = [
   'createBot', 'createGroup', 'setGroupWorkDir', 'postTask', 'askBot', 'stopBot', 'stopGroup',
   'deleteGroup', 'deleteBot', 'groupExists', 'isQuiet', 'status',
   'onGroupLine', 'onSessionEvent', 'onToolResult', 'onRoundEnd', 'onApproval', 'onUsage', 'answerApproval',
-  'bindBot', 'unbindBot', 'botOfSession',
+  'bindBot', 'unbindBot', 'botOfSession', 'runReview',
 ]
 
 const text = (value) => typeof value === 'string' && value.trim() !== ''
@@ -38,7 +40,8 @@ export function createFakeBotLayer({ fail = {} } = {}) {
   let nextBot = 1
   let nextGroup = 1
 
-  const layer: any = { calls, bots, groups, posts, bindings, answers, fail }
+  const reviews = []
+  const layer: any = { calls, bots, groups, posts, bindings, answers, fail, reviews, reviewer: () => ({ text: 'pass\nThe change is right.', stopReason: 'completed' }) }
 
   // Logs the call and throws when the function was told to fail.
   function enter(name, args) {
@@ -146,6 +149,11 @@ export function createFakeBotLayer({ fail = {} } = {}) {
       const botId = sessions.get(sessionId) ?? sessionId
       const binding = bindings.get(botId)
       return binding === undefined ? undefined : { botId, role: binding.role, taskId: binding.taskId }
+    },
+    async runReview(req) {
+      enter('runReview', [req])
+      reviews.push(req)
+      return { childId: `review-${reviews.length}`, ...(await layer.reviewer(req)) }
     },
   }
   for (const name of FUNCTIONS) layer[name] = api[name]

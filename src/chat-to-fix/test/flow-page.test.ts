@@ -164,7 +164,7 @@ test('concise view: the real T-1 run is exactly the main flow, with short Chines
     ['main', 'pipeline', 'call', '进到第 3 步，@ 准备代码'],
     ['pipeline', 'main', 'reply', '代码目录和分支'],
     ['main', 'coding', 'call', '进到第 4 步，@ 修复'],
-    ['coding', 'coding', 'self', 'Claude Code 定位并修改'],
+    ['coding', 'coding', 'self', '定位并修改'],
     ['coding', 'main', 'reply', '改了什么'],
     ['main', 'pipeline', 'call', '进到第 5 步，@ 核对并开 MR'],
     ['pipeline', 'main', 'reply', 'MR 链接'],
@@ -202,7 +202,7 @@ test('concise view: a short grey line of key content under the label, the full r
   assert.equal(by('代码目录和分支').sub, 'ai/DEMO-1 · …/worktrees/T-1')
   assert.equal(by('改了什么').sub, '改了 src/price.js · 测试未运行 · 评审通过')
   assert.equal(by('MR 链接').sub, 'fake://gitlab/local/sample-shop/mr/1')
-  assert.equal(by('Claude Code 定位并修改').sub, '评审通过')
+  assert.equal(by('定位并修改').sub, '评审通过')
   assert.match(by('@ 取回讨论').sub, /^请读取 Slack 讨论/)
   // the merged Slack arrow stands for the read and the ack reply: both records stay reachable, with the ids of every record behind them
   const merged = by('读讨论，回复已收到')
@@ -210,9 +210,9 @@ test('concise view: a short grey line of key content under the label, the full r
   assert.deepEqual(merged.recordIds, [9, 10, 11, 12])
   assert.match(merged.parts[0].result, /Slack discussion/)
   assert.match(merged.parts[1].args, /received/)
-  // the Claude Code loop holds the narration and the tool calls of the Coding bot
-  assert.deepEqual(by('Claude Code 定位并修改').recordIds, [50, 51, 52, 53, 54])
-  assert.deepEqual(by('Claude Code 定位并修改').parts.map((p) => p.tool ?? p.recordType), ['line', 'task_read', 'review_report'])
+  // the work loop holds the narration and the tool calls of the Coding bot
+  assert.deepEqual(by('定位并修改').recordIds, [50, 51, 52, 53, 54])
+  assert.deepEqual(by('定位并修改').parts.map((p) => p.tool ?? p.recordType), ['line', 'task_read', 'review_report'])
   // the step prefix goes only on the first call after an advance
   assert.deepEqual(arrows.filter((a) => a.tool === 'message_bot').map((a) => a.label.startsWith('进到第')), [false, true, true, true, true, true, false])
 })
@@ -649,7 +649,7 @@ test('proxy: the task view carries the bill (header line, per-bot lane subtitles
   const body = JSON.parse(answer.body)
   const view = body.task.usage
   assert.equal(view.line, '花费 $0.67 · 输入 1k / 输出 2.6k / 缓存读 60k · 平均 118 tok/s（DSH 51 · 推算 129）')
-  assert.match(view.title, /DSH：API bot 的速度.*推算：修复 bot 的速度/)
+  assert.match(view.title, /DSH：五个 bot 的速度.*推算：只出现在 2026-11-13 前的记录里/)
   assert.equal(view.byRole.jira.subtitle, 'claude-sonnet-5-5 · $0.36 · 51 tok/s DSH')
   assert.equal(view.byRole.coding.subtitle, 'claude-sonnet-5-5, claude-opus-5-5 · $0.31 · 129 tok/s 推算')
   assert.equal(view.byRole.coding.effort, 'high')
@@ -708,7 +708,7 @@ test('concise view: the CI loop is a readable story across GitLab CI, the watchd
     ['gate', 'pipeline', 'notice', 'CI 失败，交给 Git Pipeline bot', false],
     ['pipeline', 'pipeline', 'self', '读 CI 日志 lint', false],
     ['pipeline', 'coding', 'call', '@ 按 CI 日志修复', false],
-    ['coding', 'coding', 'self', 'Claude Code 定位并修改', false],
+    ['coding', 'coding', 'self', '定位并修改', false],
     ['coding', 'pipeline', 'reply', '修好了', false],
     ['pipeline', 'ciext', 'call', '推修复提交', false],
     ['pipeline', 'main', 'reply', '已推修复提交', false],
@@ -769,7 +769,7 @@ test('real CI run (2026-11-12): the waiting answer that mentions a failure, a [P
     ...CI_ROUND.slice(-3),
   ]
   const labels = buildArrows(records).map((a: any) => a.label)
-  assert.equal(labels.filter((l) => l === 'Claude Code 定位并修改').length, 1)
+  assert.equal(labels.filter((l) => l === '定位并修改').length, 1)
   assert.ok(!labels.includes('[PASS]'))
   assert.equal(labels.filter((l) => l === '修好了').length, 1)
   assert.ok(labels.includes('等系统给 CI 结果'))

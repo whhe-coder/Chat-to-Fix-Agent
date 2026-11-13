@@ -4,12 +4,16 @@ const textarea = document.querySelector('#message');
 const sendButton = document.querySelector('#send-button');
 const note = document.querySelector('#composer-note');
 const status = document.querySelector('#agent-status');
+const clearButton = document.querySelector('#clear-history');
 const userIdInput = document.querySelector('#mock-user-id');
 const userNameInput = document.querySelector('#mock-user-name');
 const userEmailInput = document.querySelector('#mock-user-email');
 let sending = false;
 let refreshPending = false;
 let defaultsLoaded = false;
+let clearPending = false;
+let hasMessages = false;
+let historyRevision = 0;
 const taskStates = {
   queued: '排队中', running: '处理中', done: '已完成', needs_info: '等待补充',
   failed: '任务失败', timed_out: '已超时', stopped: '已停止', expired: '已过期',
@@ -111,16 +115,20 @@ function render(data) {
   }
   status.className = `status ${data.agent.online ? 'status-online' : 'status-offline'}`;
   status.textContent = data.agent.online ? 'Agent 已连接' : (data.agent.error || 'Agent 未连接');
+  hasMessages = data.threads.length > 0;
+  clearButton.disabled = !hasMessages || sending || clearPending;
   threadsNode.replaceChildren(...data.threads.map(threadNode));
 }
 
 async function refresh() {
   if (refreshPending) return;
   refreshPending = true;
+  const revision = historyRevision;
   try {
     const response = await fetch('/api/channel', { cache: 'no-store' });
     if (!response.ok) throw new Error('无法读取模拟频道');
-    render(await response.json());
+    const data = await response.json();
+    if (revision === historyRevision) render(data);
   } catch {
     status.className = 'status status-offline';
     status.textContent = '模拟频道服务暂不可用';
@@ -132,6 +140,7 @@ async function send(command, eventId = `mock:${crypto.randomUUID()}`, retryUser)
   const user = retryUser ?? { id: userIdInput.value.trim(), name: userNameInput.value.trim(), email: userEmailInput.value.trim() };
   sending = true;
   sendButton.disabled = true;
+  clearButton.disabled = true;
   note.textContent = '正在发送…';
   try {
     const response = await fetch('/api/messages', {
@@ -142,7 +151,23 @@ async function send(command, eventId = `mock:${crypto.randomUUID()}`, retryUser)
     note.textContent = result.ok ? '已交给 Agent；进度会显示在任务讨论串中' : (result.error || '发送失败');
     await refresh();
   } catch { note.textContent = '模拟频道服务暂不可用，请重试'; }
-  finally { sending = false; sendButton.disabled = false; }
+  finally { sending = false; sendButton.disabled = false; clearButton.disabled = !hasMessages || clearPending; }
+}
+
+async function clearHistory() {
+  if (clearPending || sending || !hasMessages) return;
+  clearPending = true;
+  clearButton.disabled = true;
+  try {
+    const response = await fetch('/api/messages', { method: 'DELETE' });
+    if (!response.ok) throw new Error('清空失败');
+    historyRevision += 1;
+    hasMessages = false;
+    threadsNode.replaceChildren();
+    note.textContent = '模拟消息记录已清空；Agent 任务仍会继续运行';
+    await refresh();
+  } catch { note.textContent = '清空失败，请重试'; }
+  finally { clearPending = false; clearButton.disabled = !hasMessages; }
 }
 
 form.addEventListener('submit', (event) => {
@@ -152,5 +177,6 @@ form.addEventListener('submit', (event) => {
 textarea.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
 });
+clearButton.addEventListener('click', clearHistory);
 refresh();
 setInterval(refresh, 2000);

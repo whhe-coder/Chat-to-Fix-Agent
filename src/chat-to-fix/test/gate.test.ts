@@ -167,16 +167,16 @@ test('allow: mr_open_draft refused in fetch; refused in mr without a pass; refus
 
 // ---------- spec 7: step ci, a tool in several steps, the end reason by ci.outcome ----------
 
-test('allow: a write tool in several steps is allowed in each of them and refused elsewhere (review_report: code and ci)', async () => {
+test('allow: a write tool in several steps is allowed in each of them and refused elsewhere (request_review: code and ci)', async () => {
   for (const step of ['code', 'ci']) {
     const { gate } = setup({ step })
-    assert.deepEqual(await gate.allow('T-1', 'review_report'), ok, step)
+    assert.deepEqual(await gate.allow('T-1', 'request_review'), ok, step)
   }
   for (const step of ['fetch', 'mr', 'writeback', 'close']) {
     const { gate, store } = setup({ step })
-    const r = await gate.allow('T-1', 'review_report')
+    const r = await gate.allow('T-1', 'request_review')
     assert.equal(r.ok, false, step)
-    assert.match(r.reason, /review_report belongs to step code or ci, the task is in step /)
+    assert.match(r.reason, /request_review belongs to step code or ci, the task is in step /)
     assert.equal(store.records.at(-1).type, 'refused')
   }
 })

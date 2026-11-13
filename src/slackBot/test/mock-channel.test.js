@@ -65,7 +65,7 @@ test('频道网页把 /fix 转给 Agent，并显示回传进度和任务状态',
   assert.equal(page.status, 200);
   const html = await page.text();
   assert.match(html, /欢迎来到模拟频道/);
-  for (const id of ['mock-user-id', 'mock-user-name', 'mock-user-email']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['mock-user-id', 'mock-user-name', 'mock-user-email', 'clear-history']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
 
   const sent = await post({ text: '/fix 登录页按钮无响应', eventId: 'mock:E1' });
@@ -86,6 +86,26 @@ test('频道网页把 /fix 转给 Agent，并显示回传进度和任务状态',
   assert.match(snapshot.threads[0].messages[2].text, /F2PGBA-1/);
   assert.equal(JSON.stringify(snapshot).includes('local-test-token'), false);
   assert.equal((await (await fetch(`${mockUrl}/api/channel`)).json()).threads[0].messages.length, 3);
+});
+
+test('清空模拟消息后可继续发送，已创建的 Agent 任务不受影响', async (t) => {
+  const { mockUrl, post, received } = await fixture(t);
+  await post({ text: '/fix 第一个问题', eventId: 'mock:first' });
+  assert.equal((await (await fetch(`${mockUrl}/api/channel`)).json()).threads.length, 1);
+
+  assert.equal((await fetch(`${mockUrl}/api/messages`, { method: 'DELETE', headers: { origin: 'https://example.com' } })).status, 403);
+  const cleared = await fetch(`${mockUrl}/api/messages`, { method: 'DELETE' });
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(await cleared.json(), { ok: true, cleared: 1 });
+  assert.deepEqual((await (await fetch(`${mockUrl}/api/channel`)).json()).threads, []);
+  assert.equal(received.length, 1);
+
+  await post({ text: '/fix 第二个问题', eventId: 'mock:second' });
+  const snapshot = await (await fetch(`${mockUrl}/api/channel`)).json();
+  assert.equal(received.length, 2);
+  assert.equal(snapshot.threads.length, 1);
+  assert.equal(snapshot.threads[0].command, '/fix 第二个问题');
+  assert.deepEqual(snapshot.threads[0].messages.map((message) => message.from), ['user', 'bot', 'agent']);
 });
 
 test('模拟身份默认来自服务端配置，也可按消息编辑；重试保持原身份', async (t) => {

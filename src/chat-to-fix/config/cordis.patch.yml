@@ -15,7 +15,8 @@
 #    @deepseek-ai/dsh-llm-pi-ai, dormant until `providers` is set). The key is a reference to the
 #    environment variable, never the key itself. A `models` entry whose id is in pi-ai's installed
 #    catalog takes every other field (endpoint, context window, output cap) from the catalog.
-#    The model id must be the part after "anthropic/" of `apiModel` in the chat-to-fix configuration.
+#    The model ids must be the parts after "anthropic/" of `apiModel` and `codingModel` in the chat-to-fix
+#    configuration (both claude-sonnet-5-5 by default); add a `models` entry when they differ.
 - id: llm-pi-ai
   config:
     providers:
@@ -104,15 +105,15 @@
 - id: workspace-changes
   disabled: true
 
-# 6. Read-only agent preset `readonly` (new), used by the four bots that run on the API
-#    (src/task/runner.ts presetOf). A row of @deepseek-ai/dsh-agent-preset (config id, name,
-#    description, order, plugins), registered with the web-app's agent-preset-registry. The file
+# 6. Read-only agent preset `readonly` (new), used by the four flow bots and by the Coding bot's reviewer
+#    (core/registry/bots.ts `preset`, `reviewer.preset`). A row of @deepseek-ai/dsh-agent-preset (config id,
+#    name, description, order, plugins), registered with the web-app's agent-preset-registry. The file
 #    tool keeps read and readImage and loses write, edit and apply_patch; the search tool is
 #    read-only; no bash, pwsh, jobs, web, subagent or plan tools are listed, so the preset has none.
 #    Compaction is composed as in the shipped presets, so a long session can still be compacted.
 #    Every session the bot layer creates (a bot's own, its group session, a fresh part, the group's
-#    relay session) names its bot's preset, so the shipped `standard` preset is left as it is; only
-#    the Coding bot uses it (its route is Claude Code, which brings its own tools).
+#    relay session) names its bot's preset, so the shipped `standard` preset is left as it is and no
+#    bot uses it.
 - insert:
     - id: preset-readonly
       name: '@deepseek-ai/dsh-agent-preset'
@@ -149,15 +150,181 @@
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
 
+# 6b. Coding agent preset `coding` (new), used by the Coding bot (core/registry/bots.ts). The same rows as
+#    `readonly` plus the file tool's write and edit (apply_patch stays off, as in the shipped presets), the
+#    workspace instruction files (the repository's AGENTS.md / CLAUDE.md, from the working folder up to the
+#    repository root; the user-global ones come from $DSH_HOME and $DSH_AGENTS_HOME, which the start script
+#    points into the data folder), the time context and the tool-result pruner. No shell (bash, pwsh, jobs):
+#    the Coding bot runs tests only through the run_tests tool of the task layer. No web, subagent, schedule,
+#    ask-user, plan, todo, goal, skill or plugin tools: the review is started by the system (request_review).
+#    Writes are confined to the session's working folder by the permission preset workspace-write (row 3)
+#    through dsh-fs-sandbox.
+- insert:
+    - id: preset-coding
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: coding
+        name: Coding
+        description: Read, search, write and edit files in the working folder; no shell, web or delegation tools.
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a coding agent powered by the {{model}} model.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
 # 7. This project's plugin (core/plugin.ts): the bot layer and the task layer. The profile links
 #    the repository root as the package `chat-to-fix` (node_modules/chat-to-fix -> root, made by the start
 #    script); the package has no `main`/`exports`, so the row names the entry file by subpath.
-#    The row config reaches the bot layer as rt.config: `claudeCommand` is the Claude Code CLI
-#    the Coding bot's route `claude-code` runs (the desktop app keeps it inside its bundle, so it
-#    is not on PATH); unset, the bot layer looks for `claude` on PATH. Without a CLI there is no
-#    `claude-code` route and a task fails at start ("Model claude-code/default is not available").
 - insert:
     - id: chat-to-fix
       name: chat-to-fix/src/chat-to-fix/core/plugin.ts
-      config:
-        claudeCommand: !!js process.env.CLAUDE_BIN || undefined
+
+# 8. Trim (docs/chat-to-fix/design/plan-dsh-trim.md): rows nothing in chat-to-fix uses, switched off
+#    group by group. The whitelist and the removed rows are asserted by test/dsh-profile-guard.test.ts.
+
+# 8.1 browser UI, host half (nothing serves a browser; they mount nothing on the host)
+- { id: ui-file-actions, disabled: true }
+- { id: ui-context-menu, disabled: true }
+- { id: ui-open-in-app, disabled: true }
+- { id: ui-settings-account, disabled: true }
+- { id: cordis-client-runner, disabled: true }
+- { id: ui-theme, disabled: true }
+- { id: locale, disabled: true }
+- { id: shortcuts, disabled: true }
+- { id: ui-shortcuts, disabled: true }
+- { id: ui-layout, disabled: true }
+- { id: ui-renderer, disabled: true }
+- { id: ui-session, disabled: true }
+- { id: resources, disabled: true }
+- { id: ui-sidebar, disabled: true }
+- { id: ui-sidebar-right, disabled: true }
+- { id: ui-sidebar-documentpreview, disabled: true }
+- { id: ui-sidebar-terminal, disabled: true }
+- { id: ui-sidebar-files, disabled: true }
+- { id: ui-settings, disabled: true }
+- { id: ui-settings-general, disabled: true }
+- { id: ui-settings-models, disabled: true }
+- { id: ui-plugin-manager, disabled: true }
+- { id: ui-settings-plugin-inventory, disabled: true }
+- { id: ui-conversation, disabled: true }
+- { id: ui-approval, disabled: true }
+- { id: message-quotes, disabled: true }
+- { id: ui-chat, disabled: true }
+- { id: ui-brand-official, disabled: true }
+- { id: ui-attachment, disabled: true }
+- { id: ui-file-drag, disabled: true }
+- { id: ui-tool, disabled: true }
+- { id: ui-cordis, disabled: true }
+- { id: ui-workspace, disabled: true }
+- { id: ui-workflow-run, disabled: true }
+- { id: ui-input-trigger, disabled: true }
+- { id: ui-commands, disabled: true }
+- { id: ui-skill, disabled: true }
+- { id: ui-subagent, disabled: true }
+- { id: ui-reference, disabled: true }
+- { id: ui-secret-mask, disabled: true }
+- { id: ui-jobs, disabled: true }
+- { id: ui-schedule, disabled: true }
+- { id: ui-goal, disabled: true }
+- { id: ui-message-feedback, disabled: true }
+- { id: ui-model-selection, disabled: true }
+- { id: ui-permission, disabled: true }
+- { id: ui-agent-preset, disabled: true }
+- { id: entry-customization, disabled: true }
+- { id: ui-settings-session-log, disabled: true }
+- { id: ui-settings-plugins, disabled: true }
+- { id: ui-settings-shell, disabled: true }
+- { id: ui-settings-agent-loop, disabled: true }
+- { id: ui-settings-subagent, disabled: true }
+- { id: ui-settings-web-search, disabled: true }
+- { id: ui-plan, disabled: true }
+- { id: ui-user-questions, disabled: true }
+- { id: ui-trajectory, disabled: true }
+
+# 8.2 host APIs for the browser (no consumer in chat-to-fix)
+- { id: api-remotes, disabled: true }
+- { id: job-controller, disabled: true }
+- { id: terminal-controller, disabled: true }
+- { id: workspace-files, disabled: true }
+- { id: account-controller, disabled: true }
+- { id: settings-controller, disabled: true }
+- { id: workspace-controller, disabled: true }
+- { id: plugin-inventory, disabled: true }
+- { id: message-feedback, disabled: true }
+- { id: command-feedback, disabled: true }
+- { id: session-turn-outline, disabled: true }
+- { id: session-reference, disabled: true }
+- { id: cordis-host-runner, disabled: true }
+- { id: cordis-inspect-providers, disabled: true }
+
+# 8.3 goal, schedule, MCP resources, OpenTelemetry
+- { id: goal, disabled: true }
+- { id: goal-round-driver, disabled: true }
+- { id: schedule, disabled: true }
+- { id: mcp-resources, disabled: true }
+- { id: otel, disabled: true }
+
+# 8.4 web search and fetch (no preset has a web tool)
+- { id: web, disabled: true }
+- { id: web-search-deepseek, disabled: true }
+- { id: web-deepseek-api, disabled: true }
+- { id: web-fetch-http, disabled: true }
+
+# 8.5 plugin manager (installing and removing plugin packages)
+- { id: plugin-manager, disabled: true }
+
+# 8.6 DeepSeek account and model routes (no deployment uses deepseek/ routes; only the anthropic route is configured)
+- { id: llm-deepseek, disabled: true }
+- { id: llm-deepseek-account, disabled: true }
+- { id: deepseek-account, disabled: true }
+- { id: session-log-deepseek, disabled: true }
+- { id: plugin-package-inventory-deepseek, disabled: true }
+- { id: deepseek-llm-api-extensions, disabled: true }
+
+# 8.7 unused agent presets and PTC. The shipped default preset `standard` is switched off below, so the
+#     registry's default (used only by a session created without a preset; the bot layer names one for every
+#     session) becomes the read-only one.
+- id: agent-preset-registry
+  config:
+    default: readonly
+- { id: preset-standard, disabled: true }
+- { id: preset-ptc, disabled: true }
+- { id: preset-minimal, disabled: true }
+- { id: preset-cordis, disabled: true }
+- { id: ptc-runtime, disabled: true }

@@ -45,8 +45,11 @@ export function jiraTools() {
         const outcome = need(args.outcome, 'outcome')
         if (messages.length === 0 || messages.every((message) => NON_ISSUE_ONLY.test(message))) throw new Error('the request contains no actionable issue; ask for details instead')
         if (!messages.some((message) => message.includes(sourceQuote) && !NON_ISSUE_ONLY.test(message))) throw new Error('sourceQuote must appear in an actionable Slack message')
-        if (ctx.task.needsInfo?.jira) throw new Error('missing information was already confirmed; ask the requester instead')
-        await ctx.store.patchTask(ctx.task.id, { issueAssessment: { ready: true, sourceQuote, problem, outcome } })
+        // Only the Jira bot said information is missing: the Main bot may overrule it, so the Jira bot assesses again and
+        // its own confirmation is withdrawn. Once the Main bot confirmed too, the question is decided.
+        const { needsInfo } = ctx.task
+        if (needsInfo?.jira && needsInfo?.main) throw new Error('missing information was already confirmed; ask the requester instead')
+        await ctx.store.patchTask(ctx.task.id, { issueAssessment: { ready: true, sourceQuote, problem, outcome }, ...(needsInfo?.jira ? { needsInfo: { jira: null } } : {}) })
         return 'Request approved for a Jira issue.'
       },
     },

@@ -4,7 +4,7 @@
 // each one checks for itself what the gate's evidence evaluator cannot (spec 7, 6).
 import { CI_CONFIG_DEFAULTS, CI_STOP_REASONS, CI_TOOL_PARAMETERS, newCi } from '../task/contracts.ts'
 import { announce, commitUrlOf, cutText, material } from './material.ts'
-import { checkCommitMessage } from './repo.ts'
+import { keyedCommitMessage } from './repo.ts'
 
 const limitOf = (ctx, key) => ctx.config?.limits?.[key] ?? CI_CONFIG_DEFAULTS.limits[key]
 
@@ -76,7 +76,7 @@ export function ciTools() {
         if (!task.repo.branch) refuse('the task has no branch')
         if (!task.binding) refuse('this task has no channel binding')
         if (args.commit_message === undefined || String(args.commit_message).trim() === '') refuse('commit_message must not be empty')
-        const message = checkCommitMessage(args.commit_message, undefined)
+        const message = keyedCommitMessage(task, args.commit_message, undefined)
         let pushed
         try {
           pushed = await ctx.adapters.repo.pushFix(task.binding, task.repo.dir, task.repo.branch, { message })

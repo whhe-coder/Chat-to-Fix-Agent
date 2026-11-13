@@ -39,7 +39,7 @@ async function rig(t, { binding = {} }: any = {}) {
       ...binding,
     }],
   }))
-  const config = loadConfig({ path: configPath, env: {} })
+  const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const botlayer = createFakeBotLayer()
   const warnings = []
   const warn = (...args) => warnings.push(args.join(' '))
@@ -140,6 +140,21 @@ test('a greeting asks for details before Jira creation', async (t) => {
   assert.equal(existsSync(join(r.config.dataDir, 'fake', 'jira', 'issues.json')), false)
 })
 
+test('the Main bot overrules the Jira bot: the Jira bot assesses again and the issue is created', async (t) => {
+  const r = await rig(t)
+  const s = await r.start('applyDiscount returns the wrong price')
+  ok(await s.tool('slack', 'slack_read_thread'))
+  ok(await s.tool('slack', 'slack_reply', { purpose: 'ack', text: 'Received.' }))
+  await s.roundEnd('slack', 'Summary: applyDiscount adds the discount.')
+  ok(await s.tool('main', 'task_advance', { to: 'issue' }))
+  ok(await s.tool('jira', 'needs_info_confirm', { text: 'what is the expected price?' }))
+  const sourceQuote = (await r.app.store.getTask(s.id)).origin.text
+  ok(await s.tool('jira', 'jira_assess_request', { sourceQuote, problem: 'applyDiscount gives the wrong price', outcome: 'The price is correct' }))
+  assert.equal((await r.app.store.getTask(s.id)).needsInfo.jira, null)
+  ok(await s.tool('jira', 'jira_create_issue', { title: 'applyDiscount wrong price', description: 'wrong price', acceptance: 'price is correct' }))
+  ok(await s.tool('main', 'task_advance', { to: 'prepare' }))
+})
+
 // What Claude Code does in step 4, done by hand: the one-line fix in the task's code directory.
 async function fixTheBug(dir) {
   const file = join(dir, 'src', 'price.js')
@@ -169,7 +184,7 @@ test('ci 1 / normal: one @ goes through the eight steps with the fake Slack, Jir
   assert.throws(() => execFileSync('sh', ['test.sh'], { cwd: task.repo.dir, stdio: 'pipe' }), 'the test fails before the fix')
   await fixTheBug(task.repo.dir)
   execFileSync('sh', ['test.sh'], { cwd: task.repo.dir, stdio: 'pipe' })
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'One line changed; the test passes.', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'One line changed; the test passes.' }))
   ok(await s.tool('main', 'task_advance', { to: 'mr' }))
 
   // Step 5.
@@ -210,7 +225,7 @@ test('ci 1 / normal: one @ goes through the eight steps with the fake Slack, Jir
   assert.deepEqual((await r.replies()).map(reply => reply.purpose), ['ack', 'system', 'system', 'system', 'result'])
   const progress = await r.notices()
   assert.match(progress[0], /Jira 单已建好：DEMO-1/)
-  assert.match(progress[1], /Draft MR 已开：fake:\/\/gitlab\/group\/project\/mr\/1/)
+  assert.match(progress[1], /Draft MR 已开： fake:\/\/gitlab\/group\/project\/mr\/1/)
   assert.match(progress[2], /CI 通过/)
   assert.equal(task.notified.jira_created && task.notified.mr_opened, true)
   assert.equal(task.endReason, 'completed')
@@ -227,7 +242,8 @@ test('review not passed: the MR is refused, the task ends as failed, the branch 
   const task = await throughPrepare(r, s)
 
   await fixTheBug(task.repo.dir)
-  ok(await s.tool('coding', 'review_report', { verdict: 'fail', comments: 'The rounding is still wrong after three rounds.', rounds: 3 }))
+  r.botlayer.reviewer = () => ({ text: 'not pass\n- src/price.js: the rounding is still wrong', stopReason: 'completed' })
+  assert.match(ok(await s.tool('coding', 'request_review', { summary: 'Changed the rounding.' })), /: not pass\./)
   assert.match(await s.tool('main', 'task_advance', { to: 'mr' }), /Cannot advance/)
   assert.doesNotMatch(await s.tool('pipeline', 'mr_open_draft', { title: 'x', description: 'x' }), /fake:\/\/gitlab/)
   ok(await s.tool('main', 'task_close', { outcome: 'failed', note: 'The review did not pass after three rounds.' }))
@@ -282,7 +298,7 @@ test('missing information: both confirm, the question is asked, and a new @ in t
 async function toCi(r, s) {
   const task = await throughPrepare(r, s)
   await fixTheBug(task.repo.dir)
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'One line changed; the test passes.', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'One line changed; the test passes.' }))
   ok(await s.tool('main', 'task_advance', { to: 'mr' }))
   ok(await s.tool('pipeline', 'mr_open_draft', { title: 'DEMO-1 Fix applyDiscount', description: 'Subtract the discount.', commit_message: 'fix(price): subtract the discount instead of adding it' }))
   ok(await s.tool('main', 'task_advance', { to: 'ci' }))
@@ -329,7 +345,7 @@ test('ci 2: fail, read the log, fix, review, mr_push_fix, pass; two commits on t
   assert.deepEqual(task.ci.failedJobs.map(job => job.name), ['lint'])
   assert.equal(task.ci.retried, true)
   assert.equal(task.review, null, 'the review of the first change is cleared')
-  assert.match((await r.notices()).at(-1), /CI 第 1 轮失败：lint/)
+  assert.match((await r.notices()).at(-1), /CI 第 1 轮失败，没过的 job：\nlint /)
   assert.match(r.systemPosts().at(-1), /CI failed.*round 1 of 3.*You lead this round/, 'a failed round goes to the Pipeline bot, which leads it')
   assert.equal(r.systemPosts().filter(text => /CI outcome is in/.test(text)).length, 0, 'the Main bot is not told before the step is settled')
 
@@ -348,7 +364,7 @@ test('ci 2: fail, read the log, fix, review, mr_push_fix, pass; two commits on t
 
   // Coding fixes in the same code directory, the review passes, the fix is pushed as a new commit.
   await removeBugComment(task.repo.dir)
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'Only the comment line removed.', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'Only the comment line removed.' }))
   assert.match(await s.tool('pipeline', 'mr_push_fix', { commit_message: 'Remove the comment.' }), /tool failed/, 'the commit message must be a Conventional Commit line')
   assert.match(ok(await s.tool('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): remove the stale BUG comment' })), /round 1 of 3/)
   task = await r.app.store.getTask(s.id)
@@ -368,7 +384,7 @@ test('ci 2: fail, read the log, fix, review, mr_push_fix, pass; two commits on t
   assert.equal(commits.length, 2)
   assert.equal(commits[0].sha, opened.mr.sha, 'the first commit is still the one that opened the MR')
   assert.equal(commits[1].sha, task.ci.sha)
-  assert.equal(commits[1].subject, 'fix(lint): remove the stale BUG comment')
+  assert.equal(commits[1].subject, 'fix(lint): remove the stale BUG comment (DEMO-1)')
   assert.equal(r.git(r.made.remote, 'rev-parse', 'ai/DEMO-1').trim(), task.ci.sha)
   assert.equal(Object.values(await r.fake('gitlab/mrs.json')).length, 1)
   assert.equal((Object.values(await r.fake('gitlab/mrs.json'))[0] as any).headSha, task.ci.sha)
@@ -412,21 +428,21 @@ test('ci 5: three fix rounds that do not help end as completed_ci_failed; a four
     task = await r.poll(s.id, failedRound(round))
     ok(await s.tool('pipeline', 'ci_read_log', { job: 'lint' }).then(text => text.startsWith('Log of') ? 'ok' : text))
     await otherChange(task.repo.dir, round + 1)
-    ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'A change that does not touch the comment.', rounds: 1 }))
+    ok(await s.tool('coding', 'request_review', { summary: 'A change that does not touch the comment.' }))
     assert.match(ok(await s.tool('pipeline', 'mr_push_fix', { commit_message: `fix(lint): attempt ${round + 1}` })), new RegExp(`round ${round + 1} of 3`))
   }
   // The pipeline of the third fix still fails: the loop is settled by the system.
   task = await r.poll(s.id, (current) => current.ci?.settled === true)
   assert.equal(task.ci.outcome, 'rounds_exhausted')
   assert.equal(task.ci.round, 3)
-  assert.match((await r.notices()).at(-1), /修了 3 轮后仍未通过.*lint/)
+  assert.match((await r.notices()).at(-1), /修了 3 轮后仍未通过[\s\S]*lint/)
   assert.ok(r.systemPosts().at(-1).includes('Advance to writeback'))
   await r.app.monitor.tick()
   assert.equal(r.systemPosts().filter(text => /CI outcome is in \(rounds_exhausted\)/.test(text)).length, 1, 'the Main bot is told once')
 
   // A fourth push is refused even with a passing review and a change.
   await otherChange(task.repo.dir, 4)
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'again', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'again' }))
   assert.match(await s.tool('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): attempt 4' }), /tool failed/)
   assert.equal(commitsOnBranch(r).length, 4, 'the first commit and three fixes, no fourth')
   assert.equal((await r.app.store.getTask(s.id)).ci.round, 3)
@@ -438,9 +454,9 @@ test('ci 6: ci_stop needs a failed CI and a log read; not_fixable needs the Codi
   const s = await r.start('applyDiscount gives the wrong price')
   const task0 = await throughPrepare(r, s)
   // cannot_fix is a verdict of step ci only.
-  assert.match(await s.tool('coding', 'review_report', { verdict: 'cannot_fix', comments: 'x', rounds: 1 }), /tool failed/)
+  assert.match(await s.tool('coding', 'review_report', { verdict: 'cannot_fix', comments: 'x' }), /belongs to step ci/)
   await fixTheBug(task0.repo.dir)
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'ok', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'ok' }))
   ok(await s.tool('main', 'task_advance', { to: 'mr' }))
   ok(await s.tool('pipeline', 'mr_open_draft', { title: 'DEMO-1 Fix applyDiscount', description: 'Subtract the discount.' }))
   ok(await s.tool('main', 'task_advance', { to: 'ci' }))
@@ -457,7 +473,7 @@ test('ci 6: ci_stop needs a failed CI and a log read; not_fixable needs the Codi
   assert.match(await s.tool('pipeline', 'ci_stop', { reason: 'not_fixable', note: 'Nobody can fix it.' }), /must come from the Coding bot/)
   assert.notEqual((await r.app.store.getTask(s.id)).ci.settled, true)
   // The Coding bot records that it cannot fix it; now the Main bot may stop.
-  ok(await s.tool('coding', 'review_report', { verdict: 'cannot_fix', comments: 'The lint rule comes from a shared config outside this repository.', rounds: 1 }))
+  ok(await s.tool('coding', 'review_report', { verdict: 'cannot_fix', comments: 'The lint rule comes from a shared config outside this repository.' }))
   assert.match(await s.tool('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): x' }), /tool failed|review has not passed/, 'cannot_fix is not a pass')
   ok(await s.tool('pipeline', 'ci_stop', { reason: 'not_fixable', note: 'The Coding bot recorded that the lint rule lives outside this repository.' }))
   const task = await r.app.store.getTask(s.id)
@@ -521,7 +537,7 @@ test('ci 8: someone pushes to the branch during the fix: mr_push_fix is rejected
   const humanSha = r.git(clone, 'rev-parse', 'HEAD').trim()
 
   await removeBugComment(task.repo.dir)
-  ok(await s.tool('coding', 'review_report', { verdict: 'pass', comments: 'ok', rounds: 1 }))
+  ok(await s.tool('coding', 'request_review', { summary: 'ok' }))
   const answer = await s.tool('pipeline', 'mr_push_fix', { commit_message: 'fix(lint): remove the stale BUG comment' })
   assert.match(answer, /rejected/)
   task = await r.app.store.getTask(s.id)
@@ -566,14 +582,14 @@ test('ci 9: a new @ after missing information reruns the task; opening the MR ag
   const task = await r.app.store.getTask(s.id)
   assert.equal(task.repo.dir, rerun.repo.dir, 'the same code directory')
   await writeFile(join(task.repo.dir, 'src', 'greeting.js'), 'export function greet(name) {\n  return `Hello, ${name}.`\n}\n')
-  ok(await tool('coding', 'review_report', { verdict: 'pass', comments: 'ok', rounds: 1 }))
+  ok(await tool('coding', 'request_review', { summary: 'ok' }))
   ok(await tool('main', 'task_advance', { to: 'mr' }))
   assert.match(ok(await tool('pipeline', 'mr_open_draft', { title: 'DEMO-1 Fix applyDiscount and the greeting', description: 'More.', commit_message: 'fix(greeting): end the greeting with a full stop' })), /MR/)
 
   const commits = commitsOnBranch(r)
   assert.equal(commits.length, 2, 'one more commit on the branch')
   assert.equal(commits[0].sha, opened.mr.sha, 'the first commit was not amended')
-  assert.equal(commits[1].subject, 'fix(greeting): end the greeting with a full stop')
+  assert.equal(commits[1].subject, 'fix(greeting): end the greeting with a full stop (DEMO-1)')
   assert.equal(r.git(r.made.remote, 'merge-base', commits[0].sha, commits[1].sha).trim(), commits[0].sha)
   assert.equal(Object.values(await r.fake('gitlab/mrs.json')).length, 1, 'still one MR')
   assert.equal((await r.app.store.getTask(s.id)).mr.sha, commits[1].sha)

@@ -38,6 +38,8 @@ function checkDefinition(def) {
   if (typeof def.write !== 'boolean') problems.push(`${at}: write must be true or false`)
   if (def.purpose !== undefined && typeof def.purpose !== 'function') problems.push(`${at}: purpose must be a function`)
   if (def.purpose !== undefined && def.write !== true) problems.push(`${at}: purpose only makes sense for a write tool`)
+  if (def.timeoutMs !== undefined && typeof def.timeoutMs !== 'function') problems.push(`${at}: timeoutMs must be a function of the configuration`)
+  if (def.retries !== undefined && !(Number.isInteger(def.retries) && def.retries >= 0)) problems.push(`${at}: retries must be a whole number of 0 or more`)
   if (!hasText(def.description)) problems.push(`${at}: description is missing`)
   if (!isObject(def.parameters)) problems.push(`${at}: parameters must be an object (use {} for none)`)
   else {
@@ -110,11 +112,10 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
     }
   }
 
-  /** Names of this session's role tools; [] for a session that is not bound to a bot. */
-  function bridgedToolNames(sessionId) {
-    const bound = lookup(sessionId)
-    return bound ? toolsFor(bound.role).map((def) => def.name) : []
-  }
+  // A tool's own time limit and retry count (run_tests and request_review run for minutes and are never
+  // retried), else the configuration's.
+  const timeoutOf = (def) => def.timeoutMs?.(config) ?? (config?.limits?.toolTimeoutSeconds ?? 30) * 1000
+  const retriesOf = (def) => def.retries ?? config?.limits?.toolRetries ?? 2
 
   async function runOnce(def, ctx, args, timeoutMs) {
     let timer
@@ -151,8 +152,8 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
       }
 
       // 3. Run with retry (retryable errors only) and a time limit per attempt.
-      const retries = config?.limits?.toolRetries ?? 2
-      const timeoutMs = (config?.limits?.toolTimeoutSeconds ?? 30) * 1000
+      const retries = retriesOf(def)
+      const timeoutMs = timeoutOf(def)
       for (let attempt = 0; ; attempt++) {
         try {
           // 4. Success: the tool's text.
@@ -195,8 +196,6 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
       warn('chat-to-fix: %s needs its role tools but its Agent cannot register them yet', sessionId)
       return []
     }
-    const retries = config?.limits?.toolRetries ?? 2
-    const budgetMs = ((config?.limits?.toolTimeoutSeconds ?? 30) * (retries + 1) + 5) * 1000
     const disposers = []
     const names = []
     for (const def of defs) {
@@ -207,7 +206,7 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
           parameters: def.parameters,
           output: OUTPUT,
           // Above the wrapper's own limits, so DSH never cuts a call the wrapper still waits for.
-          timeoutMs: budgetMs,
+          timeoutMs: timeoutOf(def) * (retriesOf(def) + 1) + 5000,
           execute: async (args) => call(def.name, sessionId, args),
         }))
         if (typeof dispose === 'function') disposers.push(dispose)
@@ -254,5 +253,5 @@ export function createToolRegistry({ store, gate, adapters, config = {} as any, 
     return problems
   }
 
-  return { defineRoleTool, attachRoleTools, detachRoleTools, bridgedToolNames, toolsFor, call, validate }
+  return { defineRoleTool, attachRoleTools, detachRoleTools, toolsFor, call, validate }
 }

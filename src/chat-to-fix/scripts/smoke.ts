@@ -1,7 +1,8 @@
 // Smoke run of chat-to-fix in the bundled DSH runtime, with a local mock model (scripts/mock-llm.ts)
-// instead of a real one: no API key, no real model call, and the Coding bot's Claude Code route
-// points at a stand-in (scripts/lib/fake-claude.sh). Prints a pass/fail list; exit code 0 only
-// when every check passed. Everything it starts is stopped again, also on failure.
+// instead of a real one: no API key, no real model call. All five bots run on the mock's anthropic
+// route; the Main bot's first answer calls the Coding bot once, so the Coding bot's session shows its
+// tools too. Prints a pass/fail list; exit code 0 only when every check passed. Everything it starts
+// is stopped again, also on failure.
 //
 //   . scripts/dev-env.sh && node scripts/smoke.ts [--sentinel-home]
 //
@@ -16,10 +17,11 @@
 // with scripts/start-chat-to-fix.sh; GET /health; POST /events; follow the task to `running`; check the
 // five bots and the group (GET /tasks/:id?records=1 and $DATA/dsh/bot/state.json), the agent
 // preset of each bot session (DSH session logs), the task message and the tool list in the Main
-// bot's model request (mock log), its reply in the execution record, the sockets; POST
+// bot's model request (mock log), its reply in the execution record, the Coding bot's tools and
+// thinking level, the sockets; POST
 // /tasks/:id/stop; scripts/stop-chat-to-fix.sh; stop the mock; compare the home-directory snapshots.
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -32,9 +34,16 @@ if (!DATA.startsWith(join(ROOT, '.data') + '/')) { console.error(`smoke: the dat
 const SENTINEL = process.argv.includes('--sentinel-home')
 const MODEL = 'claude-sonnet-5-5'
 const REPLY = 'MOCK-REPLY: the Main bot has read the task.'
+// The Main bot's first answer calls the Coding bot (bot names are <Name>-<task no>; the smoke task is T-1).
+const MAIN_FIRST = `${REPLY} @Coding-1 please confirm that you can see the task.`
+const CODING_REPLY = 'MOCK-REPLY: the Coding bot is here.'
 const CHANNEL = 'C0456'
-// DSH's built-in tools that write, run commands or reach the network.
-const WRITE_OR_SHELL = ['write', 'edit', 'apply_patch', 'str_replace_editor', 'bash', 'pwsh', 'job_output', 'job_kill', 'job_list', 'subagent', 'subagent_fork', 'workflow', 'web_search', 'web_fetch', 'plugin_manager', 'schedule_create', 'schedule_edit']
+// DSH's built-in tools that run commands, delegate or reach the network: no bot has any of them.
+const SHELL_WEB_OR_DELEGATION = ['apply_patch', 'str_replace_editor', 'bash', 'pwsh', 'job_output', 'job_kill', 'job_list', 'subagent', 'subagent_fork', 'workflow', 'web_search', 'web_fetch', 'plugin_manager', 'schedule_create', 'schedule_edit', 'ask_user_question', 'exit_plan_mode']
+// DSH's built-in tools that write: only the Coding bot has them.
+const WRITE_OR_SHELL = ['write', 'edit', ...SHELL_WEB_OR_DELEGATION]
+// The Coding bot's own tools (core/registry/bots.ts) and the DSH file tools of its preset `coding`.
+const CODING_TOOLS = ['read', 'write', 'edit', 'glob', 'grep', 'task_read', 'repo_diff', 'run_tests', 'request_review', 'request_code', 'review_report', 'needs_info_confirm']
 // Places under the real home that belong to DSH or DS Bot; a change there fails the run. Other
 // changes in the window are listed (other programs on this machine write there too).
 const HOME = process.env.HOME
@@ -73,9 +82,12 @@ const presetOfSession = (sessionId) => {
   return undefined
 }
 
-// The environment for the start script: no real key and no real Claude Code can reach the process.
-const env = { ...process.env, CHAT_TO_FIX_DATA: DATA, CHAT_TO_FIX_MOCK_LLM_KEY: 'mock-not-a-key', CHAT_TO_FIX_PASS_ENV: 'CHAT_TO_FIX_MOCK_LLM_KEY' }
-for (const name of ['ANTHROPIC_API_KEY', 'CHAT_TO_FIX_HTTP_TOKEN', 'CHAT_TO_FIX_CONFIG', 'CLAUDE_BIN']) delete env[name]
+// The environment for the start script: no real key can reach the process. The configuration check wants
+// ANTHROPIC_API_KEY (every bot is on the anthropic route), so it gets a dummy; the overlay points the route's
+// key reference at another dummy and its base URL at the mock, so neither ever reaches Anthropic.
+const env: any = { ...process.env, CHAT_TO_FIX_DATA: DATA, CHAT_TO_FIX_MOCK_LLM_KEY: 'mock-not-a-key', CHAT_TO_FIX_PASS_ENV: 'CHAT_TO_FIX_MOCK_LLM_KEY' }
+for (const name of ['CHAT_TO_FIX_HTTP_TOKEN', 'CHAT_TO_FIX_CONFIG', 'CLAUDE_BIN']) delete env[name]
+env.ANTHROPIC_API_KEY = 'smoke-not-a-key'
 const startEnv = SENTINEL ? { ...env, HOME: join(DATA, 'sentinel-home') } : env
 
 let mock
@@ -102,7 +114,10 @@ async function main() {
 
   // 1. The mock model, in its own process group.
   mock = spawn(process.execPath, [join(ROOT, 'scripts/mock-llm.ts')], {
-    env: { PATH: process.env.PATH, MOCK_LOG: join(DATA, 'mock.jsonl'), MOCK_REPLY: REPLY, MOCK_PORT: '0' },
+    env: {
+      PATH: process.env.PATH, MOCK_LOG: join(DATA, 'mock.jsonl'), MOCK_REPLY: REPLY, MOCK_PORT: '0',
+      MOCK_RULES: JSON.stringify([{ tool: 'task_advance', reply: MAIN_FIRST, times: 1 }, { tool: 'run_tests', reply: CODING_REPLY }]),
+    },
     detached: true, stdio: ['ignore', 'pipe', 'inherit'],
   })
   const mockPort = await new Promise<number>((ok, fail) => {
@@ -119,6 +134,7 @@ async function main() {
     httpPort: 0,
     language: 'zh',
     apiModel: `anthropic/${MODEL}`,
+    codingModel: `anthropic/${MODEL}`,
     adapters: { slack: 'fake', jira: 'fake', gitlab: 'fake' },
     bindings: [{ channel: CHANNEL, repo: 'group/project', jiraProject: 'DEMO' }],
   }
@@ -134,10 +150,6 @@ async function main() {
     `        baseURL: http://127.0.0.1:${mockPort}`,
     '        models:',
     `          - id: ${MODEL}`,
-    '# The Coding bot\'s route runs a stand-in that answers --version and refuses everything else.',
-    '- id: chat-to-fix',
-    '  config:',
-    `    claudeCommand: ${join(ROOT, 'scripts/lib/fake-claude.sh')}`,
     '',
   ].join('\n'))
 
@@ -220,8 +232,8 @@ async function main() {
 
   // The agent preset of each bot's own session (the bot id is its own session's id).
   const presets = Object.entries(runEntry.bots).map(([role, id]) => [role, presetOfSession(id)])
-  check('each API bot\'s own session is on agent preset readonly, the Coding bot\'s on standard (DSH session logs)',
-    presets.every(([role, p]) => p === (role === 'coding' ? 'standard' : 'readonly')), presets.map(([role, p]) => `${role}=${p}`).join(' '))
+  check('each flow bot\'s own session is on agent preset readonly, the Coding bot\'s on coding (DSH session logs)',
+    presets.every(([role, p]) => p === (role === 'coding' ? 'coding' : 'readonly')), presets.map(([role, p]) => `${role}=${p}`).join(' '))
 
   // The Main bot's model request carrying the task message. The pi-ai route sends no session
   // header, so the request is attributed by its tools: task_advance is a role tool of `main`
@@ -255,6 +267,20 @@ async function main() {
     check('the Main bot\'s reply appears in the execution record', false, `${error.message}; records: ${JSON.stringify((r.body.records ?? []).map((e) => [e.type, e.role, String(e.text ?? '').slice(0, 40)])).slice(0, 600)}`)
   }
 
+  // The Coding bot, called once by the Main bot: its model request offers exactly its preset's file tools and its
+  // role tools, no shell, web or delegation tool; its round is billed with its thinking level (codingEffort high).
+  try {
+    const codingCall = await until('a model request of the Coding bot', () => mockLog().find((e) => (e.toolNames ?? []).includes('run_tests')), 60_000)
+    const missing = CODING_TOOLS.filter((n) => !codingCall.toolNames.includes(n))
+    const extra = codingCall.toolNames.filter((n) => SHELL_WEB_OR_DELEGATION.includes(n))
+    check('the Coding bot\'s session has read/write/edit/glob/grep and its role tools, and no shell, web or delegation tool', missing.length === 0 && extra.length === 0,
+      missing.length || extra.length ? `missing: ${missing.join(', ') || '-'}; forbidden present: ${extra.join(', ') || '-'}` : `${codingCall.toolNames.length} tools: ${codingCall.toolNames.join(', ')}`)
+    const usage = await until('a usage record of the Coding bot', async () => (await api('GET', `${taskUrl}?records=1`)).body.records?.find((e) => e.type === 'usage' && e.role === 'coding'), 30_000)
+    check('the Coding bot\'s round is billed from DSH projections at its thinking level (effort high)', usage.source === 'dsh' && usage.model === MODEL && usage.effort === 'high', usage.text + `; effort ${usage.effort ?? 'none'}`)
+  } catch (error) {
+    check('the Coding bot answered the Main bot\'s call (mock model log)', false, `${error.message}; requests: ${mockLog().map((e) => (e.toolNames ?? []).filter((n) => ['task_advance', 'run_tests'].includes(n)).join('/') || '?').join(' ')}`)
+  }
+
   // Token billing: the Main bot's round is a usage record read from DSH's own projections (tokenUsage, sessionStats),
   // priced from the table, and the task's running summary adds it up. The mock model reports its tokens, so they are non-zero.
   const USAGE_CHECK = 'the Main bot\'s round is a usage record from DSH projections, priced from the table, and task.usage adds it up'
@@ -277,9 +303,13 @@ async function main() {
   const outward = sockets.filter((l) => !/127\.0\.0\.1|\[::1\]/.test(l))
   check('no socket of the process group leaves 127.0.0.1 (lsof while running)', outward.length === 0, outward.join(' | ') || `${sockets.length} sockets, all loopback`)
   const files = (await lsof('-Fn')).split('\n').filter((l) => l.startsWith('n/')).map((l) => l.slice(1))
-  const outside = [...new Set(files.filter((f) => !f.startsWith(ROOT + '/') && !/^\/(dev|usr\/lib|System|private\/var\/db|Library\/Preferences\/Logging)\b/.test(f) && f !== '/' && !f.startsWith(process.env.CHAT_TO_FIX_NODE_BIN ?? dirname(process.execPath))))]
+  // Allowed: the project, the repository root's node_modules (the DSH runtime; in a git worktree it may be a link to
+  // the main checkout's, hence its real path too), node, /dev, system libraries and ICU data.
+  const rootModules = join(ROOT, '..', '..', 'node_modules')
+  const allowedRoots = [ROOT, rootModules, existsSync(rootModules) ? realpathSync(rootModules) : rootModules, process.env.CHAT_TO_FIX_NODE_BIN ?? dirname(process.execPath)]
+  const outside = [...new Set(files.filter((f) => !allowedRoots.some((root) => f.startsWith(root + '/')) && !/^\/(dev|usr\/lib|usr\/share\/icu|System|private\/var\/db|Library\/Preferences\/Logging)\b/.test(f) && f !== '/'))]
   writeFileSync(join(DATA, 'open-files-running.txt'), [...new Set(files)].join('\n') + '\n')
-  check('every file the process group holds open lies in the project (besides node, /dev, system libraries)', outside.length === 0, outside.join(' | ') || `${new Set(files).size} paths`)
+  check('every file the process group holds open lies in the project or the DSH runtime (besides node, /dev, system libraries)', outside.length === 0, outside.join(' | ') || `${new Set(files).size} paths`)
 
   // 4. Stop the task, then the process.
   const stopped = await api('POST', `${taskUrl}/stop`)
@@ -287,8 +317,6 @@ async function main() {
   const cleaned = readJson(statePath)
   check('POST /tasks/:id/stop stops the task and removes its bots and group', stopped.status === 200 && final.state === 'stopped' && botIds.every((id) => cleaned.bots?.[id] === undefined) && cleaned.rooms?.[runEntry.groupId] === undefined,
     `${JSON.stringify(stopped.body)}; state ${final.state} (${final.endReason}); bots left ${Object.keys(cleaned.bots ?? {}).length}, groups left ${Object.keys(cleaned.rooms ?? {}).length}`)
-  check('the Claude Code stand-in was never run for a turn (no real model call possible)', !existsSync(join(DATA, 'tmp', 'fake-claude.log')),
-    existsSync(join(DATA, 'tmp', 'fake-claude.log')) ? readFileSync(join(DATA, 'tmp', 'fake-claude.log'), 'utf8').trim() : 'only --version was asked, if anything')
   const calls = mockLog()
   const proxied = calls.filter((e) => e.proxyRequest || e.proxyConnect)
   check('every model request went to the mock', calls.filter((e) => !e.proxyRequest && !e.proxyConnect).every((e) => e.model === MODEL && !e.unexpected), `${calls.length - proxied.length} requests, all /v1/messages for ${MODEL}`)
