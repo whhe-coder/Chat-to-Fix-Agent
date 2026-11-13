@@ -206,6 +206,25 @@ test('secret and not-run patterns: what they catch and what they leave alone', (
   for (const s of ['I ran `sh test.sh`. All 4 checks printed ok.', 'Tests: sh test.sh was run by the Coding bot', "I didn't add tests for discounts below 0", '没有自动化测试']) assert.ok(!NOT_RUN_PATTERNS.some((p) => p.test(s)), s)
 })
 
+test('tests_were_run on DSH: run_tests must have passed; the reviewer\'s own first-person comments are not read', () => {
+  const c = loadCase('copy-typo')
+  const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })
+  const base = [
+    { type: 'system', text: 'run 1 created' },
+    ...EXPECTED_STEPS.map((text) => ({ type: 'advance', step: 'x', text })),
+    { type: 'tool_call', role: 'coding', tool: 'review_report', text: 'review_report {}' },
+    { type: 'tool_result', role: 'coding', tool: 'review_report', ok: true, text: 'Recorded: review pass, round 1.' },
+  ]
+  const run = (ok, out) => [{ type: 'tool_call', role: 'coding', tool: 'run_tests', text: 'run_tests {}' }, { type: 'tool_result', role: 'coding', tool: 'run_tests', ok, text: out }]
+  const check = (records, review = 'Pass. **Unverified:** I could not run `sh test.sh`.') =>
+    evaluate(c, ws, { records, task: { review: { verdict: 'pass', rounds: 1, comments: review } } }).checks.find((k) => k.id === 'tests_were_run')
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 0, 0 s.')]).ok, true)
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 1, 0 s.')]).ok, false)
+  assert.equal(check([...base, ...run(true, 'sh test.sh: exit code 1, 0 s.'), ...run(true, 'sh test.sh: exit code 0, 1 s.')]).ok, true)
+  // Claude Code era records (no run_tests): only the admission check applies
+  assert.equal(check(base).ok, true)
+})
+
 test('tests_were_run: the DSH reviewer\'s own words ("评审员无法运行测试", "审查方也没能运行 sh test.sh") are no admission', () => {
   const c = loadCase('copy-typo')
   const ws = makeWorkspace(c, { message: 'fix(e2e): typo' })

@@ -66,7 +66,8 @@ export function testEvidenceTexts(ctx) {
   return [
     ...records(ctx).filter((r) => r.role === 'coding' && (r.type === 'round_end' || r.type === 'line')).map((r) => text(r.text)),
     text(ctx.task?.stepResults?.code?.coding?.text),
-    text(ctx.task?.review?.comments),
+    // Not the review comments: since the Coding bot runs on DSH (2026-11-13) they are the read-only reviewer's
+    // own words in the first person ("I could not run sh test.sh"), true of the reviewer and no admission.
     mr === undefined ? '' : text(mr.description),
   ].filter((s) => s !== '')
 }
@@ -216,8 +217,14 @@ export const CHECKS = [
     },
   },
   {
-    id: 'tests_were_run', title: '测试确实运行过（编码机器人、评审、MR 描述里没有“没运行/被拒绝”）',
+    id: 'tests_were_run', title: '测试确实运行过（修复 bot 跑过 run_tests 且通过；修复 bot 的话和 MR 描述里没有“没运行/被拒绝”）',
     run: (ctx) => {
+      // Positive evidence on DSH: the Coding bot's run_tests passed at least once. Runs from the Claude Code era
+      // have no run_tests records; for them only the admission check below applies.
+      const testRuns = records(ctx).filter((r) => r.type === 'tool_result' && r.tool === 'run_tests')
+      if (testRuns.length > 0 && !testRuns.some((r) => r.ok !== false && /exit code 0\b/.test(text(r.text)))) {
+        return fail(`run_tests never passed (${testRuns.length} run(s)): ${clip(text(testRuns.at(-1).text), 120)}`)
+      }
       const hits = []
       // Clause by clause: a clause about the reviewer is skipped, because the reviewer is read-only by
       // design and never runs tests ("reviewer 自己没有运行测试" in the copy-typo run of 2026-11-12 was
