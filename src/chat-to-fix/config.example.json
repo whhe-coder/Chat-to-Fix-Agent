@@ -29,6 +29,8 @@
   "jiraTransitions": ["In Review"],
   "commitAuthor": { "name": "chat-to-fix", "email": "chat-to-fix@example.com" },
   "limits": {
+    "softTaskMinutes": 20,
+    "softTaskUsd": 2.5,
     "taskMinutes": 80,
     "stepMinutes": { "fetch": 5, "issue": 5, "prepare": 10, "code": 40, "mr": 5, "ci": 30, "writeback": 5 },
     "quietMinutes": 3,

@@ -42,6 +42,8 @@
 
 | 键 | 初值 | 含义 |
 |---|---|---|
+| `softTaskMinutes` | 20 | 软时限：到了就收尾，不杀任务（见 4.5）；必须小于 `taskMinutes` |
+| `softTaskUsd` | 2.5 | 软预算（美元，`task.usage.totalUsd`）：到了就收尾；没有硬预算 |
 | `taskMinutes` | 80 | 一次运行的总时限 |
 | `stepMinutes.fetch`、`.issue`、`.mr`、`.writeback` | 5 | 这几步各自的时限 |
 | `stepMinutes.ci` | 30 | CI 一轮修复的时限，从该轮 pipeline 失败时算起；等 pipeline 期间不计（见 4.5 和规格 7） |
@@ -160,7 +162,8 @@
 
 | 检查 | 条件 | 动作 | 结束原因 |
 |---|---|---|---|
-| 任务总时限 | 本次运行超过 `taskMinutes` | 结束任务，状态 `timed_out` | `task_timeout` |
+| 任务总时限 | 本次运行超过 `taskMinutes`（等 CI 的时间不计） | 结束任务，状态 `timed_out` | `task_timeout` |
+| 软时限、软预算 | 运行时长超过 `softTaskMinutes`，或 `totalUsd` 超过 `softTaskUsd` | 不结束任务。写一条 `limit` 记录（`soft_time` / `soft_budget`）；给主 bot 发一条 `[system]` 消息：停止工作、不再叫 coding bot、不开新一轮修复，以 `needs_person` 收尾，说明写给提问人看（讨论是中文就写中文：太难或不适合自动改、原因、试过什么），有 Jira 单让 Jira bot 留一条同样原因的评论，有 Draft MR 就提一句；coding bot 的回合在跑就先停掉。每个软上限每次运行只触发一次；已经在收尾时第二个软上限只记录，不重复发消息。收尾后的 `needs_person` 结束通知照常经 outbox 发到 Slack | 无（主 bot 以 `needs_person` 收尾；收尾不及时则被任务总时限或步骤时限结束） |
 | 步骤时限（编码以外） | 进入当前步骤超过 `stepMinutes`。适用于 `fetch`、`issue`、`prepare`、`mr`、`ci`、`writeback`；`ci` 的规则见下面的“CI”行；第八步 `close` 没有自己的时限 | 第一次：给主 bot 补一条消息，说明哪一步超时。再超过一个时限：结束任务，状态 `failed`。`prepare` 也是这样，共 2 个 10 分钟 | `step_timeout` |
 | 编码时限 | 进入 `code` 超过 `stepMinutes.code` | 不催：直接停止 coding bot 的回合并结束任务，状态 `timed_out` | `coding_timeout` |
 | 群安静 | 群连续 `quietMinutes` 没有任何动静，任务没结束 | 给主 bot 补一条消息，最多 `quietNudges` 次；再发生则结束任务，状态 `failed` | `stalled` |

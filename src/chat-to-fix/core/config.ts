@@ -18,6 +18,9 @@ export const ANTHROPIC_KEY = 'ANTHROPIC_API_KEY'
 const REMOVED_ROUTE = 'claude-code/'
 
 export const DEFAULT_LIMITS = Object.freeze({
+  // Soft limits start a wrap-up (the Main bot closes the task as needs_person); the task time limit below ends the task.
+  softTaskMinutes: 20,
+  softTaskUsd: 2.5,
   taskMinutes: 80,
   stepMinutes: Object.freeze({ fetch: 5, issue: 5, prepare: 10, code: 40, mr: 5, ci: 30, writeback: 5 }),
   quietMinutes: 3,
@@ -250,6 +253,8 @@ export function loadConfig({ path, env = process.env }: { path?: string, env?: a
     else if (INTEGER_LIMITS.includes(key) && !Number.isInteger(value)) problems.push(`limits.${key} must be a whole number`)
     else limits[key] = value
   }
+  // The soft time limit must be below the task time limit, or the wrap-up could never happen before the task is ended.
+  if (limits.softTaskMinutes >= limits.taskMinutes) problems.push(`limits.softTaskMinutes (${limits.softTaskMinutes}) must be less than limits.taskMinutes (${limits.taskMinutes})`)
   if (rawLimits.stepMinutes !== undefined) {
     if (!isObject(rawLimits.stepMinutes)) problems.push('limits.stepMinutes must be an object')
     else for (const [step, value] of Object.entries(rawLimits.stepMinutes)) {

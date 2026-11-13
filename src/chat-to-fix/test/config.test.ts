@@ -284,3 +284,12 @@ test('binding ciJobs and ciNone (simulated CI) are validated and passed through'
   assert.throws(() => bad({ ciJobs: [{ name: 'a', command: 'x', flaky: 'yes' }] }), /ciJobs\[0\]\.flaky/)
   assert.throws(() => bad({ ciNone: 'yes' }), /bindings\[0\]\.ciNone/)
 })
+
+test('soft task limits: defaults, overrides, and the soft time must stay below taskMinutes', () => {
+  const c = load(base())
+  assert.deepEqual([c.limits.softTaskMinutes, c.limits.softTaskUsd, c.limits.taskMinutes], [20, 2.5, 80])
+  const o = load({ ...base(), limits: { softTaskMinutes: 5, softTaskUsd: 1, taskMinutes: 10 } })
+  assert.deepEqual([o.limits.softTaskMinutes, o.limits.softTaskUsd, o.limits.taskMinutes], [5, 1, 10])
+  assert.throws(() => load({ ...base(), limits: { softTaskUsd: -1 } }), /limits\.softTaskUsd must be a positive number/)
+  assert.throws(() => load({ ...base(), limits: { taskMinutes: 10 } }), /softTaskMinutes \(20\) must be less than limits\.taskMinutes \(10\)/)
+})
