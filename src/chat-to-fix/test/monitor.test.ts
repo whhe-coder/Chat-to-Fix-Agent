@@ -10,12 +10,12 @@ const LIMITS = {
 const MIN = 60_000
 const T0 = Date.parse('2026-11-12T02:00:00Z')
 
-function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false, language = undefined } = {}) {
+function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true, sendFails = false, language = undefined, limits = {}, usd = 0 } = {}) {
   const clock = { t: T0 }
   const iso = (agoMin) => new Date(T0 - agoMin * MIN).toISOString()
   const tasks = new Map([['T-1', {
     id: 'T-1', state: 'running', step, stepAt: iso(stepAgoMin), origin: { channel: 'C1', threadTs: '1.1' },
-    jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' },
+    jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' }, usage: { totalUsd: usd },
     runs: [{ no: 1, groupId: 'g1', bots: { main: 'bm', coding: 'bc' }, startedAt: iso(runAgoMin), endedAt: null }],
   }]])
   const records = []
@@ -41,7 +41,7 @@ function setup({ step = 'issue', stepAgoMin = 0, runAgoMin = 0, withSend = true,
   }
   const warnings = []
   const monitor = createMonitor({
-    store, botlayer, limits: LIMITS, language, now: () => clock.t, warn: (...a) => warnings.push(a),
+    store, botlayer, limits: { ...LIMITS, ...limits }, language, now: () => clock.t, warn: (...a) => warnings.push(a),
     end: async (id, st, reason) => { calls.ended.push([id, st, reason]); tasks.get(id).state = st },
     send: withSend ? async (origin, text, kind) => { if (sendFails) throw new Error('slack down'); calls.sent.push({ origin, text, kind }) } : undefined,
   })
@@ -353,4 +353,65 @@ test('notify: the progress and resubmit notices, texts in Chinese and English', 
   assert.equal((await texts('en', noUrl)).jira_created, 'Task T-1: Jira issue DEMO-7 created.')
   assert.equal((await texts('zh', task)).ci_fix_pushed, '任务 T-1：CI 第 2 轮修复已推送：提交 abc1234。')
   assert.equal((await texts('en', task)).ci_fix_pushed, 'Task T-1: CI fix round 2 pushed: commit abc1234.')
+})
+
+// ---- soft and hard limits (time, spend) -----------------------------------------------------------------------------
+const SOFT = { softTaskMinutes: 20, softTaskUsd: 2.5 }
+
+test('soft limits: nothing fires below them', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 19, usd: 2.4, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 0)
+  assert.deepEqual(s.calls.ended, [])
+  assert.equal(limitRecords(s).length, 0)
+})
+
+test('soft time: one wrap-up message to the Main bot, once, the task goes on', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 21, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.equal(s.calls.post[0].g, 'g1')
+  assert.match(s.calls.post[0].text, /^\[system\] The task has run for more than 20 minutes/)
+  assert.match(s.calls.post[0].text, /needs_person/)
+  assert.match(s.calls.post[0].text, /Jira bot/)
+  assert.match(s.calls.post[0].text, /Draft MR/)
+  assert.deepEqual(s.calls.ended, [])
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time'])
+  await s.monitor.tick(); s.advance(2); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.equal(limitRecords(s).length, 1)
+})
+
+test('soft time: a running Coding turn is stopped', async () => {
+  const s = setup({ step: 'code', stepAgoMin: 1, runAgoMin: 21, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle()
+  sessionEvent(s, 'turn/start')
+  await s.monitor.tick()
+  assert.deepEqual(s.calls.stop, ['bc'])
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(s.calls.ended, [])
+})
+
+test('soft spend: fires once and sends the wrap-up message', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.match(s.calls.post[0].text, /spent \$2\.6, more than its soft budget of \$2\.5/)
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_budget'])
+  await s.monitor.tick(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(s.calls.ended, [])
+})
+
+test('both soft limits: two records, one message', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, runAgoMin: 21, usd: 2.6, limits: SOFT })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 1)
+  assert.deepEqual(limitRecords(s).map((r) => r.check), ['soft_time', 'soft_budget'])
+})
+
+test('the limits are configurable: a higher soft budget does not fire', async () => {
+  const s = setup({ step: 'mr', stepAgoMin: 1, usd: 2.6, limits: { ...SOFT, softTaskUsd: 5 } })
+  s.monitor.watch('T-1'); await s.settle(); await s.monitor.tick()
+  assert.equal(s.calls.post.length, 0)
 })

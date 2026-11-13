@@ -17,6 +17,9 @@ export const NUDGE = Object.freeze({
     `[system] Nobody in the group has done anything for ${minutes} minutes. Continue this CI round: read the log, ask the Coding bot to fix it, push the fix with mr_push_fix, or stop the loop with ci_stop.`,
   ciEngineSilent: (minutes) =>
     `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Ask the Coding bot again (message_bot) with the same request.`,
+  // The soft limit: not an end, a wrap-up. `why` says which limit was reached.
+  wrapUp: (why) =>
+    `[system] ${why} Stop the work now: do not call the Coding bot again and do not start another fix round. Finish the flow: close the task with task_close as needs_person, with a note for the requester (in the language of the discussion) saying that the problem looks too hard or not suitable for an automatic change, why, and what was tried. If the task has a Jira issue, first have the Jira bot add one comment with the same reason. If a Draft MR is open, mention it in the note.`,
   engineSilent: (minutes) =>
     `[system] The Coding bot produced no output for ${minutes} minutes and its turn was stopped. Call the Coding bot again with the same request.`,
 })
@@ -166,6 +169,7 @@ const TOOL_CALL = 'tool/call'
 const LONG_TOOLS = new Set(['run_tests', 'request_review'])
 
 const MINUTE = 60_000
+const usd = (v) => `$${Number(v).toFixed(2).replace(/\.?0+$/, '')}`
 
 export function createMonitor({ store, botlayer, limits, end, send, repo, language = 'en', now = () => Date.now(), warn = (...a) => console.warn(...a), intervalMs = 5000 }: any) {
   /** @type {Map<string, object>} */
@@ -285,7 +289,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       groupId: null, bots: {}, runNo: null, taskNo: null, lead: 'main', step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,
       lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, codingSteps: 0, longCalls: 0, idleRelay: false, ended: false,
-      ciPolledAt: 0, ciPhaseKey: null,
+      ciPolledAt: 0, ciPhaseKey: null, softFired: { time: false, usd: false }, wrappingUp: false,
     }
     watched.set(taskId, w)
     subscribe()
@@ -319,6 +323,21 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     try { await record(w, check, action) } catch (error) { warn('chat-to-fix: monitor cannot record %s: %s', check, error?.message ?? error) }
     try { await end(w.taskId, state, endReason) } catch (error) { warn('chat-to-fix: monitor cannot end %s: %s', w.taskId, error?.message ?? error) }
     watched.delete(w.taskId)
+  }
+
+  // A soft limit was reached: record it, stop a running Coding turn, and (the first time only) tell the Main bot
+  // to wrap up. The task goes on; the Main bot closes it as needs_person (the task time limit is the backstop).
+  async function softLimit(w, check, why, action, t) {
+    const first = !w.wrappingUp
+    w.wrappingUp = true
+    try { await record(w, check, first ? `${action}; told the Main bot to wrap up` : `${action}; already wrapping up`) } catch (error) { warn('chat-to-fix: monitor cannot record %s: %s', check, error?.message ?? error) }
+    if (!first) return
+    if (w.turnRunning) {
+      w.turnRunning = false
+      w.lastCodingEventAt = t
+      try { if (w.bots.coding) await botlayer.stopBot(w.bots.coding) } catch (error) { warn('chat-to-fix: monitor cannot stop the Coding bot: %s', error?.message ?? error) }
+    }
+    try { await nudge(w, NUDGE.wrapUp(why), 'wrapup', 'main') } catch (error) { warn('chat-to-fix: monitor cannot tell the Main bot to wrap up: %s', error?.message ?? error) }
   }
 
   // ---- CI wait (spec 7, 4.4): the eighth check ------------------------------------------------
@@ -491,6 +510,19 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     // 1. Total task time, counted from the start of this run (the time spent waiting for CI is not counted).
     if (t - w.runStart - waited > limits.taskMinutes * MINUTE) {
       return endTask(w, 'timed_out', 'task_timeout', 'task_timeout', 'ended the task (timed_out)')
+    }
+
+    const spent = Number(task.usage?.totalUsd ?? 0)
+
+    // 1b. Soft limits (time, spend): no end, a wrap-up. Each fires once per run; the Main bot is told once.
+    const runMs = t - w.runStart - waited
+    if (limits.softTaskMinutes !== undefined && !w.softFired.time && runMs > limits.softTaskMinutes * MINUTE) {
+      w.softFired.time = true
+      await softLimit(w, 'soft_time', `The task has run for more than ${limits.softTaskMinutes} minutes (the soft time limit).`, `soft time limit of ${limits.softTaskMinutes} minutes reached`, t)
+    }
+    if (limits.softTaskUsd !== undefined && !w.softFired.usd && spent > limits.softTaskUsd) {
+      w.softFired.usd = true
+      await softLimit(w, 'soft_budget', `The task has spent ${usd(spent)}, more than its soft budget of ${usd(limits.softTaskUsd)}.`, `soft budget of ${usd(limits.softTaskUsd)} reached (${usd(spent)} spent)`, t)
     }
 
     // 3. Coding time limit.
