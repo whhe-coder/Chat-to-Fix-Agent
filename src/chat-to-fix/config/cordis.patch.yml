@@ -305,3 +305,6 @@
 - { id: web-search-deepseek, disabled: true }
 - { id: web-deepseek-api, disabled: true }
 - { id: web-fetch-http, disabled: true }
+
+# 8.5 plugin manager (installing and removing plugin packages)
+- { id: plugin-manager, disabled: true }

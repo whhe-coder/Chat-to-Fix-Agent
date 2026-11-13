@@ -113,13 +113,13 @@ const REMOVED: string[] = [
   'otel',
   // step 4
   'web', 'web-search-deepseek', 'web-deepseek-api', 'web-fetch-http',
+  // step 5
+  'plugin-manager',
 ]
 
 // Rows that are still on and wait for a trim step. Each step moves its rows to REMOVED; at the end this is empty
 // (step 10 decides the last six one by one: a row kept moves to WHITELIST with a reason).
 const PENDING: string[] = [
-  // step 5
-  'plugin-manager',
   // step 6
   'llm-deepseek', 'llm-deepseek-account', 'deepseek-account', 'session-log-deepseek',
   'plugin-package-inventory-deepseek', 'deepseek-llm-api-extensions',
