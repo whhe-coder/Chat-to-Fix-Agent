@@ -1,7 +1,7 @@
 # DSH 瘦身方案（Chat-to-Fix）
 
 - 日期：2026-11-13
-- 状态：**只是方案**。没有改配置、`package.json` 和代码，没有装包，没有启动系统，没有调模型。
+- 状态：**第 0–7 步已在本分支实施并提交（2026-11-13，各一个提交，可单独回退）**；第 8–11 步还没做（第 8 步子 agent 附带行、第 9 步系统提示词那一段、第 10 步待拍板 6 行、第 11 步依赖瘦身和 `package.json`，都等 Zihui 另行决定）。实施记录见本文末“实施记录”一节。下文各节仍是方案原文。
 - 依据：分支 `AIINITIATIVES-5733_dsh-coding`（PR #8），提交 `ae603a8`；根目录 `node_modules/@deepseek-ai/*`（DSH 0.2.2-rc.1）的实际文件；用当前检出重新跑的 `dsh --profile chat-to-fix --patch config/cordis.patch.yml --dump-config`（不启动、不执行 `!!js`，0.3 秒）。
 - 规矩（Zihui 定）：DSH 的包不改。瘦身只通过我们的补丁行（`src/chat-to-fix/config/cordis.patch.yml`）和我们的根目录依赖做。
 - 关联：[plan-dsh-coding.md](plan-dsh-coding.md)（五个 bot 都在 DSH 里跑、`request_review`、费用估计）、`src/chat-to-fix/config/README.md`（补丁行逐行说明）。
@@ -687,3 +687,24 @@ chat-to-fix（core/plugin.ts，inject = core/bot/index.ts:28）
 6. 第 10 步的 6 行，逐行定。
 7. 根 `package.json`：删三个依赖、加 `zod` 的 `overrides`；要不要先告诉 Logan；`npm install` 的批准。
 8. 守门测试的第 4 条（严格模式）：DSH 升级多出新行时让测试失败，是否同意。
+
+## 10. 实施记录（第 0–7 步，2026-11-13）
+
+做法：每步在 `src/chat-to-fix/config/cordis.patch.yml` 末尾的第 8 节追加该步片段（原样照第 4 节），同时把这一步的行从守门测试的 `PENDING` 挪到 `REMOVED`；跑 `scripts/dsh-rows.ts` 对比基线、`npm run typecheck`、`npm test`、`npm run smoke:agent`，全绿才提交。没有步骤回退，没有改 `package.json` 和 `package-lock.json`，没有调模型，没有启动 3090 端口。第 6 步按 Zihui 的决定直接删（没有部署用 `deepseek/` 路线）；第 7 步按决定删预设并把注册表默认改成 `readonly`；守门测试用严格模式。
+
+| 步 | 提交 | 开着的行（前 → 后） | 对比结果 |
+|---|---|---|---|
+| 0 | `af2047e` | 158 → 158 | 守门测试 10 项、`scripts/dsh-rows.ts`、`scripts/lib/dsh-tree.ts` |
+| 1 | `80c4c31` | 158 → 101 | 57 行 on → off，别的不变 |
+| 2 | `8bab6e8` | 101 → 87 | 14 行 |
+| 3 | `0375cc7` | 87 → 82 | 5 行 |
+| 4 | `73c5cec` | 82 → 78 | 4 行 |
+| 5 | `5a0181c` | 78 → 77 | 1 行 |
+| 6 | `f9964cd` | 77 → 71 | 6 行 |
+| 7 | `e0a9b1d` | 71 → 66 | 5 行 off；`agent-preset-registry` 的 `default` 由 `standard` 改成 `readonly`（合成树里该行 `config` 只有这一个键，所以整块替换没丢东西） |
+
+每步之后的结果都一样：行总数 199 不变，对比里没有任何一行从 off 变回 on；`npm run typecheck` 无错；`npm test` 五个套件 17 + 43 + 682 + 22 + 483 项（最后一个套件 2 项跳过，0 失败，和基线相同）；`npm run smoke:agent` 25 项全过（基线 25 项，约 21 秒，mock 日志 2 个请求）。流式写法 `{ id: x, disabled: true }` 被真实加载器认，没有改成块写法。第 7 步后冒烟日志里没有 `agent-preset/not-found`、`Unknown agent preset`、`The permission preset ... is not available`。
+
+现在开着 66 行：白名单 57 行（含 `chat-to-fix`）加还没做的 9 行（第 8 步 2 行、第 9 步 1 行、第 10 步 6 行）。守门测试的 `PENDING` 剩 9 行，`REMOVED` 92 行。
+
+没做、也没验证的：内存和启动秒数的前后对比（冒烟没有自动记，只有总时长）；第 7 步关预设后的真实审查运行（要等第 8、9 步一起跑一次，见 5.4）。

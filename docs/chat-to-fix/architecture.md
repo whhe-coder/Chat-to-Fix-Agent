@@ -51,7 +51,7 @@ flowchart LR
 | Slack 一侧 | 公司 Slack Bot（Yuzhao / Logan 的代码）。把 `/fix` 转成 `POST /events`，轮询 `GET /outbox` 把消息发回讨论串。Chat-to-Fix 在发件箱模式下不连 Slack、没有 Slack token。目前只有本机模拟频道 `src/slackBot/mock-channel.js` 接上了这两个接口，真实的 `src/slackBot/slack-bot.js` 还没接 | 仓库根目录 `src/slackBot/` |
 | 系统层 | 不是 bot，是普通代码：接请求、排队、开跑和收尾、计时和催办、检查证据、存任务、攒待发消息 | `core/task/`、`core/flow/` |
 | bot 层 | DS Bot 0.3.1 裁剪版，提供 bot、群、bot 之间互相 @ 和 `message_bot` 等团队工具；系统层只通过门面 `core/task/botlayer.ts` `createBotLayer` 调它 | `core/bot/index.ts`、`bot/` |
-| 运行时 | DSH，装在仓库根目录（根 `package.json` 的 `@deepseek-ai/dsh*` 依赖），整包使用不改。`scripts/start-chat-to-fix.sh` 启动 DSH，配置补丁 `config/cordis.patch.yml` 把 `core/plugin.ts` 作为插件加载 | 根目录 `node_modules/@deepseek-ai/` |
+| 运行时 | DSH，装在仓库根目录（根 `package.json` 的 `@deepseek-ai/dsh*` 依赖），整包使用不改。`scripts/start-chat-to-fix.sh` 启动 DSH，配置补丁 `config/cordis.patch.yml` 把 `core/plugin.ts` 作为插件加载，并关掉我们用不到的 DSH 插件行（浏览器界面、浏览器 API、网页、插件管理、DeepSeek 路线、没用的预设；199 行里开着 66 行，白名单 57 行，其余 9 行等 [plan-dsh-trim.md](design/plan-dsh-trim.md) 的第 8–10 步）。守门测试 `test/dsh-profile-guard.test.ts` 不启动 DSH 就查合成后的插件树：白名单行被关、补丁误关、DSH 升级多出新行、代码新用了 DSH 服务而没登记，都会让 `npm test` 失败 | 根目录 `node_modules/@deepseek-ai/` |
 | 外部服务 | Jira、GitLab（含 CI）、Slack 的适配器，每个有 fake 和 real 两种，Slack 还有 outbox；按配置 `adapters.*` 选 | `core/adapters/index.ts` `createAdapters` |
 
 进程只有一个：DSH 加载 `core/plugin.ts` `apply` → `createChatToFix` 建 bot 层（`core/bot/index.ts` `createRuntime`）和系统层（`core/app.ts` `createApp`），再用 `connectTaskLayer` 把两边接上。
@@ -172,7 +172,7 @@ sequenceDiagram
 | `core/plugin.ts`、`core/app.ts`、`core/config.ts` | 插件入口、系统层组装、配置读取和默认上限（`DEFAULT_LIMITS`） | 偶尔 |
 | `core/bot/` | bot 层入口：按顺序装 DS Bot 模块（`index.ts`），加少量替身（`stubs.ts`） | 很少 |
 | `bot/` | 从 DS Bot 0.3.1 裁来的代码，基本不改（`local-agents/` 已删） | 平时不用看 |
-| `config/cordis.patch.yml` | DSH 配置补丁：模型线路和 key、插件行、权限预设、`readonly` 和 `coding` 两个 agent 预设 | 改模型或 bot 的内置工具时看 |
+| `config/cordis.patch.yml` | DSH 配置补丁：模型线路和 key、关掉不用的插件行（第 8 节）、权限预设、`readonly` 和 `coding` 两个 agent 预设（注册表默认预设是 `readonly`；`standard` 等已关） | 改模型或 bot 的内置工具时看 |
 | `scripts/` | 启停（`start-chat-to-fix.sh` 等）、接真实服务（`connected.ts`）、冒烟（`smoke.ts`）、调试页、端到端脚本（`e2e/`）；`dev-env.sh` 设本机路径 | 运行时用 |
 | `test/` | `npm run test:agent`、`test:agent-layer`（`bot/test/` 另有 `test:agent-bot`） | 改代码时跑 |
 | `rewrite/` | 从 DS Bot 裁掉了什么、为什么（`INVENTORY.md`） | 想知道 `bot/` 由来时 |

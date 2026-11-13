@@ -41,6 +41,7 @@ key 怎么走到模型：启动脚本清空环境，只把一张白名单传给 
 | `codingEffort` | 修复 bot 的推理强度：`low`、`medium`、`high`、`xhigh`、`max`；审查者沿用 | `high` | 配置文件 `chat-to-fix.json` |
 
 - 线路写成 `anthropic/<型号>`。型号要出现在 `config/cordis.patch.yml` 第 1 组的 `models` 里（现在只有 `claude-sonnet-5-5`），换型号时在那里加一行；第 2 组是新会话的默认型号。
+- 补丁第 8 节关掉了 DeepSeek 的两条路线（`deepseek`、`deepseek-account`）和账号登录：模型目录里只有 `anthropic` 路线，写 `deepseek/...` 的线路跑不起来。DSH 现在开着的插件行和为什么要它们，见守门测试 `test/dsh-profile-guard.test.ts` 的白名单；DSH 升级后先跑这个测试，它会报出新开着的行。
 - `claude-code/...` 线路已删，写了会启动失败，错误里说明这条路线没了。旧配置里的 `engineAuth`、`codingPermission` 会被忽略，可以删掉。`dev-env.local.sh` 里的 `CLAUDE_BIN` 也不再用。
 - 模型不支持所选的推理强度时，bot 照建，只在日志里记一条警告。
 - 改了 key 或模型后，先 `npm stop` 再 `npm start`。`npm start` 发现正在运行的 Agent 用的是旧模型配置时会提示先停。
