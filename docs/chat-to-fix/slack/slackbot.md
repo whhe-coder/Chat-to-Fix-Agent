@@ -113,7 +113,7 @@
 
 - **字段**：
   - `purpose`：`ack`（已收到）、`question`（追问）、`result`（结果）或 `system`（系统通知）。
-  - `kind`：只有 `system` 才有。进度：`jira_created`、`mr_opened`、`ci_failed`、`ci_fix_pushed`、`ci_passed`、`ci_rounds_exhausted`、`ci_no_pipeline`；结束：`failed`、`needs_person`、`timed_out`、`stopped`、`expired`、`needs_info_resubmit`；讨论串：`in_progress`、`resumed`、`no_open_task`；拒绝：`queue_full`、`channel_not_bound`。Slack Bot 一般不用看它，原样发 `text` 就行。
+  - `kind`：只有 `system` 才有。进度：`jira_created`、`mr_opened`、`ci_failed`、`ci_fix_pushed`、`ci_passed`、`ci_rounds_exhausted`、`ci_no_pipeline`；结束：`failed`、`needs_person`、`timed_out`、`stopped`、`interrupted`、`expired`、`needs_info_resubmit`；讨论串：`in_progress`、`resumed`、`no_open_task`；拒绝：`queue_full`、`channel_not_bound`。Slack Bot 一般不用看它，原样发 `text` 就行。
 - **顺序和保存**：
   - `seq` 从 1 开始全局递增，不复用。
   - 消息存在 `<数据目录>/outbox.jsonl`，重启不丢。
@@ -127,8 +127,28 @@
 **(3) 其他已有的口**
 
 - `GET /tasks/<号>`：查状态，字段有 `state`、`step`、`endReason`、`closeNote`、`jira`、`mr`、`ci`、`origin`。排查用，Slack Bot 平时不用调。
-- `POST /tasks/<号>/stop`：停止任务。
+- `POST /tasks/<号>/stop`：停止任务（详见下面的 (4)）。
 - `GET /health`：返回 `{ up, queued, running, maxConcurrent, queueMax, queueFull }`。Slack Bot 每次 `/fix` 发任务消息之前先调一次：连不上或 `queueFull` 为真，就只给发起人回临时消息（Logan 规格里“拒绝只给发起人看”的做法），不发任务消息。
+
+**(4) 任务级操作（给 Slack Bot 预留）**
+
+这几个口 **Agent 这边已经做好并测过，Slack Bot 还没接**：团队决定 Slack Bot 暂时不收讨论串里的消息（没有 `app_mentions:read`），所以现在没人调。预留的目的是以后 Yuzhao 要接，只要在 Slack Bot 里加调用，Agent 不用再改。都带 `x-chat-to-fix-token`，按任务号操作。
+
+| 接口 | 什么时候用 | 请求体 | 各状态下的结果 |
+|---|---|---|---|
+| `POST /tasks/<号>/stop`（关停后续） | 用户点“停止”按钮：不要再做后面的步骤，也不做收尾 | 无 | `queued`、`running`：停掉，200 `{ stopped: true }`，发件箱放“已停止”；其余状态：409 `not_stoppable` |
+| `POST /tasks/<号>/messages`（追加信息） | 用户在讨论串里回复，补充情况；以后 Slack 侧能收到回复时用 | `{ eventId, user: { id, name? }, text, files? }`，`eventId`、`user.id`、`text` 必填 | `needs_info`：存下，重新排队，发件箱放“收到补充信息”，202 `{ taskId, state: "queued", delivered: "rerun", position }`；`queued`：存下，下次运行时读到，200 `delivered: "stored"`；`running`：存下，并立刻以一条 `[system]` 消息发进该任务的群，Main 机器人马上看到，200 `delivered: "group"`（群发不出去时退成 `"stored"`）；已结束：409 `task_ended` |
+| `POST /tasks/<号>/interrupt`（打断，带新信息重来） | 用户在讨论串里又发了一次 `/fix`，或点“按新信息重来”：停掉当前这一轮，同一个任务带上新信息重跑 | 同上，`text` 可以不带 | `running`：停掉这一轮，同一个任务重新排队，Jira、仓库、MR 保留（同重跑），发件箱放“任务 T-1 已按新的信息重新开始”（`kind: "interrupted"`，不是“已停止”），202 `{ taskId, state: "queued", delivered: "rerun", interrupted: true, position }`；`queued`：只存下，200 `interrupted: false`；`needs_info`：同 messages 的重新排队，`interrupted: false`；已结束：409 `task_ended` |
+| `GET /tasks?eventId=<id>` 或 `GET /tasks?thread=<频道>:<threadTs>` | `POST /events` 超时、不知道任务建没建时，重试之前先查 | 无 | 200 `{ tasks: [{ id, state, step, jiraKey, mrUrl, …, permalink }] }`，没有就是空数组；`eventId` 和 `thread` 二选一，都给或都不给返回 400 |
+
+- **`eventId` 去重**：`messages` 和 `interrupt` 的 `eventId` 和 `/events` 一样，同一个编号只处理一次；再来一次返回 200 `{ taskId, state, duplicate: true }`，不会重复存、重复发群或重复打断。两份同时到达也只处理一份。`interrupt` 不带 `text` 时也会记下这个编号。建议用 Slack 的 `event_id`（按钮用 `trigger_id`）。
+- **查任务回答 Logan 的规则 1**：`POST /events` 超时了不要直接重发，先 `GET /tasks?eventId=<同一个 eventId>`。查到就用返回的任务，没查到再用同一个 `eventId` 重发（重发本身也是安全的，同一编号只建一个任务）。讨论串里只有 `threadTs` 时用 `?thread=`。
+- **Slack Bot 以后可以这样接**：
+  - “停止”按钮：调 `stop`，不用再发文字，发件箱会带出“已停止”。
+  - 讨论串里又发一次 `/fix`：先 `GET /tasks?thread=` 找到任务，任务还在进行就调 `interrupt`，已结束才当新任务 `POST /events`。
+  - 讨论串里的回复：调 `messages`（前提是 Slack 侧收到这些回复，现在没有）。
+  - 以上返回 409 `task_ended` 时，提示用户用 `/fix` 提新问题。
+- **和 `source: "mention"` 的关系**：同一件事的两个入口，`mention` 按讨论串找任务，`messages` 按任务号找；区别是运行中的任务，`messages` 会马上把信息发进群，`mention` 只是存下，等下次重跑才读到。
 
 ### 4.3 Chat-to-Fix 侧的改动
 

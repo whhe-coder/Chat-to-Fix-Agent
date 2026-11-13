@@ -255,7 +255,7 @@ test('a failing task does not stop the pass over the others', async () => {
 test('notify: the notice kinds carry the task id, Jira key and branch', async () => {
   const s = setup()
   const task = { id: 'T-1', origin: { channel: 'C1' }, jira: { key: 'DEMO-7' }, repo: { branch: 'ai/DEMO-7' } }
-  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'ci_fix_pushed', 'expired', 'failed', 'in_progress', 'jira_created', 'mr_opened', 'needs_info_resubmit', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
+  assert.deepEqual([...NOTICE_KINDS].sort(), ['channel_not_bound', 'ci_fix_pushed', 'expired', 'failed', 'in_progress', 'interrupted', 'jira_created', 'mr_opened', 'needs_info_resubmit', 'no_open_task', 'queue_full', 'resumed', 'stopped', 'timed_out'])
   for (const kind of ['in_progress', 'timed_out', 'failed', 'expired', 'stopped']) {
     s.calls.sent.length = 0
     await s.monitor.notify(task, kind)

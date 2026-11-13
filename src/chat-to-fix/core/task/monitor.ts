@@ -38,6 +38,7 @@ export const NOTICE = Object.freeze({
   failed: (task) => `${ref(task)} could not be completed${task?.endReason ? ` (${task.endReason})` : ''}.${where(task)}`,
   expired: (task) => `${ref(task)} waited too long in the queue and expired. Mention the bot again to retry.${where(task)}`,
   stopped: (task) => `${ref(task)} was stopped.${where(task)}`,
+  interrupted: (task) => `${ref(task)} was restarted with the new information.`,
   resumed: (task) => `Got the extra information; ${task?.id ? `task ${task.id}` : 'this request'} is queued again.`,
   no_open_task: () => 'There is no open task in this discussion; please submit a new problem with /fix.',
   // Progress facts, sent by the system right when they are written (src/tools: jira_create_issue, mr_open_draft, mr_push_fix).
@@ -82,6 +83,7 @@ export const NOTICE_ZH = Object.freeze({
   },
   expired: (task) => `${zhRef(task)} 在队列里等太久，已过期。想继续的话，请用 /fix 重新提交。${zhWhere(task)}`,
   stopped: (task) => `${zhRef(task)} 已停止。${zhWhere(task)}`,
+  interrupted: (task) => `${zhRef(task)} 已按新的信息重新开始。`,
   resumed: (task) => `收到补充信息，${zhRef(task)} 重新开始处理。`,
   no_open_task: () => '这个讨论串里没有在处理的任务，新问题请用 /fix 提交。',
   jira_created: (task) => `${zhRef(task)}：Jira 单已建好：${task?.jira?.key ?? ''}${task?.jira?.url ? `（${task.jira.url}）` : ''}。`,

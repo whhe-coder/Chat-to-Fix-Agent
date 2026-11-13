@@ -264,6 +264,14 @@ test('end: needs_info sends needs_info_resubmit only with slack.mentions false',
   assert.deepEqual(r.notices.map((n) => n[1]), ['stopped'])
 })
 
+test('end with reason interrupted: state stopped, notice kind interrupted (not stopped)', async () => {
+  const r = await rig()
+  await r.runner.start(r.id)
+  await r.runner.end(r.id, 'stopped', 'interrupted')
+  assert.deepEqual(r.notices.map((n) => n[1]), ['interrupted'])
+  assert.equal((await r.store.getTask(r.id)).state, 'stopped')
+})
+
 test('restore: a running task with a live group is watched again, one without is ended as failed/restart', async () => {
   const r = await rig()
   const alive = r.task

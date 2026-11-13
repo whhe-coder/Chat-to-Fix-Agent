@@ -34,6 +34,7 @@ const STATE_OF_REASON = Object.freeze({
   coding_timeout: 'timed_out',
   store_corrupt: 'failed',
   stopped: 'stopped',
+  interrupted: 'stopped', // stopped by POST /tasks/<id>/interrupt; the task is queued again right after
   queue_expired: 'expired',
 })
 const ENDED_STATES = TASK_STATES.filter(state => state !== 'queued' && state !== 'running')

@@ -36,6 +36,7 @@ export function taskMessage(task) {
 const resolve = (config, value) => (CONFIG_KEYS.includes(value) ? (config[value] ?? CONFIG_DEFAULTS[value] ?? value) : value)
 
 const noticeKind = (state, endReason) => {
+  if (endReason === 'interrupted') return 'interrupted'
   if (state === 'stopped') return 'stopped'
   if (endReason === 'task_timeout' || endReason === 'coding_timeout' || state === 'timed_out') return 'timed_out'
   return 'failed'
