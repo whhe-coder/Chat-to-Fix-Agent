@@ -37,7 +37,8 @@
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
     "@deepseek-ai/dsh-web": "0.2.2-rc.1",
     "@slack/bolt": "4.7.3",
-    "deep-view": "0.1.2"
+    "deep-view": "0.1.2",
+    "jsdom": "29.1.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
