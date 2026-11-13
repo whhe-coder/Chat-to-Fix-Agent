@@ -306,7 +306,8 @@ export function createRealGitlab(config, options: any = {}) {
 
   /**
    * The CI result of a merge request, for the MR's CURRENT commit only: an old head_pipeline of an earlier commit
-   * is ignored (status pending until the new one exists). Several pipelines for the commit: the highest id.
+   * is ignored (status pending until the new one exists). Only merge_request_event pipelines count; a push pipeline
+   * for the same commit may contain only manual translation jobs. Several MR pipelines: the highest id.
    * Pending while any pipeline (main or downstream) is still going; failed only when all ended and some job counts.
    */
   async function getChecks(binding, iid) {
@@ -318,13 +319,13 @@ export function createRealGitlab(config, options: any = {}) {
     if (!isText(sha)) throw new AdapterError('gitlab_bad_response', `GitLab sent merge request ${n} without a commit`)
     const waiting = { status: 'pending', sha, pipelineUrl: null, failedJobs: [] }
     const ids = (await listAll(`/projects/${project}/merge_requests/${n}/pipelines`))
-      .filter((p) => p?.sha === sha && (p.source === undefined || p.source === 'merge_request_event'))
+      .filter((p) => p?.sha === sha && p.source === 'merge_request_event')
       .map((p) => Number(p.id))
-    if (mr.head_pipeline?.sha === sha && mr.head_pipeline.id !== undefined) ids.push(Number(mr.head_pipeline.id))
+    if (mr.head_pipeline?.sha === sha && mr.head_pipeline.source === 'merge_request_event' && mr.head_pipeline.id !== undefined) ids.push(Number(mr.head_pipeline.id))
     if (ids.length === 0) return waiting
     const id = Math.max(...ids)
     const { body: pipeline } = await request('GET', `/projects/${project}/pipelines/${id}`)
-    if (pipeline?.sha !== sha) return { ...waiting, pipelineUrl: pipeline?.web_url ?? null }
+    if (pipeline?.sha !== sha || pipeline?.source !== 'merge_request_event') return waiting
     const result = await evaluate(pipeline.project_id ?? mr.project_id ?? binding.repo, pipeline, 0)
     const status = result.pending ? 'pending' : result.failed.length > 0 ? 'failed' : 'passed'
     return { status, sha, pipelineUrl: pipeline.web_url ?? null, failedJobs: status === 'failed' ? result.failed : [] }

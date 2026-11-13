@@ -46,7 +46,7 @@ const real = (baseUrl, config: any = {}) => createRealGitlab({ gitlab: { baseUrl
 const P = '/api/v4/projects/group%2Fsub%2Fproject'
 const MR_SHA = 'sha-current'
 const mrBody = (over = {}) => ({ iid: 7, project_id: 11, sha: MR_SHA, head_pipeline: null, ...over })
-const pipe = (id, over: any = {}) => ({ id, sha: MR_SHA, status: 'success', project_id: 11, web_url: `http://gitlab.test/p/-/pipelines/${id}`, ...over })
+const pipe = (id, over: any = {}) => ({ id, sha: MR_SHA, source: 'merge_request_event', status: 'success', project_id: 11, web_url: `http://gitlab.test/p/-/pipelines/${id}`, ...over })
 const job = (id, name, status, over: any = {}) => ({ id, name, status, allow_failure: false, web_url: `http://gitlab.test/p/-/jobs/${id}`, ...over })
 
 /** A routing stub: `routes` maps "METHOD /path-after-api/v4" (query ignored) to a body, status or function. */
@@ -73,6 +73,35 @@ test('getChecks: the pipeline of the MR current sha counts; an old head_pipeline
     assert.ok(s.requests.every((r) => r.method === 'GET'))
     assert.equal(s.requests[0].headers['private-token'], TOKEN)
     assert.equal(s.requests.some((r) => r.path.endsWith('/pipelines/5')), false)
+  } finally { await s.close() }
+})
+
+test('getChecks: a Smartcat push pipeline cannot pass MR CI before its unit-test pipeline appears', async () => {
+  const push = pipe(94, { source: 'push', status: 'skipped' })
+  const mrPipeline = pipe(96, { status: 'running' })
+  const routes: any = {
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7`]: mrBody({ head_pipeline: push }),
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7/pipelines`]: [push],
+    [`GET /projects/group%2Fsub%2Fproject/pipelines/94`]: push,
+    [`GET /projects/11/pipelines/94/trigger_jobs`]: [],
+    [`GET /projects/11/pipelines/94/jobs`]: [job(1, 'sync all translations to smartcat', 'manual', { allow_failure: true })],
+    [`GET /projects/group%2Fsub%2Fproject/pipelines/96`]: mrPipeline,
+    [`GET /projects/11/pipelines/96/trigger_jobs`]: [],
+    [`GET /projects/11/pipelines/96/jobs`]: [job(2, 'unit-test', 'running')],
+  }
+  const s = await routed(routes)
+  try {
+    assert.deepEqual(await real(s.baseUrl).getChecks(binding, 7), { status: 'pending', sha: MR_SHA, pipelineUrl: null, failedJobs: [] })
+    assert.equal(s.requests.some((r) => r.path.endsWith('/pipelines/94')), false)
+
+    routes[`GET /projects/group%2Fsub%2Fproject/merge_requests/7/pipelines`] = [mrPipeline, push]
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/96`] = pipe(96, { source: 'push' })
+    assert.deepEqual(await real(s.baseUrl).getChecks(binding, 7), { status: 'pending', sha: MR_SHA, pipelineUrl: null, failedJobs: [] })
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/96`] = mrPipeline
+    assert.deepEqual(await real(s.baseUrl).getChecks(binding, 7), { status: 'pending', sha: MR_SHA, pipelineUrl: mrPipeline.web_url, failedJobs: [] })
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/96`] = pipe(96)
+    routes[`GET /projects/11/pipelines/96/jobs`] = [job(2, 'unit-test', 'success')]
+    assert.deepEqual(await real(s.baseUrl).getChecks(binding, 7), { status: 'passed', sha: MR_SHA, pipelineUrl: mrPipeline.web_url, failedJobs: [] })
   } finally { await s.close() }
 })
 
