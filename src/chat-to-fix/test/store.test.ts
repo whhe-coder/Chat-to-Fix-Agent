@@ -35,8 +35,8 @@ test('createTask writes all fields (null, not omitted), the index and numbers ta
   assert.equal(a.state, 'queued')
   assert.equal(a.endReason, null)
   assert.equal(a.queuedAt, a.createdAt)
-  for (const key of ['step', 'stepAt', 'review', 'mr']) assert.equal(a[key], null, key)
-  assert.deepEqual(a.needsInfo, { main: null, coding: null })
+  for (const key of ['step', 'stepAt', 'issueAssessment', 'review', 'mr']) assert.equal(a[key], null, key)
+  assert.deepEqual(a.needsInfo, { main: null, jira: null, coding: null })
   assert.deepEqual(a.jira, { key: null, url: null, commentedMr: false, status: null })
   assert.deepEqual(a.repo, { dir: null, branch: null, base: null })
   assert.deepEqual(a.runs, [])
@@ -185,6 +185,7 @@ test('startRun on a rerun clears needsInfo, review, stepResults and keeps jira, 
     step: 'code',
     stepResults: { fetch: { slack: { text: 's', at: 't' } } },
     review: { verdict: 'fail', comments: 'c', rounds: 2, at: 't' },
+    issueAssessment: { ready: true, sourceQuote: 'bug', problem: 'wrong', outcome: 'fixed' },
     mr: { url: 'https://mr/1' },
     jira: { key: 'DEMO-7', url: 'https://j/7', commentedMr: true },
     repo: { dir: '/w/T-1', branch: 'ai/DEMO-7', base: 'abc' },
@@ -198,7 +199,8 @@ test('startRun on a rerun clears needsInfo, review, stepResults and keeps jira, 
   assert.equal(task.step, 'fetch')
   assert.deepEqual(task.stepResults, {})
   assert.equal(task.review, null)
-  assert.deepEqual(task.needsInfo, { main: null, coding: null })
+  assert.equal(task.issueAssessment, null)
+  assert.deepEqual(task.needsInfo, { main: null, jira: null, coding: null })
   assert.equal(task.mr.url, 'https://mr/1')
   assert.deepEqual(task.jira, { key: 'DEMO-7', url: 'https://j/7', commentedMr: true, status: null })
   assert.deepEqual(task.repo, { dir: '/w/T-1', branch: 'ai/DEMO-7', base: 'abc' })

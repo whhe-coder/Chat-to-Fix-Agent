@@ -65,6 +65,7 @@ async function rig({ limits = {} } = {}) {
     config.bindings[0],
   )
   await store.startRun(task.id, { groupId: 'g1', bots: { main: 'bot-main', slack: 'bot-slack', jira: 'bot-jira', pipeline: 'bot-pipeline', coding: 'bot-coding' } })
+  await store.patchTask(task.id, { issueAssessment: { ready: true, sourceQuote: 'the button does nothing', problem: 'button does nothing', outcome: 'button works' } })
   const sessions = new Map(ROLES.map((role) => [`S-${role}`, { botId: `bot-${role}`, role, taskId: task.id }]))
   const botlayer = {
     asked: [],
@@ -90,7 +91,7 @@ test('registerAllTools defines every tool and registry.validate() is clean', asy
   assert.deepEqual(registry.validate(), [])
   const names = {
     slack: ['slack_read_thread', 'slack_reply'],
-    jira: ['jira_create_issue', 'jira_get_issue', 'jira_add_comment', 'jira_transition'],
+    jira: ['jira_assess_request', 'jira_create_issue', 'jira_get_issue', 'jira_add_comment', 'jira_transition', 'needs_info_confirm'],
     pipeline: ['repo_prepare', 'repo_diff', 'repo_read_file', 'repo_log', 'mr_open_draft', 'mr_get'],
   }
   for (const [role, list] of Object.entries(names)) {
@@ -174,13 +175,13 @@ test('slack_reply refuses text over the limit (from configuration) and empty tex
 test('slack_reply is refused by the gate outside its step or without needs-info confirmations; bad purposes fail', async () => {
   const { call, fake, step, store, task, now } = await rig()
   assert.match(await call('slack', 'slack_reply', { purpose: 'result', text: 'done' }), /slack_reply\(result\) belongs to step writeback, the task is in step fetch/)
-  assert.match(await call('slack', 'slack_reply', { purpose: 'question', text: 'which one?' }), /slack_reply\(question\) refused: both main and coding must confirm/)
+  assert.match(await call('slack', 'slack_reply', { purpose: 'question', text: 'which one?' }), /slack_reply\(question\) refused: the main bot and the bot responsible for this step must confirm/)
   assert.match(await call('slack', 'slack_reply', { purpose: 'other', text: 'x' }), /must be one of ack, question, result/)
   assert.equal(fake.named('slack.reply').length, 0)
   await step('issue')
   assert.match(await call('slack', 'slack_reply', { purpose: 'ack', text: 'late ack' }), /belongs to step fetch/)
   // question is allowed in any step once both bots confirmed.
-  await store.patchTask(task.id, { needsInfo: { main: { text: 'q', at: 't' }, coding: { text: 'q', at: 't' } } })
+  await store.patchTask(task.id, { needsInfo: { main: { text: 'q', at: 't' }, jira: { text: 'q', at: 't' } } })
   assert.match(await call('slack', 'slack_reply', { purpose: 'question', text: 'which button?' }), /sent/)
   assert.equal((await now()).slack.sent.question, true)
   // result in writeback
@@ -190,6 +191,22 @@ test('slack_reply is refused by the gate outside its step or without needs-info 
 })
 
 // ---------- Jira ----------
+
+test('Jira creation waits for a model assessment grounded in the Slack message', async () => {
+  const { call, fake, step, store, task } = await rig()
+  await step('issue')
+  await store.patchTask(task.id, { issueAssessment: null, origin: { text: '你好' } })
+  const issue = { title: 'Greeting', description: 'Greeting', acceptance: 'Greeting' }
+  assert.match(await call('jira', 'jira_create_issue', issue), /not been approved/)
+  assert.match(await call('jira', 'jira_assess_request', { sourceQuote: '你好', problem: 'a defect', outcome: 'fixed' }), /no actionable issue/)
+  assert.equal(fake.named('jira.createIssue').length, 0)
+
+  await store.patchTask(task.id, { origin: { text: '登录页按钮点击后没有反应' } })
+  assert.match(await call('jira', 'jira_assess_request', { sourceQuote: 'invented detail', problem: 'button fails', outcome: 'button works' }), /sourceQuote must appear/)
+  assert.match(await call('jira', 'jira_assess_request', { sourceQuote: '按钮点击后没有反应', problem: 'button fails', outcome: 'click works' }), /approved/)
+  assert.match(await call('jira', 'jira_create_issue', { title: '登录页按钮无响应', description: '点击没有反应', acceptance: '点击后有响应' }), /Created the Jira issue/)
+  assert.equal(fake.named('jira.createIssue').length, 1)
+})
 
 test('jira_create_issue creates the issue from the binding, appends the Slack link, writes jira.key and url, and a repeat returns it', async () => {
   const { call, fake, step, now } = await rig()

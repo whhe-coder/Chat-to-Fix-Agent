@@ -16,14 +16,15 @@ function taskView(task) {
     id: task.id,
     state: task.state,
     step: task.step,
-    origin: { permalink: task.origin?.permalink ?? null, text: task.origin?.text ?? null },
+    origin: { permalink: task.origin?.permalink ?? null, text: task.origin?.text ?? null, followUps: (task.origin?.followUps ?? []).map((message) => ({ text: message.text ?? '' })) },
     stepResults: task.stepResults ?? {},
     jira: { key: task.jira?.key ?? null, url: task.jira?.url ?? null },
+    issueAssessment: task.issueAssessment ?? null,
     repo: { dir: task.repo?.dir ?? null, branch: task.repo?.branch ?? null },
     review: task.review ?? null,
     mr: { url: task.mr?.url ?? null },
     ci: ciView(task.ci),
-    needsInfo: task.needsInfo ?? { main: null, coding: null },
+    needsInfo: task.needsInfo ?? { main: null, jira: null, coding: null },
   }
 }
 
@@ -98,7 +99,7 @@ export function taskTools() {
       name: 'task_close',
       roles: ['main'],
       write: true,
-      description: 'End the task. outcome "done" needs the task to be in step close; "needs_info" needs both the Main and the Coding bot to have confirmed missing information and the question to have been sent to Slack; "failed" and "needs_person" need a note. After a successful close the group and its members are dissolved.',
+      description: 'End the task. outcome "done" needs step close; "needs_info" needs confirmation from Main and Jira in step issue, or Main and Coding later, plus the question sent to Slack; "failed" and "needs_person" need a note. After close the group is dissolved.',
       parameters: {
         outcome: { type: 'string', required: true, enum: [...CLOSE_OUTCOMES], description: 'How the task ends' },
         note: { type: 'string', description: 'Why; required for failed and needs_person' },
@@ -110,16 +111,16 @@ export function taskTools() {
     },
     {
       name: 'needs_info_confirm',
-      roles: ['main', 'coding'],
+      roles: ['main', 'jira', 'coding'],
       write: true,
-      description: 'Record your confirmation that information needed for this task is missing, with the question to ask. Both the Main bot and the Coding bot must confirm before the question goes to Slack and the task can end as needs_info.',
+      description: 'Record that information is missing, with a question. In step issue the Jira bot and Main must confirm; in later steps Coding and Main must confirm before Slack can ask the question and the task can end as needs_info.',
       parameters: {
         text: { type: 'string', required: true, description: 'What information is missing, as a question for the person who asked' },
       },
       async run(ctx, args) {
         if (args.text.trim() === '') throw new Error('text must not be empty')
         const { other } = await ctx.gate.confirmNeedsInfo(ctx.task.id, ctx.role, args.text)
-        const otherRole = ctx.role === 'main' ? 'coding' : 'main'
+        const otherRole = ctx.role === 'main' ? (ctx.task.step === 'issue' ? 'jira' : 'coding') : 'main'
         return `Recorded. The ${otherRole} bot has ${other ? 'already confirmed' : 'not confirmed yet'}.`
       },
     },

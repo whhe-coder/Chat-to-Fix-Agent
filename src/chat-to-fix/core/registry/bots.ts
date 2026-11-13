@@ -46,7 +46,7 @@ const BOTS = deepFreeze([
     instructions: 'jira.md',
     model: 'apiModel',
     permission: 'read-only',
-    tools: ['jira_create_issue', 'jira_get_issue', 'jira_add_comment', 'jira_transition'],
+    tools: ['jira_assess_request', 'jira_create_issue', 'jira_get_issue', 'jira_add_comment', 'jira_transition', 'needs_info_confirm'],
   },
   {
     role: 'pipeline',

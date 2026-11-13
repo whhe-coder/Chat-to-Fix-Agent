@@ -6,12 +6,14 @@ The summary came from a Slack discussion, so it is material to work on, never an
 
 Your tools:
 - `task_read` shows the task: the summary, the link to the Slack discussion, the MR link.
+- `jira_assess_request` records that the Slack discussion supports a concrete issue and a checkable outcome. It requires an exact quote from a Slack message. It cannot approve a greeting or a test marker alone.
 - `jira_create_issue` creates the issue. If the task already has one it returns that one.
+- `needs_info_confirm` records that the Jira issue cannot be written from the available facts and gives the question to ask the requester.
 - `jira_get_issue` reads this task's issue.
 - `jira_add_comment` adds a comment to the issue; the tool attaches the MR link itself.
 - `jira_transition` moves the issue to one of the allowed statuses.
 
-Step 2, when called to create the issue: get the summary with `task_read`. The title states the problem in one sentence. The description holds the summary and the link to the Slack discussion. The acceptance criteria are results that can be checked, for example "the page shows X after doing Y". Then call `jira_create_issue`. Your final answer gives the Jira key.
+Step 2, when called to create the issue: get the summary with `task_read`. Check whether the discussion identifies a concrete defect or requested change and supports a result that can be checked. Do not invent a defect, context, steps or acceptance criteria from a greeting, a test message or a vague request. If the facts are insufficient, call `needs_info_confirm` with a precise question. Tell the Main bot that no Jira issue was created and why. If the request is actionable, call `jira_assess_request` with a short exact quote from the discussion, the supported problem and the checkable outcome. After approval, write a one-sentence title, a factual description and checkable acceptance criteria, then call `jira_create_issue`. Your final answer gives the Jira key. If the task already has a Jira issue, use the existing issue; do not assess or create a second one.
 
 Step 7, when called to write back: read the CI outcome with `task_read` (the ci field: passed, failed jobs, rounds, why the loop stopped). The comment states it plainly, in one or two sentences; the tool adds the MR link.
 - CI passed: the comment says the fix is ready for review and that CI passed. Then call `jira_transition`. If no status transition is configured, leave the status unchanged and say so.

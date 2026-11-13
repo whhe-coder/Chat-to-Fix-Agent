@@ -4,7 +4,8 @@
 
 import { closeEndReason, createFlow, OUTCOME_RULES, TOOL_EXTRA_EVIDENCE } from '../flow/steps.ts'
 
-const OTHER = { main: 'coding', coding: 'main' }
+const needsInfoPeerRole = (task) => task.step === 'issue' ? 'jira' : 'coding'
+const needsInfoContext = (task) => ({ needsInfoPeer: task.needsInfo?.[needsInfoPeerRole(task)] })
 const ENDED_STATES = new Set(['done', 'needs_info', 'failed', 'timed_out', 'stopped', 'expired'])
 
 const hasValue = (value) => value !== undefined && value !== null && value !== '' && value !== false
@@ -108,7 +109,7 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
     const memo = {}
     if (stepId === null) {
       const entry = flow.unboundEntry(toolName, purpose)
-      const missing = await missingOf(entry.requires, task, {}, memo)
+      const missing = await missingOf(entry.requires, task, needsInfoContext(task), memo)
       if (missing.length > 0) {
         const reason = `${label} refused: ${entry.reason ?? `missing ${missing.join(', ')}`}`
         return { ok: false, reason: await refuse(task, reason, { tool: toolName }) }
@@ -130,14 +131,15 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
 
   async function confirmNeedsInfo(taskId, role, text) {
     const task = await load(taskId)
-    if (!(role in OTHER)) {
-      const reason = `needs_info_confirm refused: role ${role} cannot confirm; only main and coding can`
+    const peer = needsInfoPeerRole(task)
+    if (role !== 'main' && role !== peer) {
+      const reason = `needs_info_confirm refused: role ${role} cannot confirm in step ${task.step}; only main and ${peer} can`
       await refuse(task, reason, { tool: 'needs_info_confirm' })
       throw new Error(reason)
     }
     await store.patchTask(taskId, { needsInfo: { [role]: { text: String(text ?? ''), at: now() } } })
     await record(task, { type: 'system', role, tool: 'needs_info_confirm', text: `needs info confirmed by ${role}` })
-    return { other: hasValue(task.needsInfo?.[OTHER[role]]) }
+    return { other: hasValue(task.needsInfo?.[role === 'main' ? peer : 'main']) }
   }
 
   async function close(taskId, outcome, note) {
@@ -147,7 +149,7 @@ export function createGate({ store, repo, limits, onClosed, flow = createFlow(),
     if (!rule) return refused(`unknown outcome ${outcome}`)
     if (ENDED_STATES.has(task.state)) return refused(`the task has already ended (${task.state})`)
     const trimmed = typeof note === 'string' ? note.trim() : ''
-    const missing = await missingOf(rule.requires, task, { note: trimmed })
+    const missing = await missingOf(rule.requires, task, { note: trimmed, ...needsInfoContext(task) })
     if (missing.length > 0) return refused(`${rule.reason} (missing ${missing.join(', ')})`)
     // Spec 7, 4.8: outcome done takes its end reason from task.ci.outcome.
     const endReason = closeEndReason(outcome, task, trimmed)

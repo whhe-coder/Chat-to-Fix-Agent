@@ -23,7 +23,7 @@ const deepFreeze = (value) => {
 
 export const STEPS = deepFreeze([
   { no: 1, id: 'fetch', roles: ['slack'], evidence: ['slack.readAt', 'slack.sent.ack', 'stepResults.fetch'], writeTools: ['slack_reply:ack'] },
-  { no: 2, id: 'issue', roles: ['jira'], evidence: ['jira.key'], writeTools: ['jira_create_issue'] },
+  { no: 2, id: 'issue', roles: ['jira'], evidence: ['jira.key'], writeTools: ['jira_assess_request', 'jira_create_issue'] },
   { no: 3, id: 'prepare', roles: ['pipeline'], evidence: ['repo.dir', 'repo.branch', 'repo.base'], writeTools: ['repo_prepare'] },
   { no: 4, id: 'code', roles: ['coding'], evidence: ['diff', 'review.verdict == pass'], writeTools: ['review_report'] },
   { no: 5, id: 'mr', roles: ['pipeline'], evidence: ['mr.url'], writeTools: ['mr_open_draft'] },
@@ -41,7 +41,7 @@ export const STEPS = deepFreeze([
  */
 export const UNBOUND_WRITE_TOOLS = deepFreeze([
   { tool: 'needs_info_confirm', requires: [] },
-  { tool: 'slack_reply:question', requires: ['needsInfo.main', 'needsInfo.coding'], reason: 'both main and coding must confirm that information is missing first' },
+  { tool: 'slack_reply:question', requires: ['needsInfo.main', 'needsInfoPeer'], reason: 'the main bot and the bot responsible for this step must confirm that information is missing first' },
   { tool: 'task_advance', requires: [] },
   { tool: 'task_close', requires: [] },
 ])
@@ -80,7 +80,7 @@ export const CI_END_REASONS = deepFreeze({
 export const OUTCOME_RULES = deepFreeze({
   // endReason is the default; `endReasonBy` (spec 7, 4.8) picks the reason from a task field. Use closeEndReason().
   done: { requires: ['step == close'], state: 'done', endReason: 'completed', endReasonBy: { path: 'ci.outcome', map: CI_END_REASONS }, reason: 'the task is not in step close' },
-  needs_info: { requires: ['needsInfo.main', 'needsInfo.coding', 'slack.sent.question'], state: 'needs_info', endReason: 'needs_info', reason: 'both confirmations and the question to Slack are required first' },
+  needs_info: { requires: ['needsInfo.main', 'needsInfoPeer', 'slack.sent.question'], state: 'needs_info', endReason: 'needs_info', reason: 'both confirmations and the question to Slack are required first' },
   failed: { requires: ['note'], state: 'failed', endReason: '$note', reason: 'a note is required' },
   needs_person: { requires: ['note'], state: 'failed', endReason: 'needs_person', reason: 'a note is required' },
 })

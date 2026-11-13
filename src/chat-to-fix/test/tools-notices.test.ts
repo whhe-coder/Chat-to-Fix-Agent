@@ -37,6 +37,7 @@ async function rig({ notifyFails = false } = {}) {
     binding,
   )
   await store.startRun(task.id, { groupId: 'g1', bots: { main: 'm', slack: 's', jira: 'j', pipeline: 'p', coding: 'c' } })
+  await store.patchTask(task.id, { issueAssessment: { ready: true, sourceQuote: 'x', problem: 'problem', outcome: 'outcome' } })
   const sessions = new Map(ROLES.map((role) => [`S-${role}`, { botId: `bot-${role}`, role, taskId: task.id }]))
   const botlayer = { botOfSession: (id) => sessions.get(id), setGroupWorkDir: async () => {} }
   const gate = { allow: async () => ({ ok: true }) }

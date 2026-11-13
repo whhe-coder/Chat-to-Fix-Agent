@@ -104,7 +104,7 @@ test('attachRoleTools registers only the tools of the session role; unbound sess
   const expected = {
     main: ['task_read', 'task_records', 'task_advance', 'task_close', 'needs_info_confirm'],
     slack: ['task_read'],
-    jira: ['task_read'],
+    jira: ['task_read', 'needs_info_confirm'],
     pipeline: ['task_read'],
     coding: ['task_read', 'needs_info_confirm', 'review_report'],
   }
@@ -211,7 +211,7 @@ test('purpose is passed to the gate', async () => {
   }))
   assert.equal(await registry.call('slack_reply', 'S-slack', { purpose: 'ack' }), 'sent')
   const question = await registry.call('slack_reply', 'S-slack', { purpose: 'question' })
-  assert.match(question, /both main and coding must confirm/)
+  assert.match(question, /the main bot and the bot responsible for this step must confirm/)
   assert.equal(ran, 1)
   assert.equal((await store.readRecords(task.id)).filter(entry => entry.type === 'refused').length, 1)
 })
@@ -350,7 +350,7 @@ test('task_read returns the task subset and nothing else', async () => {
     assert.equal(view.repo.branch, 'ai/DEMO-1')
     assert.equal(view.stepResults.fetch.slack.text, 'summary')
     assert.equal(view.mr.url, null)
-    assert.deepEqual(Object.keys(view.origin).sort(), ['permalink', 'text'])
+    assert.deepEqual(Object.keys(view.origin).sort(), ['followUps', 'permalink', 'text'])
     assert.equal(view.repo.base, undefined)
     assert.equal(view.binding, undefined)
     assert.equal(view.runs, undefined)
@@ -406,7 +406,7 @@ test('needs_info_confirm: both confirmations, in either order, and only main and
   const stored = (await store.getTask(task.id)).needsInfo
   assert.equal(stored.main.text, 'which page is it?')
   assert.ok(stored.main.at && stored.coding.at)
-  assert.match(await registry.call('needs_info_confirm', 'S-jira', { text: 'x' }), /not available to the jira bot/)
+  assert.match(await registry.call('needs_info_confirm', 'S-jira', { text: 'x' }), /only main and coding can/)
   assert.match(await registry.call('needs_info_confirm', 'S-main', { text: '  ' }), /^tool failed: text must not be empty/)
 })
 

@@ -11,6 +11,9 @@ const need = (text, name) => {
   return text.trim()
 }
 
+// A greeting or a test marker cannot support a concrete problem and a checkable outcome.
+const NON_ISSUE_ONLY = /^(?:你好|您好|嗨|在吗|谢谢|hi|hello|hey|test|测试)[\s!！?？.,，。~～]*$/iu
+
 function needKey(task) {
   if (!task.jira?.key) throw new Error('this task has no Jira issue yet')
   return task.jira.key
@@ -24,10 +27,34 @@ const formatComment = (comment) => (typeof comment === 'string'
 export function jiraTools() {
   return [
     {
+      name: 'jira_assess_request',
+      roles: ['jira'],
+      write: true,
+      description: 'Approve an actionable request before creating a Jira issue. Quote a Slack discussion message exactly and state the concrete problem and checkable outcome. If these cannot be supported by the discussion, call needs_info_confirm instead.',
+      parameters: {
+        sourceQuote: { type: 'string', required: true, description: 'Exact words in a Slack discussion message that identify the problem or desired change' },
+        problem: { type: 'string', required: true, description: 'Concrete problem or requested change supported by the discussion' },
+        outcome: { type: 'string', required: true, description: 'Checkable result supported by the discussion' },
+      },
+      async run(ctx, args) {
+        const origin = ctx.task.origin ?? {}
+        const messages = [...(origin.earlier ?? []), origin, ...(origin.followUps ?? [])]
+          .map((message) => String(message?.text ?? '').trim()).filter(Boolean)
+        const sourceQuote = need(args.sourceQuote, 'sourceQuote')
+        const problem = need(args.problem, 'problem')
+        const outcome = need(args.outcome, 'outcome')
+        if (messages.length === 0 || messages.every((message) => NON_ISSUE_ONLY.test(message))) throw new Error('the request contains no actionable issue; ask for details instead')
+        if (!messages.some((message) => message.includes(sourceQuote) && !NON_ISSUE_ONLY.test(message))) throw new Error('sourceQuote must appear in an actionable Slack message')
+        if (ctx.task.needsInfo?.jira) throw new Error('missing information was already confirmed; ask the requester instead')
+        await ctx.store.patchTask(ctx.task.id, { issueAssessment: { ready: true, sourceQuote, problem, outcome } })
+        return 'Request approved for a Jira issue.'
+      },
+    },
+    {
       name: 'jira_create_issue',
       roles: ['jira'],
       write: true,
-      description: 'Create the Jira issue for this task (step issue). The project, type and labels come from the channel binding and the link to the Slack discussion is added at the end of the description. If the task already has an issue its key is returned and nothing is created.',
+      description: 'Create the Jira issue only after jira_assess_request approved the discussion. The project, type and labels come from the channel binding. If the task already has an issue its key is returned and nothing is created.',
       parameters: {
         title: { type: 'string', required: true, description: 'Short title of the issue' },
         description: { type: 'string', required: true, description: 'What is wrong or wanted, with the context from the discussion' },
@@ -36,6 +63,7 @@ export function jiraTools() {
       async run(ctx, args) {
         const { task } = ctx
         if (task.jira?.key) return `The task already has the Jira issue ${task.jira.key}${task.jira.url ? ` (${task.jira.url})` : ''}; nothing was created.`
+        if (task.issueAssessment?.ready !== true || task.needsInfo?.jira) throw new Error('the original request has not been approved for a Jira issue; assess it or ask for details first')
         const title = need(args.title, 'title')
         const description = need(args.description, 'description')
         const acceptance = need(args.acceptance, 'acceptance')

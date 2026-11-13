@@ -313,6 +313,18 @@ test('close needs_info: refused with one confirmation, refused without the quest
   assert.deepEqual(closed, [['T-1', 'needs_info', 'needs_info']])
 })
 
+test('issue step asks for Jira and Main confirmation before any Jira issue exists', async () => {
+  const { gate, store } = setup({ step: 'issue' })
+  await assert.rejects(gate.confirmNeedsInfo('T-1', 'coding', 'details?'), /only main and jira can/)
+  await gate.confirmNeedsInfo('T-1', 'jira', 'what should be fixed?')
+  assert.equal((await gate.allow('T-1', 'slack_reply', 'question')).ok, false)
+  await gate.confirmNeedsInfo('T-1', 'main', 'what should be fixed?')
+  assert.deepEqual(await gate.allow('T-1', 'slack_reply', 'question'), ok)
+  store.task.slack.sent.question = true
+  assert.deepEqual(await gate.close('T-1', 'needs_info'), ok)
+  assert.equal(store.task.jira.key, null)
+})
+
 test('close done: only in step close; state done, reason completed', async () => {
   const { gate, store, closed } = setup({ step: 'mr' })
   assert.equal((await gate.close('T-1', 'done')).ok, false)

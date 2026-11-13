@@ -69,11 +69,12 @@ function blankTask(id, no, now) {
     stepResults: {},
     slack: { readAt: null, sent: { ack: false, question: false, result: false } },
     jira: { key: null, url: null, commentedMr: false, status: null },
+    issueAssessment: null,
     repo: { dir: null, branch: null, base: null },
     review: null,
     mr: null,
     ci: null,
-    needsInfo: { main: null, coding: null },
+    needsInfo: { main: null, jira: null, coding: null },
     runs: [],
     usage: blankUsage(),
   }
@@ -258,10 +259,11 @@ export function createStore({ dataDir, now = stamp, warn = (...args) => console.
         step: 'fetch',
         stepAt: at,
         stepResults: {},
+        issueAssessment: null,
         review: null,
         // A new run waits for CI afresh (spec 7): a settled ci of the previous run must not satisfy the step.
         ci: null,
-        needsInfo: { main: null, coding: null },
+        needsInfo: { main: null, jira: null, coding: null },
         slack: { readAt: null, sent: { ack: task.slack?.sent?.ack ?? false, question: false, result: false } },
         runs: [...(task.runs ?? []), run],
       }
