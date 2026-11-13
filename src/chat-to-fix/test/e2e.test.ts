@@ -140,6 +140,21 @@ test('a greeting asks for details before Jira creation', async (t) => {
   assert.equal(existsSync(join(r.config.dataDir, 'fake', 'jira', 'issues.json')), false)
 })
 
+test('the Main bot overrules the Jira bot: the Jira bot assesses again and the issue is created', async (t) => {
+  const r = await rig(t)
+  const s = await r.start('applyDiscount returns the wrong price')
+  ok(await s.tool('slack', 'slack_read_thread'))
+  ok(await s.tool('slack', 'slack_reply', { purpose: 'ack', text: 'Received.' }))
+  await s.roundEnd('slack', 'Summary: applyDiscount adds the discount.')
+  ok(await s.tool('main', 'task_advance', { to: 'issue' }))
+  ok(await s.tool('jira', 'needs_info_confirm', { text: 'what is the expected price?' }))
+  const sourceQuote = (await r.app.store.getTask(s.id)).origin.text
+  ok(await s.tool('jira', 'jira_assess_request', { sourceQuote, problem: 'applyDiscount gives the wrong price', outcome: 'The price is correct' }))
+  assert.equal((await r.app.store.getTask(s.id)).needsInfo.jira, null)
+  ok(await s.tool('jira', 'jira_create_issue', { title: 'applyDiscount wrong price', description: 'wrong price', acceptance: 'price is correct' }))
+  ok(await s.tool('main', 'task_advance', { to: 'prepare' }))
+})
+
 // What Claude Code does in step 4, done by hand: the one-line fix in the task's code directory.
 async function fixTheBug(dir) {
   const file = join(dir, 'src', 'price.js')

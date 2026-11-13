@@ -208,6 +208,34 @@ test('Jira creation waits for a model assessment grounded in the Slack message',
   assert.equal(fake.named('jira.createIssue').length, 1)
 })
 
+test('the Main bot can overrule the Jira bot: Jira confirms, Jira assesses again, the issue is created; both confirmed stays refused', async () => {
+  const { call, fake, step, store, task, now } = await rig()
+  await step('issue')
+  await store.patchTask(task.id, { issueAssessment: null, origin: { text: '登录页按钮点击后没有反应' } })
+  const assess = { sourceQuote: '按钮点击后没有反应', problem: 'button fails', outcome: 'click works' }
+  const issue = { title: '登录页按钮无响应', description: '点击没有反应', acceptance: '点击后有响应' }
+  await call('jira', 'needs_info_confirm', { text: 'which button?' })
+  assert.match(await call('jira', 'jira_create_issue', issue), /not been approved/)
+  // Only the Jira bot said it: the assessment works again and withdraws the Jira confirmation.
+  assert.match(await call('jira', 'jira_assess_request', assess), /approved/)
+  const after = await now()
+  assert.equal(after.needsInfo.jira, null)
+  assert.equal(after.needsInfo.main, null)
+  assert.match(await call('jira', 'jira_create_issue', issue), /Created the Jira issue/)
+  assert.equal(fake.named('jira.createIssue').length, 1)
+})
+
+test('both bots confirmed missing information: assessment and creation stay refused', async () => {
+  const { call, fake, step, store, task } = await rig()
+  await step('issue')
+  await store.patchTask(task.id, { issueAssessment: null, origin: { text: '登录页按钮点击后没有反应' } })
+  await call('jira', 'needs_info_confirm', { text: 'which button?' })
+  await call('main', 'needs_info_confirm', { text: 'agreed' })
+  assert.match(await call('jira', 'jira_assess_request', { sourceQuote: '按钮点击后没有反应', problem: 'button fails', outcome: 'click works' }), /already confirmed/)
+  assert.match(await call('jira', 'jira_create_issue', { title: 't', description: 'd', acceptance: 'a' }), /not been approved/)
+  assert.equal(fake.named('jira.createIssue').length, 0)
+})
+
 test('jira_create_issue creates the issue from the binding, appends the Slack link, writes jira.key and url, and a repeat returns it', async () => {
   const { call, fake, step, now } = await rig()
   await step('issue')
