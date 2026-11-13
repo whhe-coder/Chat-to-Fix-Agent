@@ -1,7 +1,7 @@
 # DSH 瘦身方案（Chat-to-Fix）
 
 - 日期：2026-11-13
-- 状态：**第 0–7 步已在本分支实施并提交（2026-11-13，各一个提交，可单独回退）**；第 8–11 步还没做（第 8 步子 agent 附带行、第 9 步系统提示词那一段、第 10 步待拍板 6 行、第 11 步依赖瘦身和 `package.json`，都等 Zihui 另行决定）。实施记录见本文末“实施记录”一节。下文各节仍是方案原文。
+- 状态：**第 0–10 步已在本分支实施（2026-11-13）**，开着的行正好是白名单 57 行；三个没用的依赖已删。只剩 `zod` 的 `overrides`（改 Logan 的根 `package.json`，等他同意）。实施记录见本文末“实施记录”一节。下文各节仍是方案原文。
 - 依据：分支 `AIINITIATIVES-5733_dsh-coding`（PR #8），提交 `ae603a8`；根目录 `node_modules/@deepseek-ai/*`（DSH 0.2.2-rc.1）的实际文件；用当前检出重新跑的 `dsh --profile chat-to-fix --patch config/cordis.patch.yml --dump-config`（不启动、不执行 `!!js`，0.3 秒）。
 - 规矩（Zihui 定）：DSH 的包不改。瘦身只通过我们的补丁行（`src/chat-to-fix/config/cordis.patch.yml`）和我们的根目录依赖做。
 - 关联：[plan-dsh-coding.md](plan-dsh-coding.md)（五个 bot 都在 DSH 里跑、`request_review`、费用估计）、`src/chat-to-fix/config/README.md`（补丁行逐行说明）。
@@ -708,3 +708,5 @@ chat-to-fix（core/plugin.ts，inject = core/bot/index.ts:28）
 现在开着 66 行：白名单 57 行（含 `chat-to-fix`）加还没做的 9 行（第 8 步 2 行、第 9 步 1 行、第 10 步 6 行）。守门测试的 `PENDING` 剩 9 行，`REMOVED` 92 行。
 
 没做、也没验证的：内存和启动秒数的前后对比（冒烟没有自动记，只有总时长）；第 7 步关预设后的真实审查运行（要等第 8、9 步一起跑一次，见 5.4）。
+
+第 8–10 步（2026-11-13，Zihui 拍板）：关 `subagent-model-selection-settings`、`subagent-fork-in-process`、`deliverable-file-references` 和第 10 步全部 6 行（`user-questions` 要关：追问走 Slack bot，不由 bot 直接问人；`session-title-llm`：冒烟的 mock 日志里没有起名请求，bot 层给每个会话起名）。开着 66 → 57 行，守门测试 `PENDING` 清空。`npm test`、`typecheck`、冒烟全过；真实运行 `price-display` 通过（$0.37，审查一轮通过）。提示词由 Zihui 自己补。
