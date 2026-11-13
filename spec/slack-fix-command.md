@@ -1,10 +1,10 @@
 # 固定频道 `/fix` 入口规格
 
-状态：Slack 应用权限已调整，`/fix` 命令已创建。Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；固定频道和真实 Slack 调用尚未完成。真实 Bot 读取发起人邮箱的代码尚未实现；本机模拟频道已能把配置的邮箱随 `/fix` 交给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
+状态：Slack 应用已获工作区批准，Bot token 的四项预期 scopes 已通过 Slack `auth.test` 验证，`/fix` 命令已创建。Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；频道 ID 已配置，Bot 已在目标频道成功发信；真实 `/fix` 调用尚未完成。真实 Bot 读取发起人邮箱的代码尚未实现；本机模拟频道已能把配置的邮箱随 `/fix` 交给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
 
 ## 目标行为
 
-- 用户在指定频道输入 `/fix 问题描述`。命令正文必须非空。频道类型和 ID 尚未确定。
+- 用户在指定频道输入 `/fix 问题描述`。命令正文必须非空。频道 ID 已确定，Bot 发信能力已验证。
 - Bot 仅接受指定频道的 `/fix`。其他频道的调用只向发起者返回拒绝说明，不启动任务。
 - Bot 在 Slack 要求的时间内确认命令，再在指定频道发布一条任务消息。后续 Jira、Draft MR 和 CI 进度回复到该消息的 thread。
 - 相同命令重试不得重复启动任务。完整的持久去重在任务接入里程碑实现。
@@ -63,11 +63,11 @@
 | Slack MCP Server | 关闭 | 已关闭；`/fix` 不调用 Slack MCP 工具 |
 | Socket Mode | 开启 | 已开启 |
 | Slash Commands | 注册 `/fix` | 已创建；说明与用法提示均为英文 |
-| 固定频道 | 确定频道 ID 并让 Bot 加入；代码只接受其 ID | 未完成 |
-| 工作区安装与 Bot token | 使用四项当前权限完成审批和安装 | 审批同事报告旧待审记录仍列出 `im:history`、`chat:write`；需取消旧申请并按当前权限重新申请 |
+| 固定频道 | 确定频道 ID 并让 Bot 加入；代码只接受其 ID | ID 已写入 `.env.example` 和本机配置；Bot 在该频道发信成功 |
+| 工作区安装与 Bot token | 使用四项当前权限完成审批和安装 | 用户报告已获工作区批准；本机 Bot token 通过 Slack `auth.test`，响应列出四项预期 scopes。审批人视图与旧申请处理尚未核对 |
 
 `commands` 接收命令载荷；`chat:write` 用于发布任务消息和长期进度；`users:read` 与 `users:read.email` 为后续通过 `users.info` 获取发起人邮箱准备。当前不申请频道历史读取权限。Slack App-level token 的 `connections:write` 保持不变。实际配置操作见 [Slack 配置记录](../config/slack/README.md)。
 
 ## 验收
 
-在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；服务不通、队列满时只有发起者看到提示；Bot 在任务消息的 thread 回报发件箱里的进度和结果。真实 Slack 安装获批前，只能用模拟入口测试任务处理器。
+在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；服务不通、队列满时只有发起者看到提示；Bot 在任务消息的 thread 回报发件箱里的进度和结果。指定频道 ID 已配置，Bot 已在该频道发信成功；真实 `/fix` 调用仍待验收。

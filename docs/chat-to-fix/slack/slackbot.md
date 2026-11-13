@@ -1,10 +1,24 @@
 # Slack Bot 与 Chat-to-Fix 的业务接口
 
-> 本文保留 PR #5 的设计与交接背景。目录已迁至 `src/chat-to-fix/`；本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。下文关于讨论串 `@`、`app_mentions:read` 和真实 Slack Bot 的内容是历史方案，尚未按当前入口实现；当前行为以 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 和 [模拟 Bot 规格](../../../spec/mock-slack-bot.md) 为准。
+> 本文保留 PR #5 的设计与交接背景。下面第 1 至 7 节是历史方案，部分路径、权限和实施状态已过时。本期只接受 `/fix` 首次提交和 Agent 自动 CI 修复，不启用用户在讨论串中的二次修改。当前行为以 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md) 为准；实际应用配置和操作见 [Slack 应用配置](../../../config/slack/README.md)。
 
 - 日期：2026-11-12
-- 状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；只在本机测试和模拟入口上验证过，没连过真 Slack。Chat-to-Fix 一侧见 `src/chat-to-fix/core/task/outbox.ts`、`http.ts`、`core/adapters/slack.ts` 的 `createOutboxSlack`；Slack Bot 一侧只有参考实现，在 `docs/chat-to-fix/slack/reference/`，没有放进 `src/slackBot/`，见第 4.4 节。基于提交 `e6f6094`。
+- 历史状态：2026-11-12 Chat-to-Fix 一侧已实现（PR #5）；当时只在本机测试和模拟入口上验证过，Slack Bot 一侧只有参考实现。此记录基于提交 `e6f6094`，不代表当前状态。
 - 相关：Slack 入口一侧的补充见 [slackenter.md](slackenter.md)；入口的基础规格是 [固定频道 `/fix` 规格](../../../spec/slack-fix-command.md)，本文在它和 [实施计划](../../../plans/chat-to-fix-agent.md)、根目录 [README](../../../README.md)“目标 Slack 回传”上延展，怎么延展见 [vs-logan.md](vs-logan.md)；Chat-to-Fix 内部设计见 [设计文档](../design/README.md)。
+
+## 当前接入状态（2026-11-13）
+
+- 工作区已批准 `Chat-to-Fix`。本机 `SLACK_BOT_TOKEN` 通过 Slack `auth.test`；响应列出 `commands`、`chat:write`、`users:read`、`users:read.email`。`SLACK_APP_TOKEN` 可取得 Socket Mode 连接地址。文档不保存 token 值。
+- `/fix` 和发件箱转发已在 [`src/slackBot/`](../../../src/slackBot/) 实现。指定频道 ID 已写入 `.env.example` 和本机 `.env.local`。Bot 已在该频道成功发送接入测试消息。
+- 真实 `/fix` 任务尚未验收。当前运行中的 Agent 仍绑定旧的本机频道；真实接入前要按新配置重启 Agent，核对 `/health` 的 `channels`，再启动 Slack Bot。
+
+### 把应用加入频道
+
+1. 在 Slack 打开目标频道 `#ai-intern-logan-team`，点击顶部的频道名称。
+2. 打开 `Agents & apps`，点击 `Add Agent or App` 或 `Add more`，找到 `Chat-to-Fix`，点击 `Add`。不同版本的入口名称可能略有差异。也可在频道输入 `/invite @Chat-to-Fix`。
+3. 在 `Agents & apps` 列表确认应用已出现。加入频道后，Bot 才能向该频道发送任务消息；`/fix` 仍只接受配置的频道 ID。普通消息和 `@Chat-to-Fix` 不启动任务。
+
+首次接入测试时，Bot 向目标频道调用 `chat.postMessage` 返回 `channel_not_found`；应用加入频道后，同一测试成功。若再次遇到此错误，先核对 Bot 是否在该频道、频道 ID 是否与 `CHAT_TO_FIX_SLACK_CHANNEL` 一致。完整配置步骤见 [Slack 应用配置](../../../config/slack/README.md#将应用加入指定频道)。
 
 ## 1. 问题
 

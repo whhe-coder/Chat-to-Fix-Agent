@@ -6,11 +6,13 @@
 
 - [x] 在 Slack 应用将 Bot scopes 调整为 `commands`、`chat:write`、`users:read`、`users:read.email`，User scopes 保持为空。删除 `message.im` Bot 事件和 `im:history`；刷新后 Events 页面显示 Off、无事件。
 - [x] 注册 `/fix` Slash Command；关闭 `App Home → Messages` 标签页和 `Agents → Slack MCP Server`。
-- [x] 核对安装页仍显示工作区和组织申请已提交，申请链接列出四项当前 scopes。审批同事报告待审记录仍列出旧权限；重新申请和审批仍待完成。
+- [x] 重新提交工作区安装申请。用户报告应用已获批准；本机 Bot token 通过 Slack `auth.test`，响应列出 `commands`、`chat:write`、`users:read`、`users:read.email`。审批人视图和旧待审记录的处理情况未核对。
+- [x] 本机 App-level token 调用 Slack `apps.connections.open` 返回 `ok: true` 和 Socket URL；没有启动长期连接。
+- [x] 用户提供目标频道链接；频道 ID 已写入本机 `.env.local` 和 `.env.example`。首次 Bot 发信测试返回 `channel_not_found`；加入应用后重试成功，Slack 返回的频道与配置一致。
 
 ## 旧版 Slack 私信入口（历史配置与代码）
 
-- [x] 增加按服务分组的 `.env.example` 模板和统一的 [本地环境变量配置](../config/local-env/README.md)。用户确认后，已将现有 Slack App、GitLab 和 Jira token 复制到权限为 `600` 的本机 `.env.local`；Bot token 仍待工作区批准。
+- [x] 增加按服务分组的 `.env.example` 模板和统一的 [本地环境变量配置](../config/local-env/README.md)。用户确认后，已将现有 Slack App、GitLab 和 Jira token 复制到权限为 `600` 的本机 `.env.local`；当时 Bot token 仍待工作区批准；当前状态见 M0。
 - [x] 曾使用 `.env.local` 启动过渡服务，`/health`、`/gitlab/status` 和 `/jira/board` 均返回 `200`。真实值未进入 Git 跟踪文件。
 - [x] `App Home` 的 `Messages` 标签页曾允许用户发送私信；2026-11-13 已关闭。
 - [x] Socket Mode 已开启。
