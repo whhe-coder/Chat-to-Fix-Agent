@@ -122,6 +122,8 @@ export function buildChat(records, task?): Chat {
       }
       case 'usage': {
         const role = r.role ?? roleOfBot.get(r.botId) ?? ''
+        // The reviewer's usage (booked to the Coding bot) gets its own line instead of joining the Coding round's cost.
+        if (r.reviewer === true) { push(base(r, i, 'system', `审查者用量：${String(r.text ?? '').replace(/^reviewer usage /, '')}`)); break }
         roundUsage.set(role, [...(roundUsage.get(role) ?? []), r])
         break
       }
@@ -157,6 +159,15 @@ export function buildChat(records, task?): Chat {
       }
       case 'notice': push(base(r, i, 'notice', text)); break
       case 'limit': push(base(r, i, 'notice', `限制：${text}`)); break
+      // CI records (the monitor's GitLab CI notes and the CI tools' own): a notice, or a red refusal-style line when the CI failed or the loop stopped
+      case 'ci': {
+        if (text.trim() === '') break
+        const failed = /^(CI failed in round|CI loop stopped|fix push rejected|no CI result|re-running the failed jobs failed)/.test(text)
+        const m = /^CI passed(?: after (\d+) fix round)?/.exec(text)
+        const label = m ? `CI 通过${m[1] ? `（修复 ${m[1]} 轮后）` : ''}` : text.replace(/^CI failed in round (\d+)/, 'CI 第 $1 轮失败')
+        push(failed ? { ...base(r, i, 'refusal', label), ok: false } : base(r, i, 'notice', `[ci] ${label}`))
+        break
+      }
       case 'approval': case 'refused': case 'refusal': case 'tool_error': push({ ...base(r, i, 'refusal', text), ok: false, ...(r.tool ? { tool: String(r.tool) } : {}) }); break
       case 'system': {
         let m

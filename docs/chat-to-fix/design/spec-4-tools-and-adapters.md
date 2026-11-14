@@ -3,16 +3,16 @@
 - 日期：2026-11-11
 - 覆盖的工作包：C0（工具注册框架）、C2（Slack）、C3（Jira）、C4（代码仓库）、C5（`request_code`）、E1（假适配器和端到端测试台）、R1（真实适配器和 Slack 转发器）。
 - 上位文档：[tools-and-limits.md](tools-and-limits.md) 第 2 节；[software-spec.md](software-spec.md) 5.6、7.5。
-- 角色标识、步骤、放行规则见规格 1；任务字段见规格 2；bot 层门面见规格 5。任务工具（`task_read` 等六个）在规格 1 第 5 节。加上本规格的十六个工具（含 CI 的三个），注册表里共定义 22 个工具。
+- 角色标识、步骤、放行规则见规格 1；任务字段见规格 2；bot 层门面见规格 5。任务工具（`task_read` 等六个）在规格 1 第 5 节。加上本规格的十六个工具（含 CI 的三个），注册表里共定义 25 个工具。
 - 状态：2026-11-12 按代码（提交 192a721）更新。最初是 2026-11-11 开工前的设计；和原设计不同的地方已直接改成现状，代码还没做到的标“未实现”。
-- 2026-11-12 起入口改为 Slack 斜杠命令 `/fix`（设计已定，实现中，代码还没提交）：见第 2.2 节的 `startThread` 和第 4.9 节。
+- 2026-11-12 起入口改为 Slack 斜杠命令 `/fix`（已实现）：见第 2.2 节的 `startThread` 和第 4.9 节。
 - CI 修复循环（流程第 6 步 `ci`，由 Git Pipeline bot 负责）的细节在 [spec-7-ci-loop.md](spec-7-ci-loop.md)；本文只写它在工具和适配器上的部分（4.5、4.7、4.9）。
 
 ## 1. 范围
 
 管：工具怎么按 bot 注册表挂到各个 bot 的会话上；工具执行时的统一包装；Slack、Jira、代码仓库的十五个工具（含 CI 的三个）；`request_code`；三个适配器的接口；三个适配器的假实现和真实实现；Slack 转发器；端到端测试台。
 
-不管：任务工具（规格 1）；工具被调用后的记录（规格 2 的记录器）。真实适配器已经写好，但只对着本地的桩服务测过，没有连过真实的 Slack、Jira、GitLab（4.9 节）。
+不管：任务工具（规格 1）；工具被调用后的记录（规格 2 的记录器）。真实适配器已经写好，先对着本地的桩服务测过；2026-11-13、11-14 在真实 Slack、Jira、GitLab 上各跑通一次（4.9 节）。
 
 ## 2. 数据形状
 
@@ -222,9 +222,9 @@ GitLab（`src/adapters/gitlab-http.ts`，配合 `repo.ts`）：REST API v4，只
 
 GitLab 的 CI 部分（同一个文件）：`getChecks` 按 MR 的当前提交找 pipeline（旧提交的忽略，同一提交有几个取编号最大的），读主 pipeline 和下游 pipeline（最深四层，下游读不了按失败算），`allow_failure` 的 job 不算（主 pipeline 里还在跑的会把“通过”最多拖 10 分钟，见 spec-7）；还在跑算 `pending`，全部结束且有失败 job 算 `failed`，已取消也算失败。`getJobLog` 读 job 的 trace，去掉颜色码和折叠标记，只留末尾 `maxChars`。`retryJobs` 对每个 job 发一次重试，不重发，出错就停，报错里列出已重跑的 job；还没有在真实 GitLab 上验证过。
 
-入口（2026-11-12 定，设计已定、实现中；见 decision-record 第 2.11 节第 5 条）：主入口是在绑定的频道里用斜杠命令 `/fix 问题描述`（命令名可配置，`slack.slashCommand`，默认 `/fix`），@ 机器人只用于任务讨论串里的补充信息。转发器收到 `/fix` 先确认，再以 `source: 'slash'` 转给 `POST /events`；服务端先查绑定和队列，没绑定回 422、队列满回 429，这两种情况频道里不发任何东西；通过后用 `startThread` 在频道发开头消息（`<@发起人>` 加原文，先去掉广播式提及），它的 `ts` 就是讨论串，之后所有回复都在这里；发不出开头消息回 502。转发器按结果用 `response_url` 给发起人发中文临时消息。命令正文为空、或在和 bot 的私信里用，转发器直接回用法说明，不转给服务端（第一版不支持私信）。
+入口（2026-11-12 定，已实现；见 decision-record 第 2.11 节第 5 条）：主入口是在绑定的频道里用斜杠命令 `/fix 问题描述`（命令名可配置，`slack.slashCommand`，默认 `/fix`），@ 机器人只用于任务讨论串里的补充信息。转发器收到 `/fix` 先确认，再以 `source: 'slash'` 转给 `POST /events`；服务端先查绑定和队列，没绑定回 422、队列满回 429，这两种情况频道里不发任何东西；通过后用 `startThread` 在频道发开头消息（`<@发起人>` 加原文，先去掉广播式提及），它的 `ts` 就是讨论串，之后所有回复都在这里；发不出开头消息回 502。转发器按结果用 `response_url` 给发起人发中文临时消息。命令正文为空、或在和 bot 的私信里用，转发器直接回用法说明，不转给服务端（第一版不支持私信）。
 
-Slack 转发器（`scripts/slack-forwarder.ts`）：现有代码只转 `app_mention`（`/fix` 的处理正在实现）。它开一条 Slack Socket Mode 连接（不需要公网地址），每个信封立刻确认，把真人的每个 `app_mention` 转成 `POST /events` 要的请求体，带请求头 `x-chat-to-fix-token` 发过去。bot 的消息、编辑过的消息、自己的消息都忽略。连接断了会退避重连。环境变量：`CHAT_TO_FIX_SLACK_APP_TOKEN`（应用级令牌，权限 `connections:write`；必填）、`CHAT_TO_FIX_SLACK_TOKEN`（可选；有它时转发器还会尽力取消息的永久链接和发言人名字）、`CHAT_TO_FIX_URL`、`CHAT_TO_FIX_HTTP_TOKEN`。
+Slack 转发器（`scripts/slack-forwarder.ts`）：它开一条 Slack Socket Mode 连接（不需要公网地址），每个信封立刻确认，把 `/fix` 命令和真人的 `app_mention`（任务讨论串里的补充）转成 `POST /events` 要的请求体，带请求头 `x-chat-to-fix-token` 发过去。bot 的消息、编辑过的消息、自己的消息都忽略。连接断了会退避重连。环境变量：`CHAT_TO_FIX_SLACK_APP_TOKEN`（应用级令牌，权限 `connections:write`；必填）、`CHAT_TO_FIX_SLACK_TOKEN`（可选；有它时转发器还会尽力取消息的永久链接和发言人名字）、`CHAT_TO_FIX_URL`、`CHAT_TO_FIX_HTTP_TOKEN`。
 
 已知的过时代码注释（代码是对的，注释不对）：`src/adapters/index.ts` 开头说选 `real` 会抛“尚未实现”；`src/tools/request-code.ts`（`sessionId` 那行附近）说注册表的 `ctx` 还不带 `sessionId`，实际已经带了。
 

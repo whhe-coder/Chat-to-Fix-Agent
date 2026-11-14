@@ -139,6 +139,19 @@ export function stepStates(task) {
   })
 }
 
+/** The CI status and the cost at the end of the first header line (nothing for a task without them). */
+export function headFacts(task) {
+  const parts = []
+  const ci = task?.ci
+  if (ci && (ci.status || ci.outcome)) {
+    const bad = ci.outcome ? ci.outcome !== 'passed' : ci.status === 'failed'
+    parts.push(['dim', '  CI '], [bad ? 'red' : ci.status === 'passed' || ci.outcome === 'passed' ? 'green' : 'yellow', `${ci.outcome ?? ci.status}${ci.round ? ` 第${ci.round}轮` : ''}`])
+  }
+  const usage = task?.usage
+  if (usage && usage.calls > 0) parts.push(['dim', '  花费 '], [null, `$${Number(usage.totalUsd ?? 0).toFixed(usage.totalUsd >= 0.01 ? 2 : 4)}${usage.unpriced ? '+' : ''}`])
+  return parts
+}
+
 /** The five bots with working / idle. Only a running task has working bots. */
 export function botStates(task, records = []) {
   const stepRoles = STEPS.find((s) => s.id === task?.step)?.roles ?? []
@@ -147,7 +160,7 @@ export function botStates(task, records = []) {
   return ROLES.map((role) => {
     const label = ROLE_LABELS[role] ?? role
     if (task?.state !== 'running') return { role, label, state: 'off' }
-    const last = records.findLast((r) => r?.role === role && (r.run == null || runNo == null || r.run === runNo))
+    const last = records.findLast((r) => r?.type !== 'usage' && r?.role === role && (r.run == null || runNo == null || r.run === runNo))
     let working = last !== undefined && last.type !== 'round_end'
     // A role in charge of the step that began after its last answer is about to work.
     if (!working && stepRoles.includes(role)) working = last === undefined || !(Date.parse(last.at) >= stepAt)
@@ -179,6 +192,13 @@ export function recordParts(record) {
     case 'advance': return [['green', '[advance]'], [null, ` ${text}`]]
     case 'refused': return [['yellow', '[refused]'], [null, ` ${text}`]]
     case 'limit': return [['red', '[limit]'], [null, ` ${text}`]]
+    // usage: one dim short line when a caller does render it (the screen and the plain output skip these records)
+    case 'usage': return [['dim', `[usage] ${oneLine(record.model)} ${typeof record.costUsd === 'number' ? `$${record.costUsd.toFixed(4)}` : 'unpriced'}`]]
+    // ci: stands out; a failure or a stopped loop is red, a pass green, the rest yellow
+    case 'ci': {
+      const bad = /^(CI failed|CI loop stopped|fix push rejected|no CI result|re-running the failed jobs failed)/.test(text)
+      return [[bad ? 'red' : /^CI passed/.test(text) ? 'green' : 'yellow', '[CI]'], [bad ? 'red' : null, ` ${text}`]]
+    }
     case 'approval': return [['yellow', '[approval]'], [null, ` ${text}`]]
     case 'system': return [['dim', '[system]'], [null, ` ${text}`]]
     default: {
@@ -212,17 +232,18 @@ export const bodyHeight = (height, hasBanner = false) => Math.max(0, height - 1 
  * The whole screen as exactly `height` lines of at most `width` columns.
  * data: { tasks, task, records, error }; view: { scroll, now, color }.
  */
-export function layout({ width, height, tasks = [], task = undefined, records = [], error = null, scroll = 0, now = Date.now(), color = false }: any) {
+export function layout({ width, height, tasks = [], task = undefined, records: allRecords = [], error = null, scroll = 0, now = Date.now(), color = false }: any) {
   const fit = (parts) => fitParts(parts, width, color)
+  const records = allRecords.filter((r) => r?.type !== 'usage') // one usage record per bot round would flood the screen; the cost is in the header
   const head = []
   if (error) head.push(fitParts([['banner', padWidth(` ! ${oneLine(error)} `, width)]], width, color))
 
   const state = task?.state
   if (task === undefined) {
-    head.push(fit([['bold', ' Chat-to-Fix 监控 '], ['dim', ' 还没有任务，等第一个 @']]))
+    head.push(fit([['bold', ' Chat-to-Fix 监控 '], ['dim', ' 还没有任务，等第一个 /fix']]))
     head.push(fit([]), fit([]))
   } else {
-    head.push(fit([['bold', ` ${task.id} `], [STATE_STYLE[state] ?? null, ` ${STATE_LABELS[state] ?? state}${task.endReason && state !== 'done' ? ` (${oneLine(task.endReason)})` : ''} `], ['dim', ` 经过 ${formatDuration(elapsedMs(task, now))}${task.runs?.length > 1 ? `  第 ${task.runs.length} 次运行` : ''}`]]))
+    head.push(fit([['bold', ` ${task.id} `], [STATE_STYLE[state] ?? null, ` ${STATE_LABELS[state] ?? state}${task.endReason && state !== 'done' ? ` (${oneLine(task.endReason)})` : ''} `], ['dim', ` 经过 ${formatDuration(elapsedMs(task, now))}${task.runs?.length > 1 ? `  第 ${task.runs.length} 次运行` : ''}`], ...headFacts(task)]))
     head.push(fit([['dim', ' 频道 '], [null, task.binding?.channel ?? '-'], ['dim', '  仓库 '], [null, task.binding?.repo ?? '-'], ['dim', '  分支 '], [null, task.repo?.branch ?? '-']]))
     head.push(fit([['dim', ' Jira '], [null, task.jira?.key ?? '-'], ['dim', task.jira?.url ? ` ${task.jira.url}` : ''], ['dim', '  MR '], [null, task.mr?.url ?? '-']]))
   }
@@ -380,7 +401,7 @@ export function plainStep(prev, snap) {
     next.state = task.state
     next.step = task.step
   }
-  for (const record of snap.records.slice(next.seen)) lines.push(recordLinePlain(record))
+  for (const record of snap.records.slice(next.seen)) if (record?.type !== 'usage') lines.push(recordLinePlain(record))
   next.seen = snap.records.length
   return { lines, prev: next, ended: END_STATES.includes(task.state) }
 }

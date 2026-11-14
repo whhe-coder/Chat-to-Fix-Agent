@@ -221,7 +221,7 @@ export function createBotLayer(rt) {
   async function reportChildUsage(sessionId, childId) {
     if (!canRead() || childId === undefined) return
     const usage = roundUsage(sessionId, { tokens: {}, stats: {} }, await readTotals(childId), iso())
-    if (usage !== undefined) fire(listeners.usage, usage)
+    if (usage !== undefined) fire(listeners.usage, { ...usage, reviewer: true })
   }
 
   return {

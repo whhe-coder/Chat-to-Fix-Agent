@@ -4,8 +4,9 @@
 //        [--timeout-minutes 20] [--port 3090] [--api-model anthropic/claude-sonnet-5-5]
 //        [--coding-model anthropic/claude-sonnet-5-5] [--keychain-service chat-to-fix-anthropic] [--poll-seconds 3]
 //
-// Each case is a bug report in a bound Slack channel against a small throwaway front-end repository; it is
-// expected to go through all eight steps in one run (no needs_info, no rerun). The runner
+// Each case is a bug report (sent as the /fix slash command, as in production) in a bound Slack channel against a small
+// throwaway front-end repository. Most cases are expected to go through all eight steps in one run (no needs_info, no
+// rerun); the needs-info case is expected to ask once, get the answer and fix in a second run. The runner
 //  1. prepares ONE run folder (default ~/chat-to-fix-runs/e2e-<timestamp>) with all case repositories and ONE
 //     chat-to-fix.json with one binding per case (a folder that already holds a prepared run is used as it is);
 //  2. with --prepare-only stops here and prints the commands: nothing is started, no model is called;
@@ -14,7 +15,8 @@
 //     child's environment; it is never printed or written), injects the cases one at a time, waits for each task
 //     to end (per-case time limit: the task is stopped), runs the checks (scripts/e2e/checks.ts), stops the system
 //     at the end (also on Ctrl-C or failure) and writes report.json and report.md into the folder.
-// The default set is the UI cases; the optional ones (missing-key, button-state, discount) are run by name.
+// The default set is the seven UI cases; the optional ones (ci-changeset, needs-info, missing-key, button-state, discount)
+// are run by name (--cases). The table of all cases is in scripts/e2e/README.md.
 import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
@@ -66,9 +68,10 @@ export function evaluateCase({ caseDef, task, dataDir, manifestCase }: { caseDef
 }
 
 /**
- * The Slack thread of a case: earlier messages are written to the discussion file, the trigger is posted as the event.
- * A command case (inputMode 'command') is posted as the /fix slash command instead: the server opens the discussion
- * itself (task.origin.threadTs is its opening message); the result has the { status, body } shape either way.
+ * The report of a case, as production receives it: the /fix slash command (inputMode 'command', the default of every case):
+ * the server opens the discussion itself (task.origin.threadTs is its opening message).
+ * A thread case (inputMode 'thread', no case uses it today) is injected as a fake @ event: earlier messages are written to
+ * the discussion file, the trigger is posted as the event. The result has the { status, body } shape either way.
  */
 export async function injectCase({ caseDef, manifestCase, dataDir, url, token, fetchImpl = globalThis.fetch }) {
   if (caseDef.inputMode === 'command') {
@@ -198,6 +201,17 @@ const usageSection = (u) => {
     ...rows,
   ]
 }
+/** Compact facts of a case (only those that exist): CI, limits that fired, who confirmed missing information, notices. */
+const factsLines = (summary) => {
+  const out = []
+  if (summary?.ci) out.push(`CI：${summary.ci.outcome ?? '未定'}，修复 ${summary.ci.round} 轮`)
+  for (const l of summary?.limits ?? []) out.push(`限制触发：${l.check}（第 ${l.run ?? '-'} 轮，${l.step ?? '-'} 步）${l.action ? ` ${String(l.action).replace(/\n/g, ' ')}` : ''}`)
+  const ni = summary?.needsInfo
+  for (const c of ni?.confirmations ?? []) out.push(`确认缺信息：第 ${c.run} 轮，${c.step ?? '-'} 步，由 ${c.roles.join(' + ')} 确认`)
+  for (const o of ni?.overruled ?? []) out.push(`Main 没认同 ${o.by.join('/')} 的缺信息判断（第 ${o.run} 轮，${o.step ?? '-'} 步），任务继续`)
+  if (summary?.notices?.length) out.push(`系统通知：${summary.notices.join(', ')}`)
+  return out
+}
 const fence = (s) => '```\n' + String(s ?? '').replace(/```/g, "'''") + '\n```'
 
 /** report.md (Chinese headings). */
@@ -220,6 +234,8 @@ export function renderReport(report) {
     lines.push('', `## ${r.id}：${r.title} — ${r.pass ? '通过' : '失败'}`, '', '### 检查项', '')
     for (const c of r.checks) lines.push(`- ${mark(c.ok)} ${c.title}${c.detail ? ` — ${String(c.detail).replace(/\n/g, ' ')}` : ''}`)
     if (r.error) lines.push('', `执行错误：${r.error}`)
+    const facts = factsLines(r.summary)
+    if (facts.length > 0) lines.push('', '### 运行情况', '', ...facts.map((f) => `- ${f}`))
     lines.push(...usageSection(r.summary?.usage))
     const t = r.summary?.texts
     if (t) {

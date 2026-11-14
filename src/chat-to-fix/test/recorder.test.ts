@@ -183,6 +183,19 @@ test('an API bot call becomes a usage record priced from the table, and counts i
   assert.deepEqual(Object.keys(usage.byRole), ['jira'])
 })
 
+test('the reviewer\'s usage is marked: booked to the Coding bot, but told apart by `reviewer` and its text', async () => {
+  const r = await rig({ step: 'code' })
+  r.botlayer.emit.usage(dshCall(r, 'coding'))
+  r.botlayer.emit.usage(dshCall(r, 'coding', { reviewer: true, output: 20 }))
+  const [own, review] = await entries(r)
+  assert.equal(own.reviewer, undefined)
+  assert.match(own.text, /^usage /)
+  assert.equal(review.reviewer, true)
+  assert.equal(review.role, 'coding')
+  assert.match(review.text, /^reviewer usage claude-sonnet-5-5: in 4, out 20/)
+  assert.equal((await r.store.getTask(r.id)).usage.byRole.coding.calls, 2)
+})
+
 test('a Coding bot turn: one record per model with the CLI cost, the reviewer model apart', async () => {
   const r = await rig({ step: 'code' })
   const turn = { sessionId: r.bots.coding, botId: r.bots.coding, source: 'cli', effort: 'high', at: AT, durationMs: 20_000, tpsBasis: 'cli-api' }

@@ -48,7 +48,7 @@ flowchart LR
 
 | 层 | 是什么 | 在哪 |
 |---|---|---|
-| Slack 一侧 | 公司 Slack Bot（Yuzhao / Logan 的代码）。把 `/fix` 转成 `POST /events`，轮询 `GET /outbox` 把消息发回讨论串。Chat-to-Fix 在发件箱模式下不连 Slack、没有 Slack token。目前只有本机模拟频道 `src/slackBot/mock-channel.js` 接上了这两个接口，真实的 `src/slackBot/slack-bot.js` 还没接 | 仓库根目录 `src/slackBot/` |
+| Slack 一侧 | 公司 Slack Bot（Yuzhao / Logan 的代码）。把 `/fix` 转成 `POST /events`，轮询 `GET /outbox` 把消息发回讨论串。Chat-to-Fix 在发件箱模式下不连 Slack、没有 Slack token。本机模拟频道 `src/slackBot/mock-channel.js` 和真实的 `src/slackBot/slack-bot.js`（`/fix` 入口和发件箱转发，PR #7）都已接上这两个接口；真实 Slack、Jira、GitLab 的两次运行（2026-11-13、11-14）已从头到尾跑通 | 仓库根目录 `src/slackBot/` |
 | 系统层 | 不是 bot，是普通代码：接请求、排队、开跑和收尾、计时和催办、检查证据、存任务、攒待发消息 | `core/task/`、`core/flow/` |
 | bot 层 | DS Bot 0.3.1 裁剪版，提供 bot、群、bot 之间互相 @ 和 `message_bot` 等团队工具；系统层只通过门面 `core/task/botlayer.ts` `createBotLayer` 调它 | `core/bot/index.ts`、`bot/` |
 | 运行时 | DSH，装在仓库根目录（根 `package.json` 的 `@deepseek-ai/dsh*` 依赖），整包使用不改。`scripts/start-chat-to-fix.sh` 启动 DSH，配置补丁 `config/cordis.patch.yml` 把 `core/plugin.ts` 作为插件加载，并关掉我们用不到的 DSH 插件行（浏览器界面、浏览器 API、网页、插件管理、DeepSeek 路线、没用的预设；199 行里开着 66 行，白名单 57 行，其余 9 行等 [plan-dsh-trim.md](design/plan-dsh-trim.md) 的第 8–10 步）。守门测试 `test/dsh-profile-guard.test.ts` 不启动 DSH 就查合成后的插件树：白名单行被关、补丁误关、DSH 升级多出新行、代码新用了 DSH 服务而没登记，都会让 `npm test` 失败 | 根目录 `node_modules/@deepseek-ai/` |
@@ -157,7 +157,7 @@ sequenceDiagram
 | 用量 | 和其他 bot 一样，每轮从 DSH 的会话统计取差值；审查者的子会话结束时读一次，记在 Coding 名下 | `core/task/botlayer.ts` `roundUsage`、`reportChildUsage` |
 
 - 审查者不是注册表里的 bot，也不在群里；它只在 `request_review` 这一次调用里存在。
-- 还没用真实模型验证：真实 DSH 里 `runReview` 那组参数、子会话用量能否读到、DSH 原生编码的质量。对比运行待批准（plan-dsh-coding.md 第 10 节）。
+- 已用真实模型验证：DSH 端到端用例都通过，每个用例约 $0.3；真实 Slack、Jira、GitLab 的运行 T-1、T-5 也经过评审和 CI 修复步骤。
 
 ## 7. 目录对照
 

@@ -26,9 +26,11 @@ export const NOT_RUN_PATTERNS = [
 /** "CI has not run yet" / "CI 还没跑": said of the pipeline when the MR is opened (step 5 comes before CI), not of the tests. Removed before matching. */
 export const CI_NOT_RUN = /\b(?:CI|pipelines?)\b[^。.;；,，]{0,20}?(?:has|have|had|was|were|is)?\s*(?:not|n't)\s*(?:yet\s*)?(?:been\s*)?(?:run|executed|started|triggered)(?:\s*yet)?|(?:CI|流水线|pipeline)[^。；，]{0,8}(?:还没|尚未|未|没有)(?:运行|跑|执行|触发)/gi
 
-/** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
 /** DSH's built-in file tools of the readonly and coding presets (config/cordis.patch.yml). */
 export const DSH_FILE_TOOLS = new Set(['read', 'read_image', 'write', 'edit', 'glob', 'grep'])
+/** A shell tool (DSH's bash / pwsh / jobs, or a Claude Code style Bash): no bot of Chat-to-Fix has one, the Coding bot runs tests through run_tests. */
+export const SHELL_TOOL = /^(?:bash|pwsh|powershell|shell|sh|zsh|exec|jobs?)$/i
+/** A clause that talks about the read-only reviewer (it never runs tests, so its "did not run" is no admission). */
 export const REVIEWER_CLAUSE = /reviewer|评审者|评审员|评审方|审阅者|审阅方|审查者|审查员|审查方|评审(?:子 ?agent)?自己|评审时/i
 
 const text = (v) => (typeof v === 'string' ? v : '')
@@ -45,6 +47,18 @@ export const mrOf = (ctx) => { const b = expectedBranch(ctx); return b === undef
 /** The Slack replies of the task's own discussion. */
 export const repliesOf = (ctx) => (ctx.fake?.replies ?? []).filter((r) => r.channel === ctx.task?.origin?.channel && r.threadTs === ctx.task?.origin?.threadTs)
 const records = (ctx) => ctx.records ?? []
+/** The run a record belongs to (records of a one-run task may carry no run number). */
+const runOfRecord = (r) => r.run ?? 1
+/**
+ * Tasks of the current shape always carry `issueAssessment` (null until the Jira bot assesses the request). Reports
+ * of earlier runs (Claude Code era and the first DSH runs, before 2026-11-14) lack the field and the notices: the
+ * checks that need them skip those reports instead of failing them.
+ */
+const hasCurrentShape = (ctx) => ctx.task?.issueAssessment !== undefined
+/** The system notices of the task: [{ kind, text }], from the `system` records "notice <kind>: <text>" (core/task/monitor.ts deliver). */
+export const noticesOf = (ctx) => records(ctx).flatMap((r) => { const m = r.type === 'system' ? /^notice ([a-z_]+): ([\s\S]*)$/.exec(text(r.text)) : null; return m ? [{ kind: m[1], text: m[2] }] : [] })
+/** The confirmations of missing information: [{ run, step, role }], from the gate's `system` records. */
+export const confirmsOf = (ctx) => records(ctx).filter((r) => r.type === 'system' && r.tool === 'needs_info_confirm' && typeof r.role === 'string').map((r) => ({ run: runOfRecord(r), step: r.step ?? null, role: r.role }))
 const needWs = (ctx) => (ctx.ws === undefined ? fail('no worktree to look at') : undefined)
 
 /** Every text the system wrote to Jira, Slack and the MR (and the commit): what must not hold a secret. */
@@ -80,8 +94,8 @@ export const CHECKS = [
   {
     id: 'steps_in_order', title: '八步各推进一次且顺序正确',
     run: (ctx) => {
-      // A followUp case has two runs (the first stops at the question after three advances, the second goes through all
-      // seven): its steps are those of the last run.
+      // A followUp case has two runs (the first stops at the question, asked in step issue or later; the second goes
+      // through all seven advances = eight steps): its steps are those of the last run.
       const lastRun = ctx.task?.runs?.at?.(-1)?.no ?? ctx.task?.runs?.length
       const seen = records(ctx).filter((r) => r.type === 'advance' && (!ctx.caseDef?.followUp || r.run === lastRun)).map((r) => text(r.text))
       return verdict(JSON.stringify(seen) === JSON.stringify(EXPECTED_STEPS) && ctx.task?.step === 'close', seen.join(', '), `advance records: ${seen.join(', ') || '(none)'}; step=${ctx.task?.step}`)
@@ -93,7 +107,9 @@ export const CHECKS = [
       const runs = ctx.task?.runs?.length ?? 0
       const info = ctx.task?.needsInfo ?? {}
       const asked = ctx.task?.slack?.sent?.question === true
-      return verdict(runs === 1 && !info.main && !info.coding && !asked && ctx.task?.runs?.[0]?.endReason === 'completed', '1 run, no question',
+      // needsInfo is cleared per run and the Jira bot's own entry is withdrawn when it assesses again (Main overruled its
+      // "information is missing"), so a clean end state is right for that; a confirmation that survived is not.
+      return verdict(runs === 1 && !info.main && !info.jira && !info.coding && !asked && ctx.task?.runs?.[0]?.endReason === 'completed', '1 run, no question',
         `runs=${runs} needsInfo=${clip(JSON.stringify(info), 80)} questionSent=${asked}`)
     },
   },
@@ -104,6 +120,23 @@ export const CHECKS = [
       if (issue === undefined) return fail(`no issue ${ctx.task?.jira?.key ?? '(task has no jira key)'} in fake/jira/issues.json`)
       const project = ctx.task?.binding?.jiraProject
       return verdict(issue.project === project && text(issue.title).trim() !== '' && issue.key.startsWith(`${project}-`), `${issue.key}: ${clip(issue.title, 80)}`, `issue ${issue.key} project=${issue.project} (want ${project}) title="${clip(issue.title, 60)}"`)
+    },
+  },
+  {
+    // jira_create_issue refuses without an approved assessment (core/tools/jira.ts); this checks the records show it and
+    // that the assessment came first. issueAssessment is cleared by every new run, so it is only read when the run that
+    // created the issue is the last one.
+    id: 'jira_assessed_first', title: 'Jira bot 先评估请求（jira_assess_request 通过）再建单',
+    run: (ctx) => {
+      if (!hasCurrentShape(ctx)) return ok('the report predates jira_assess_request (no issueAssessment field)')
+      const rs = records(ctx)
+      const created = rs.findIndex((r) => r.type === 'tool_result' && r.role === 'jira' && r.tool === 'jira_create_issue' && r.ok !== false && /^Created the Jira issue/.test(text(r.text)))
+      if (created < 0) return fail('no jira_create_issue result that created the issue')
+      const run = runOfRecord(rs[created])
+      const assessed = rs.slice(0, created).some((r) => r.type === 'tool_result' && r.role === 'jira' && r.tool === 'jira_assess_request' && r.ok !== false && runOfRecord(r) === run)
+      const lastRun = ctx.task?.runs?.at?.(-1)?.no ?? ctx.task?.runs?.length ?? 1
+      const stored = run !== lastRun || ctx.task?.issueAssessment?.ready === true
+      return verdict(assessed && stored, `assessed, then created (run ${run})`, `assessed before create in run ${run}: ${assessed}; task.issueAssessment.ready: ${ctx.task?.issueAssessment?.ready ?? null}${run !== lastRun ? ' (not read: the issue was created in an earlier run)' : ''}`)
     },
   },
   {
@@ -176,8 +209,9 @@ export const CHECKS = [
     },
   },
   {
-    // request_review: the system records the reviewer's verdict (review.by 'reviewer'). Runs of the removed Claude Code
-    // route (before 2026-11-13) recorded it with review_report pass; their reports stay readable.
+    // request_review: the system records the reviewer's verdict (review.by 'reviewer'). Reports of runs of the removed
+    // Claude Code route (before 2026-11-13) recorded it with review_report pass: that fallback only keeps those OLD
+    // reports readable; no current run takes it (review_report now only records cannot_fix).
     id: 'review_pass', title: '评审已记录为通过',
     run: (ctx) => {
       const review = ctx.task?.review
@@ -211,7 +245,9 @@ export const CHECKS = [
   },
   {
     // DSH's own file tools report a recoverable miss (an edit whose text was not found, a read of a wrong path) as a
-    // failed result; the bot corrects it in the next step, so those are not counted. Every task tool counts.
+    // failed result and the bot retries in its next call: that is the normal loop of an editing agent, and what it
+    // leaves behind (diff, hidden test, commit checks) is judged by the other checks. So only those six tools are
+    // exempt, and the report still counts them in "工具错误". Every task tool failure counts, as does any refusal.
     id: 'no_refusal_or_tool_errors', title: '没有 refusal / tool_error 记录，没有失败的任务工具调用（DSH 自带的文件工具除外）',
     run: (ctx) => {
       const rs = records(ctx)
@@ -221,10 +257,19 @@ export const CHECKS = [
     },
   },
   {
+    // The Coding bot has no shell (preset coding, config/cordis.patch.yml): it reads, writes and edits files and runs the
+    // bound test commands only through run_tests. A shell call means the preset or the bot layer changed.
+    id: 'no_shell_tool', title: '没有 bot 调用过 shell 工具（修复 bot 只有文件工具和 run_tests）',
+    run: (ctx) => {
+      const calls = records(ctx).filter((r) => r.type === 'tool_call' && SHELL_TOOL.test(text(r.tool)))
+      return verdict(calls.length === 0, 'none', `${calls.length} shell call(s): ${clip(calls.map((r) => `${r.role}: ${r.text}`).join(' | '), 200)}`)
+    },
+  },
+  {
     id: 'tests_were_run', title: '测试确实运行过（修复 bot 跑过 run_tests 且通过；修复 bot 的话和 MR 描述里没有“没运行/被拒绝”）',
     run: (ctx) => {
-      // Positive evidence on DSH: the Coding bot's run_tests passed at least once. Runs from the Claude Code era
-      // have no run_tests records; for them only the admission check below applies.
+      // Positive evidence on DSH: the Coding bot's run_tests passed at least once. Reports of Claude Code era runs
+      // (before 2026-11-13) have no run_tests records; for those OLD reports only the admission check below applies.
       const testRuns = records(ctx).filter((r) => r.type === 'tool_result' && r.tool === 'run_tests')
       if (testRuns.length > 0 && !testRuns.some((r) => r.ok !== false && /exit code 0\b/.test(text(r.text)))) {
         return fail(`run_tests never passed (${testRuns.length} run(s)): ${clip(text(testRuns.at(-1).text), 120)}`)
@@ -244,6 +289,40 @@ export const CHECKS = [
     },
   },
   {
+    // The notices the system posts by itself (monitor.ts NOTICE, ciNoticeText; kinds jira_created, mr_opened, ci_*,
+    // needs_person ...) are written as `notice <kind>` records and posted as purpose "system". Light checks: the facts
+    // that happened have their notice, a happy run has no failure notice, and a link is never followed by punctuation
+    // (Slack would take the punctuation into the link).
+    id: 'notices', title: '系统通知齐全（建单、开 MR、CI 各有一条），没有失败类通知，链接后面没有标点',
+    run: (ctx) => {
+      if (!hasCurrentShape(ctx)) return ok('the report predates the system notices')
+      const notices = noticesOf(ctx)
+      const of = (kind) => notices.filter((n) => n.kind === kind)
+      const problems = []
+      const key = ctx.task?.jira?.key
+      const mrUrl = ctx.task?.mr?.url
+      if (key !== undefined && !of('jira_created').some((n) => n.text.includes(key))) problems.push(`no jira_created notice naming ${key}`)
+      if (mrUrl !== undefined && !of('mr_opened').some((n) => n.text.includes(mrUrl))) problems.push(`no mr_opened notice with the MR link ${mrUrl}`)
+      const ci = ctx.task?.ci
+      if (ci?.outcome === 'passed' && of('ci_passed').length === 0) problems.push('CI passed but there is no ci_passed notice')
+      if (ci?.outcome === 'passed' && of('ci_failed').length < (Number(ci.round) || 0)) problems.push(`${ci.round} CI fix round(s) but ${of('ci_failed').length} ci_failed notice(s)`)
+      if (ci?.outcome === 'rounds_exhausted' && of('ci_rounds_exhausted').length === 0) problems.push('CI rounds exhausted but no ci_rounds_exhausted notice')
+      if (ci?.outcome === 'no_pipeline' && of('ci_no_pipeline').length === 0) problems.push('no CI result but no ci_no_pipeline notice')
+      if (ctx.task?.endReason === 'needs_person' && of('needs_person').length === 0) problems.push('the task ended as needs_person but there is no needs_person notice')
+      if (ctx.task?.state === 'done') {
+        const bad = notices.filter((n) => ['failed', 'timed_out', 'needs_person', 'stopped', 'expired', 'queue_full', 'channel_not_bound'].includes(n.kind)).map((n) => n.kind)
+        if (bad.length > 0) problems.push(`a finished task has failure notices: ${bad.join(', ')}`)
+      }
+      // every posted system message: a link ends at whitespace or the end of the text, and its last character is not punctuation
+      for (const r of repliesOf(ctx).filter((x) => x.purpose === 'system')) {
+        for (const url of text(r.text).match(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi) ?? []) {
+          if (/[.,;:!?)\]>'"。，；：！？、）】》”’]$/.test(url)) problems.push(`link followed by punctuation: "${clip(url, 80)}"`)
+        }
+      }
+      return verdict(problems.length === 0, `${notices.length} notice(s): ${[...new Set(notices.map((n) => n.kind))].join(', ') || '-'}`, problems.join(' | '))
+    },
+  },
+  {
     id: 'no_secret_in_outputs', title: 'Jira / Slack / MR / 提交信息里没有密钥样式的字符串',
     run: (ctx) => {
       const found = []
@@ -259,6 +338,18 @@ export const CHECKS = [
 
 const toolCalls = (ctx, role, tool) => records(ctx).filter((r) => r.type === 'tool_call' && r.role === role && r.tool === tool)
 const toolResults = (ctx, role, tool) => records(ctx).filter((r) => r.type === 'tool_result' && r.role === role && r.tool === tool)
+
+/**
+ * The step in which run 1's question was asked: the step of the slack_reply(purpose question) call of run 1, else the step
+ * run 1 had reached (one more than its advances). undefined when run 1 asked nothing.
+ */
+export function questionStepOf(ctx): string | undefined {
+  const call = records(ctx).find((r) => r.type === 'tool_call' && r.tool === 'slack_reply' && runOfRecord(r) === 1 && /"purpose"\s*:\s*"question"/.test(text(r.text)))
+  if (call === undefined) return undefined
+  if (typeof call.step === 'string') return call.step
+  const advances = records(ctx).filter((r) => r.type === 'advance' && runOfRecord(r) === 1).length
+  return ['fetch', 'issue', 'prepare', 'code', 'mr', 'ci', 'writeback', 'close'][advances]
+}
 
 /** Checks only some cases have. */
 export const CASE_CHECKS = {
@@ -286,15 +377,29 @@ export const CASE_CHECKS = {
   // A followUp case (bot asks, the requester answers, the second run fixes): replaces the general one_pass (see checksFor).
   followUp: [
     {
-      id: 'asked_then_fixed', title: '先提问再修好：第 1 轮 needs_info 并发了提问，第 2 轮 completed，一共 2 轮',
+      id: 'asked_then_fixed', title: '先提问再修好：第 1 轮 needs_info 并发了提问（在建单步或编码步），第 2 轮 completed，一共 2 轮',
       run: (ctx) => {
         const runs = ctx.task?.runs ?? []
         // slack.sent.question is reset by every run (store startRun), so the question is looked up in the replies file (kept
         // for the whole task) and in the tool calls of run 1
         const asked = repliesOf(ctx).some((r) => r.purpose === 'question' && text(r.text).trim() !== '')
           || records(ctx).some((r) => r.type === 'tool_call' && r.tool === 'slack_reply' && (r.run ?? 1) === 1 && /"purpose"\s*:\s*"question"/.test(text(r.text)))
-        return verdict(runs.length === 2 && runs[0]?.endReason === 'needs_info' && runs[1]?.endReason === 'completed' && asked, 'run 1 needs_info + question, run 2 completed',
-          `runs=${runs.length} endReasons=${runs.map((r) => r.endReason).join(',') || '-'} questionSent=${asked}`)
+        const step = questionStepOf(ctx)
+        // the question can come in step issue (the Jira bot found the request unfit for an issue) or in step code (the Coding bot)
+        const stepOk = step === 'issue' || step === 'code'
+        return verdict(runs.length === 2 && runs[0]?.endReason === 'needs_info' && runs[1]?.endReason === 'completed' && asked && stepOk, `run 1 needs_info + question (asked in step ${step}), run 2 completed`,
+          `runs=${runs.length} endReasons=${runs.map((r) => r.endReason).join(',') || '-'} questionSent=${asked} askedInStep=${step ?? '?'} (want issue or code)`)
+      },
+    },
+    {
+      // The gate lets Slack ask only after Main and the bot of the step confirmed (flow/steps.ts): Jira in step issue, Coding after.
+      id: 'question_confirmed', title: '提问前 Main 和该步负责的 bot 都确认了缺信息（建单步是 Jira，之后是 Coding）',
+      run: (ctx) => {
+        const step = questionStepOf(ctx)
+        if (step === undefined) return fail('no question of run 1 to tie the confirmations to')
+        const peer = step === 'issue' ? 'jira' : 'coding'
+        const roles = confirmsOf(ctx).filter((c) => c.run === 1).map((c) => c.role)
+        return verdict(roles.includes('main') && roles.includes(peer), `main + ${peer} confirmed in run 1 (question in step ${step})`, `confirmed by: ${roles.join(', ') || '(nobody)'}; the question of step ${step} needs main and ${peer}`)
       },
     },
     {
@@ -379,7 +484,25 @@ export function runChecks(ctx) {
   })
 }
 
-/** Facts for the report: duration, review rounds, number of records, refusals and tool errors, final texts. */
+/**
+ * Who confirmed missing information: [{ run, step, roles }], and `overruled`: runs where only Jira or Coding said it and
+ * Main did not confirm (Main decided the information was enough, the bot assessed or coded again, the run went on).
+ */
+export function needsInfoFacts(ctx) {
+  const byRun = new Map()
+  for (const c of confirmsOf(ctx)) {
+    const entry = byRun.get(c.run) ?? { run: c.run, step: c.step, roles: [] }
+    if (!entry.roles.includes(c.role)) entry.roles.push(c.role)
+    byRun.set(c.run, entry)
+  }
+  const confirmations = [...byRun.values()]
+  return { confirmations, overruled: confirmations.filter((e) => !e.roles.includes('main')).map((e) => ({ run: e.run, step: e.step, by: e.roles })) }
+}
+
+/**
+ * Facts for the report: duration, review rounds, number of records, refusals and tool errors, ci outcome, limit records
+ * (soft_time, soft_budget ...), who confirmed missing information (and whether Main overruled the Jira or Coding bot), final texts.
+ */
 export function summarize(ctx) {
   const task = ctx.task ?? {}
   const rs = records(ctx)
@@ -392,6 +515,9 @@ export function summarize(ctx) {
     durationSec: Number.isFinite(start) && Number.isFinite(end) ? Math.round((end - start) / 1000) : undefined,
     reviewRounds: task.review?.rounds, records: rs.length,
     ci: task.ci ? { outcome: task.ci.outcome ?? null, round: task.ci.round ?? 0 } : undefined,
+    limits: rs.filter((r) => r.type === 'limit').map((r) => ({ check: r.check ?? null, step: r.step ?? null, run: r.run ?? null, action: text(r.action) || text(r.text) })),
+    needsInfo: needsInfoFacts(ctx),
+    notices: noticesOf(ctx).map((n) => n.kind),
     usage: task.usage,
     refusals: rs.filter((r) => r.type === 'refusal').length,
     toolErrors: rs.filter((r) => r.type === 'tool_error' || (r.type === 'tool_result' && r.ok === false)).length,

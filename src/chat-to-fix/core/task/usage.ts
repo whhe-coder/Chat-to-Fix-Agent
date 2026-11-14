@@ -4,7 +4,8 @@
 // review for the Coding bot's reviewer (booked to the Coding bot):
 //   { type: 'usage', role, botId, run, step, at, model, effort?, input, output, cacheRead, cacheWrite,
 //     costUsd (number | null), unpriced, source: 'dsh' | 'cli', durationMs, ttftMs?, outputTps (number | null),
-//     tpsBasis: 'dsh-decode' | 'cli-api' | 'cli-wall' | null, tpsTokens?, failed?, text }
+//     tpsBasis: 'dsh-decode' | 'cli-api' | 'cli-wall' | null, tpsTokens?, failed?, reviewer?, text }
+// `reviewer: true` marks the reviewer's record (still booked to the Coding bot; its text starts with "reviewer usage").
 // where `input` is the uncached input only. Where the figures come from:
 //   source 'dsh': DSH's own per-session projections (tokenUsage and sessionStats, read at the start and the end of a
 //                 round, see core/task/botlayer.ts), one record per round; the cost is computed from the price table

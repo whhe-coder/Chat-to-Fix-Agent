@@ -268,14 +268,14 @@ DSH 以无界面方式运行，使用仓库根目录 `package.json` 安装的 DS
 
 状态：未实现。没有选定历史工单，没有结果表，也没有重新校准上限；`DEFAULT_LIMITS` 里仍是设计时的值。
 
-现在有的是另一套：用真实模型跑的合成用例集 `scripts/e2e/`（提交 d1eb5c8，之后有改动，见下）。共 10 个用例，每个是一个单独 Slack 频道里的缺陷报告，针对一个小的前端临时仓库（纯 Node）：文案错别字、圆角、按下效果、表单校验、价格显示并补测试、跨文件、提示注入（讨论里有假密钥）、缺少 i18n key、按钮状态、一个非界面的折扣用例。默认跑 7 个；`missing-key`、`button-state`、`discount` 只能按名字跑。每个用例有隐藏测试（在基准提交上失败，参考修复后通过）和一份参考修复。运行：`. scripts/dev-env.sh && node scripts/e2e/run.ts [--cases a,b] [--dir <目录>] [--prepare-only]`。运行器启动系统，逐个注入用例，再跑自动检查（`scripts/e2e/checks.ts`：任务完成、八步顺序正确（`fetch -> issue` 到 `writeback -> close`，含 `mr -> ci`、`ci -> writeback`）、一次跑通、工单、分支和提交信息、改动文件在允许范围内、测试和隐藏测试、审查已记录、Slack 和 MR 的结果、没有工具错误、测试确实运行过、输出里没有像密钥的文字，以及各用例自己的检查），最后写出 `report.json` 和 `report.md`。192a721 之前的改动：用例和 e2e 配置固定 coding bot 为 `claude-code/claude-sonnet-5-5`、`codingEffort: high`（2026-11-13 起改为 `anthropic/claude-sonnet-5-5`，可用 `--coding-model` 换；评审检查认 `request_review`；`--engine-auth`、`--claude-bin` 和叠加文件已删）；报告里加了每个用例和合计的花费、token、输出速度（来自 `task.usage`）；报告在用例跑完后就定稿，停系统慢也不再显示“未结束”；“测试确实运行过”的检查跳过说审查子 agent 的句子（它只读，本来不跑测试）。它会调用真实模型，这次更新没有运行它。
+现在有的是另一套：用真实模型跑的合成用例集 `scripts/e2e/`（提交 d1eb5c8，之后有改动，见下）。共 12 个用例，每个是一个单独 Slack 频道里的缺陷报告，针对一个小的前端临时仓库（纯 Node）：文案错别字、圆角、按下效果、表单校验、价格显示并补测试、跨文件、提示注入（讨论里有假密钥）、缺少 i18n key、按钮状态、一个非界面的折扣用例，再加 CI 修复和追问两个流程用例。默认跑 7 个；`ci-changeset`（CI 修复循环）、`needs-info`（追问循环，`/fix` 命令模式）、`missing-key`、`button-state`、`discount` 只能按名字跑。每个用例有隐藏测试（在基准提交上失败，参考修复后通过）和一份参考修复。运行：`. scripts/dev-env.sh && node scripts/e2e/run.ts [--cases a,b] [--dir <目录>] [--prepare-only]`。运行器启动系统，逐个注入用例，再跑自动检查（`scripts/e2e/checks.ts`：任务完成、八步顺序正确（`fetch -> issue` 到 `writeback -> close`，含 `mr -> ci`、`ci -> writeback`）、一次跑通、工单、分支和提交信息、改动文件在允许范围内、测试和隐藏测试、审查已记录、Slack 和 MR 的结果、没有工具错误、测试确实运行过、输出里没有像密钥的文字，以及各用例自己的检查），最后写出 `report.json` 和 `report.md`。192a721 之前的改动：用例和 e2e 配置固定 coding bot 为 `claude-code/claude-sonnet-5-5`、`codingEffort: high`（2026-11-13 起改为 `anthropic/claude-sonnet-5-5`，可用 `--coding-model` 换；评审检查认 `request_review`；`--engine-auth`、`--claude-bin` 和叠加文件已删）；报告里加了每个用例和合计的花费、token、输出速度（来自 `task.usage`）；报告在用例跑完后就定稿，停系统慢也不再显示“未结束”；“测试确实运行过”的检查跳过说审查子 agent 的句子（它只读，本来不跑测试）。它会调用真实模型，这次更新没有运行它。
 
 ### 4.5 真实接入（R1）
 
 [questions-for-colleagues.md](questions-for-colleagues.md) 里同事的问题仍没有答复。适配器是在他们答复之前写的。
 
-1. 已做：三个适配器的真实实现（`src/adapters/slack-http.ts`、`jira-http.ts`、`gitlab-http.ts`），接口不变（规格 4 的 2.2）。只对着本地的桩服务测过（提交 e50ff17），没有对着任何真实服务运行过。
-2. 已做：@ 事件由一个单独的进程 `scripts/slack-forwarder.ts` 接入，它保持一条 Slack Socket Mode 连接，把转换后的事件带控制接口的令牌发到 `POST /events`。监听口本身没变，任务层的形状也没变。转发器没有在真实工作区里运行过。
+1. 已做：三个适配器的真实实现（`src/adapters/slack-http.ts`、`jira-http.ts`、`gitlab-http.ts`），接口不变（规格 4 的 2.2）。只对着本地的桩服务测过（提交 e50ff17），2026-11-13、11-14 已在真实 Slack、Jira、GitLab 上各跑通一次（T-1、T-5）。
+2. 已做：@ 事件由一个单独的进程 `scripts/slack-forwarder.ts` 接入，它保持一条 Slack Socket Mode 连接，把转换后的事件带控制接口的令牌发到 `POST /events`。监听口本身没变，任务层的形状也没变。转发器已在真实工作区里运行过。
 3. 未实现：确认新建的 Jira 单不会触发现有的自动化规则。
 4. 未实现：把 `adapters` 改为真实实现，重跑规格 4 的四个端到端场景。
 5. 未实现：在试点频道做一次真实的 @。

@@ -28,10 +28,21 @@ export function formatTask(task) {
     `  slack   read=${Boolean(task.slack?.readAt)} sent=${Object.entries(task.slack?.sent ?? {}).filter(([, v]) => v).map(([k]) => k).join(',') || '-'}`,
     `  jira    ${task.jira?.key ?? '-'} ${task.jira?.url ?? ''}${task.jira?.commentedMr ? '  (MR commented)' : ''}`,
     `  repo    branch=${task.repo?.branch ?? '-'} dir=${task.repo?.dir ?? '-'}`,
-    `  review  ${task.review ? `${task.review.verdict ?? '?'} (rounds ${task.review.rounds ?? '?'})` : '-'}`,
+    `  review  ${task.review ? `${task.review.verdict ?? '?'} (rounds ${task.review.rounds ?? '?'}${task.review.by ? `, by ${task.review.by}` : ''})` : '-'}`,
     `  mr      ${task.mr?.url ?? '-'}`,
   ]
-  if (task.needsInfo?.main || task.needsInfo?.coding) lines.push(`  needs   ${oneLine(JSON.stringify(task.needsInfo))}`)
+  const ci = task.ci
+  if (ci) {
+    const jobs = (ci.failedJobs ?? []).map((job) => job?.name ?? String(job))
+    lines.push(`  ci      round ${ci.round ?? 0}  ${ci.status ?? '-'}${ci.outcome ? ` -> ${ci.outcome}` : ''}${ci.settled ? '  (settled)' : ''}${jobs.length > 0 ? `  failed: ${jobs.join(', ')}` : ''}${ci.pipelineUrl ? `  ${ci.pipelineUrl}` : ''}`)
+  }
+  if (task.issueAssessment) lines.push(`  issue   assessment ready=${task.issueAssessment.ready === true}`)
+  if (task.needsInfo?.main || task.needsInfo?.jira || task.needsInfo?.coding) lines.push(`  needs   ${oneLine(JSON.stringify(task.needsInfo))}`)
+  if (task.closeNote) lines.push(`  close   ${oneLine(task.closeNote)}`)
+  const followUps = task.origin?.followUps?.length ?? 0
+  if (followUps > 0) lines.push(`  follow  ${followUps} follow-up message(s) in the thread`)
+  const ended = (task.runs ?? []).filter((x) => x.endReason)
+  if (ended.length > 0) lines.push(`  runs    ${ended.map((x) => `run ${x.no ?? '?'}: ${x.endReason}`).join(', ')}`)
   lines.push(...formatUsage(task.usage))
   return lines.join('\n')
 }

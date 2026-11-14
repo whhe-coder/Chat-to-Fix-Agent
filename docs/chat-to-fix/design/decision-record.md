@@ -51,7 +51,7 @@
 
 ### 2.3 工具清单
 
-逐项说明见 [tools-and-limits.md](tools-and-limits.md) 第 2 节，共 19 个新增工具，是当前基线。概要：
+逐项说明见 [tools-and-limits.md](tools-and-limits.md) 第 2 节，共 25 个新增工具，是当前基线。概要：
 
 | bot | 工具 |
 |---|---|
