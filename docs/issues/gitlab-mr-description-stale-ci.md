@@ -21,4 +21,4 @@ T-8 的 !381 描述没写 CI 状态，没有这个问题。
 
 ## 验收
 
-- [x] 开 MR 时不写会过时的 CI 状态；或者 CI 有结论后更新描述（或在 MR 下加一条评论）。（#23：描述不写 CI 状态，结果照常发到 Slack 和 Jira。T-10 复测：MR [!382](https://gitlab.loc/account-platform/free-to-play-pc/-/merge_requests/382) 描述没写 CI 状态，CI 结论只发到 Slack 和 Jira）
+- [x] 开 MR 时不写会过时的 CI 状态；或者 CI 有结论后更新描述（或在 MR 下加一条评论）。（#23：描述不写 CI 状态，结果照常发到 Slack 和 Jira。T-10 复测：MR [!382](https://gitlab.loc/account-platform/free-to-play-pc/-/merge_requests/382) 描述里没有 CI 状态或结论的句子，只说明这次改动用于测试非阻塞 job；CI 通过的消息发在 Slack（发件箱第 37 条）和 Jira 评论里）

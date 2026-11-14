@@ -36,9 +36,9 @@ T-5、T-8 的结束时间取自 GitLab MR 接口的 `head_pipeline.finished_at`�
 | 19:20:52 | 最后一个必需 job `unit-test` 成功 |
 | 19:22:02 | `sonar`（`allow_failure: true`）成功 |
 | 19:22:03 | GitLab 将 pipeline 标为 `success` |
-| 19:22:18 | Agent 向 Slack 报告“CI 通过”，随后写 Jira |
+| 19:22:18 | Agent 向 Slack 报告“CI 通过”（发件箱第 37 条） |
 
-Agent 等 `sonar` 跑完、pipeline 结束后才报告。两条 e2e 下游的 bridge job（`allow_failure: true`）在 19:18:16 就已标为 `success`，下游 pipeline 本身何时结束没有核对，按 #21 的设计也不等。
+Agent 等 `sonar` 跑完、pipeline 结束后才报告。两条 e2e 下游的 bridge job（`allow_failure: true`）在 19:18:16 就已标为 `success`，下游 pipeline 本身何时结束没有核对。
 
 ## 影响与验收
 
