@@ -1,6 +1,6 @@
 # 防抖窗口 5 秒，用户改写后重发拦不住
 
-- 状态：暂不处理，保留 5 秒作为初始值（Logan 2026-11-14 14:52），代码里加注释说明可调
+- 状态：暂不处理，保留 5 秒作为初始值（Logan 2026-11-14 14:52），代码里加注释说明可调（注释已加，commit `3cc4cb8`，#20）
 - 发现日期：2026-11-14
 - 关联任务：真实 Slack `T-7`（没建单）、`T-8` / [F2PGBA-412](https://xsolla.atlassian.net/browse/F2PGBA-412)
 
@@ -16,4 +16,4 @@
 
 ## 验收
 
-- [ ] [`fix-command.js`](../../src/slackBot/fix-command.js) 的 `DEBOUNCE_MS` 旁注明：5 秒是初始尝试值，后续按需要调整。
+- [x] [`fix-command.js`](../../src/slackBot/fix-command.js) 的 `DEBOUNCE_MS` 旁注明：5 秒是初始尝试值，后续按需要调整。（#20）

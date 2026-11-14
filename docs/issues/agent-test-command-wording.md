@@ -1,6 +1,6 @@
 # 结果说“仓库没有测试命令”，实际是没配置 `testCommands`
 
-- 状态：文案已修复（#23，`92584ca`），待真实复测；是否配 `testCommands` 待定
+- 状态：文案已修复 by commit `92584ca`（#23），真实 Slack `T-10` 复测通过；是否配 `testCommands` 待定
 - 发现日期：2026-11-14
 - 关联任务：真实 Slack `T-5` / [F2PGBA-411](https://xsolla.atlassian.net/browse/F2PGBA-411)、`T-8` / [F2PGBA-412](https://xsolla.atlassian.net/browse/F2PGBA-412)；模拟 `T-4`
 
@@ -23,5 +23,5 @@
 
 ## 验收
 
-- [x] 没配 `testCommands` 时，文案写“没有配置测试命令，本地没跑测试”，不说仓库没有。（#23）
+- [x] 没配 `testCommands` 时，文案写“没有配置测试命令，本地没跑测试”，不说仓库没有。（#23；T-10 复测：MR !382 描述写 `the repository has no test commands configured, so no tests were run`）
 - [ ] 决定是否给 `free-to-play-pc` 的 binding 配 `testCommands`（例如单元测试）。
