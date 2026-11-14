@@ -220,7 +220,7 @@ Jira（`src/adapters/jira.ts`、`jira-http.ts`）：Jira REST API v2。配置 `j
 
 GitLab（`src/adapters/gitlab-http.ts`，配合 `repo.ts`）：REST API v4，只管 MR 部分。配置 `gitlab.baseUrl`（必填）；令牌在 `CHAT_TO_FIX_GITLAB_TOKEN`（请求头 `PRIVATE-TOKEN`；同一个令牌也交给 git，用于这个主机上的 https 远端）。绑定里的 `repo` 是项目路径。MR 标题始终带前缀 `Draft:`（只带一个）。`upsertDraft` 先找这个源分支上已打开的 MR，有就更新，没有才创建。GitLab 回 HTTP 409（这期间分支上又出现了一个打开的 MR）时，找到那个 MR 并更新它。`getMR` 取该分支最近更新的 MR（不论状态），再读它的流水线状态。不跟随重定向，令牌不会跟着跑出去。
 
-GitLab 的 CI 部分（同一个文件）：`getChecks` 按 MR 的当前提交找 pipeline（旧提交的忽略，同一提交有几个取编号最大的），读主 pipeline 和下游 pipeline（最深四层，下游读不了按失败算），`allow_failure` 的 job 不算；还在跑算 `pending`，全部结束且有失败 job 算 `failed`，已取消也算失败。`getJobLog` 读 job 的 trace，去掉颜色码和折叠标记，只留末尾 `maxChars`。`retryJobs` 对每个 job 发一次重试，不重发，出错就停，报错里列出已重跑的 job；还没有在真实 GitLab 上验证过。
+GitLab 的 CI 部分（同一个文件）：`getChecks` 按 MR 的当前提交找 pipeline（旧提交的忽略，同一提交有几个取编号最大的），读主 pipeline 和下游 pipeline（最深四层，下游读不了按失败算），`allow_failure` 的 job 不算（主 pipeline 里还在跑的会把“通过”最多拖 10 分钟，见 spec-7）；还在跑算 `pending`，全部结束且有失败 job 算 `failed`，已取消也算失败。`getJobLog` 读 job 的 trace，去掉颜色码和折叠标记，只留末尾 `maxChars`。`retryJobs` 对每个 job 发一次重试，不重发，出错就停，报错里列出已重跑的 job；还没有在真实 GitLab 上验证过。
 
 入口（2026-11-12 定，设计已定、实现中；见 decision-record 第 2.11 节第 5 条）：主入口是在绑定的频道里用斜杠命令 `/fix 问题描述`（命令名可配置，`slack.slashCommand`，默认 `/fix`），@ 机器人只用于任务讨论串里的补充信息。转发器收到 `/fix` 先确认，再以 `source: 'slash'` 转给 `POST /events`；服务端先查绑定和队列，没绑定回 422、队列满回 429，这两种情况频道里不发任何东西；通过后用 `startThread` 在频道发开头消息（`<@发起人>` 加原文，先去掉广播式提及），它的 `ts` 就是讨论串，之后所有回复都在这里；发不出开头消息回 502。转发器按结果用 `response_url` 给发起人发中文临时消息。命令正文为空、或在和 bot 的私信里用，转发器直接回用法说明，不转给服务端（第一版不支持私信）。
 

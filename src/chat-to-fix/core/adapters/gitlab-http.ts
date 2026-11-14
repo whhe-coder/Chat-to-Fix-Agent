@@ -234,6 +234,9 @@ export function createRealGitlab(config, options: any = {}) {
   const ACTIVE = new Set(['created', 'waiting_for_resource', 'preparing', 'pending', 'running', 'scheduled', 'waiting_for_callback', 'canceling'])
   const BAD = new Set(['failed', 'canceled', 'cancelled']) // a cancelled job or pipeline counts as failed
   const MAX_DOWNSTREAM_DEPTH = 4
+  // How long a pass waits for allow_failure jobs after the counting work ended (a non-blocking SonarQube gate is 600 s).
+  const nonBlockingWaitMs = options.nonBlockingWaitMs ?? 10 * 60 * 1000
+  const now = options.now ?? (() => Date.now())
 
   /** All pages of a list endpoint (per_page 100, at most 10 pages). */
   async function listAll(path) {
@@ -249,10 +252,13 @@ export function createRealGitlab(config, options: any = {}) {
   }
 
   /**
-   * One pipeline and what it triggers: { pending, failed: [CiJob] }.
-   * Only work that counts is waited for: a running or queued allow_failure job or trigger job (and the downstream
-   * pipeline of an allow_failure trigger job, which is not even read) neither holds the result back nor fails it.
+   * One pipeline and what it triggers: { pending, failed: [CiJob], optionalActive, countedEndedAt }.
    * Pending = a counting job or trigger job is still going, or the pipeline is active with no job that explains it.
+   * An allow_failure job never fails the round. While one of THIS pipeline is still going, `optionalActive` is set: for
+   * the main pipeline, getChecks holds a pass back for it (up to nonBlockingWaitMs after the counting work ended), never
+   * a failure. Downstream pipelines' allow_failure jobs, and an allow_failure trigger job with its downstream pipeline
+   * (not even read), are not waited for at all.
+   * `countedEndedAt` is the latest finished_at of a counting job (ms), or 0 when none is known.
    * Failed jobs that count (allow_failure ones do not), trigger jobs without a downstream pipeline that failed, and the
    * downstream pipelines, read with their own project id.
    * A downstream pipeline we cannot read (403/404) counts as failed, and the failed job's name says so.
@@ -261,6 +267,8 @@ export function createRealGitlab(config, options: any = {}) {
     const ref = refOf(projectId)
     const failed: any[] = []
     let pending = false
+    let optionalActive = false
+    let countedEndedAt = 0
     let sawActive = false // some job or trigger job of this pipeline is still going (counting or not)
     const entry = (job, name = job.name) => ({ id: job.id, name, url: job.web_url ?? pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })
     for (const bridge of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/trigger_jobs`)) {
@@ -285,15 +293,18 @@ export function createRealGitlab(config, options: any = {}) {
       // The trigger job and the pipeline it points at must agree on the commit; otherwise it is being replaced: wait.
       if (isText(down.sha) && isText(body?.sha) && down.sha !== body.sha) { pending = true; continue }
       const inner = await evaluate(body?.project_id ?? downProject, body, depth + 1)
-      pending ||= inner.pending
+      pending ||= inner.pending // allow_failure jobs of a downstream pipeline do not hold a pass back (only the main pipeline's do)
+      countedEndedAt = Math.max(countedEndedAt, inner.countedEndedAt)
       failed.push(...inner.failed)
     }
     // Jobs of the pipeline (retried-and-replaced jobs are not listed by default).
     for (const job of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/jobs`)) {
       if (ACTIVE.has(job?.status)) sawActive = true
-      if (job?.allow_failure === true) continue
+      if (job?.allow_failure === true) { if (ACTIVE.has(job?.status)) optionalActive = true; continue }
       if (BAD.has(job?.status)) failed.push(entry(job))
       else if (ACTIVE.has(job?.status)) pending = true
+      const ended = Date.parse(job?.finished_at ?? '')
+      if (Number.isFinite(ended)) countedEndedAt = Math.max(countedEndedAt, ended)
     }
     // An active pipeline in which no job explains it (jobs not created yet, a status in transition): keep waiting.
     if (ACTIVE.has(pipeline.status) && !sawActive) pending = true
@@ -301,7 +312,7 @@ export function createRealGitlab(config, options: any = {}) {
     if (BAD.has(pipeline.status) && failed.length === 0 && !pending) {
       failed.push({ id: `pipeline:${pipeline.id}`, name: `pipeline ${pipeline.id} (${pipeline.status}, no failed job listed)`, url: pipeline.web_url ?? null, pipelineId: pipeline.id, projectId })
     }
-    return { pending, failed }
+    return { pending, failed, optionalActive, countedEndedAt }
   }
 
   /**
@@ -327,7 +338,12 @@ export function createRealGitlab(config, options: any = {}) {
     const { body: pipeline } = await request('GET', `/projects/${project}/pipelines/${id}`)
     if (pipeline?.sha !== sha || pipeline?.source !== 'merge_request_event') return waiting
     const result = await evaluate(pipeline.project_id ?? mr.project_id ?? binding.repo, pipeline, 0)
-    const status = result.pending ? 'pending' : result.failed.length > 0 ? 'failed' : 'passed'
+    // A pass waits for allow_failure jobs still going (e.g. a non-blocking SonarQube analysis), so the notice does not
+    // come before GitLab shows the pipeline as done; at most nonBlockingWaitMs after the counting work ended (when
+    // GitLab gives no end time for it, no wait, as before).
+    const holdForOptional = result.optionalActive && result.failed.length === 0
+      && result.countedEndedAt > 0 && now() - result.countedEndedAt < nonBlockingWaitMs
+    const status = result.pending || holdForOptional ? 'pending' : result.failed.length > 0 ? 'failed' : 'passed'
     return { status, sha, pipelineUrl: pipeline.web_url ?? null, failedJobs: status === 'failed' ? result.failed : [] }
   }
 
