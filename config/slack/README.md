@@ -1,6 +1,8 @@
 # Slack 应用配置：Chat-to-Fix
 
-本文记录截至 2026-11-13 在目标 Slack 工作区核对和修改的应用配置。本文不保存任何 token、secret、工作区 ID、App ID、回调地址或验证码。
+本文记录截至 2026-11-13 在目标 Slack 工作区核对和修改的应用配置。除用户提供的应用市场地址外，本文不保存任何 token、secret、工作区 ID、App ID、回调地址或验证码。
+
+应用市场地址（用户提供）：[Chat-to-Fix](https://xsolla.slack.com/marketplace/A0CGR1RE6EN-chat-to-fix)。
 
 ## 打开配置页面
 
@@ -8,7 +10,7 @@
 2. 选择 `Chat-to-Fix`，在 Slack 页面核对 App ID。文档用 `SLACK_APP_ID` 表示该值。
 3. 在左侧菜单进入 `App Home`、`Socket Mode`、`Event Subscriptions`、`OAuth & Permissions` 或 `Install App`。
 
-文档用 `SLACK_WORKSPACE_ID` 表示工作区 ID。不要把实际 ID 或带有实际 ID 的应用设置链接写入公开仓库。
+文档用 `SLACK_WORKSPACE_ID` 表示工作区 ID。除上面的应用市场地址外，不要把实际 ID 或带有实际 ID 的应用设置链接写入公开仓库。
 
 ## 当前配置
 
