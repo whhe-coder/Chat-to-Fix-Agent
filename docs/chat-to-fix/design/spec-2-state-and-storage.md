@@ -151,7 +151,7 @@
 | `refusal` | 记录器 | 只出现在 2026-11-13 前的记录里（已删的 Claude Code 路线）：某次工具使用被拒绝或权限请求超时。现在被拒的工具调用就是一条失败的 `tool_result` |
 | `tool_error` | 记录器 | 同上，只在旧记录里 |
 | `system` | 运行器、监听口 | 建任务、启动、解散、结束 |
-| `usage` | 记录器 | 一次模型调用的用量：模型、各类 token、费用（`costUsd`，没价格时 `null`）、来源（`dsh` 或 `cli`）、耗时、输出速度。每个 bot 每一轮一条；审查者每次审查一条，记在 Coding bot 名下；来源 `cli` 只在 2026-11-13 前的记录里 |
+| `usage` | 记录器 | 一次模型调用的用量：模型、各类 token、费用（`costUsd`，没价格时 `null`）、来源（`dsh` 或 `cli`）、耗时、输出速度。每个 bot 每一轮一条；审查者每次审查一条，记在 Coding bot 名下，带 `reviewer: true`（文字以 `reviewer usage` 开头，调试页单独显示）；来源 `cli` 只在 2026-11-13 前的记录里 |
 | `ci` | 监控 | CI 步骤里的变化：失败、重跑、结论、通知主 bot（规格 7） |
 
 这里代码自己前后不一致：记录器会写 `refusal` 和 `tool_error`，但 `src/task/contracts.ts` 的 `RECORD_TYPES`（现在含 `usage`、`ci`）里仍没有它们。未实现：把它们补进那张清单。

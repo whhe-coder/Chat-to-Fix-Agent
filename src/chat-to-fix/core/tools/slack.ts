@@ -6,6 +6,11 @@ import { cutText, material } from './material.ts'
 // No key in the configuration's limits fits the thread length, so it is a named constant here.
 export const THREAD_MAX_CHARS = 8000
 
+/** The line the system adds to a question when the requester cannot answer in the thread (slack.mentions false). */
+export const resubmitHint = (language) => (language === 'zh'
+  ? '讨论串里的回复收不到：请把原来的描述和上面缺的信息写在一起，重新发 /fix。'
+  : 'Replies in this thread are not received: please send /fix again with the original description and the missing details together.')
+
 const nameOf = (file) => (typeof file === 'string' ? file : file?.name ?? file?.title ?? 'file')
 const linkOf = (file) => (typeof file === 'string' ? undefined : file?.url ?? file?.permalink ?? file?.link)
 
@@ -57,7 +62,10 @@ export function slackTools() {
         if (text === '') throw new Error('text must not be empty')
         const max = ctx.config?.limits?.replyMaxChars ?? 600
         if (text.length > max) throw new Error(`text is ${text.length} characters, over the limit of ${max}; shorten it`)
-        await ctx.adapters.slack.reply(task.origin, args.purpose, text)
+        // Without mentions the requester cannot answer in the thread: the question itself says how to answer (one message
+        // instead of a separate needs_info_resubmit notice, see runner.end).
+        const hint = args.purpose === 'question' && ctx.config?.slack?.mentions === false ? resubmitHint(ctx.config?.language) : ''
+        await ctx.adapters.slack.reply(task.origin, args.purpose, hint === '' ? text : `${text}\n\n${hint}`)
         await ctx.store.patchTask(task.id, { slack: { sent: { [args.purpose]: true } } })
         return `Reply "${args.purpose}" sent to the Slack discussion.`
       },

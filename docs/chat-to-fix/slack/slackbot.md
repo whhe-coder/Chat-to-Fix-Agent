@@ -188,7 +188,7 @@
   - 不带 `source` 的旧格式照旧，测试和模拟用例在用。
 - **系统通知**：`src/chat-to-fix/core/task/monitor.ts` 的 `NOTICE` 和 CI 通知都经 `reply(origin, 'system', text)` 发出，自然进发件箱，并带上 `kind`。中文模板和“需要人处理”的原因（`closeNote`）在做。
 - **进度通知**：建单（`jira_create_issue`）、开 MR（`mr_open_draft`）、CI 修复推送（`mr_push_fix`）成功时，工具直接发系统通知，不经过模型。建单和开 MR 每个任务只发一次，重跑不重复（`task.notified`）。对应 Logan README“目标 Slack 回传”里的“工单已创建”“MR 已创建”和 CI 的“新 commit 链接”。
-- **讨论串补充的开关 `slack.mentions`**：默认开。关的时候，任务以“缺信息”结束后系统再发一条 `needs_info_resubmit`，请用户补全后重新 `/fix`。
+- **讨论串补充的开关 `slack.mentions`**：默认开。关的时候，系统在追问那条回复末尾加一句“讨论串里的回复收不到，请重新 /fix”（2026-11-14 起合成一条，追问的几点分行列出）；没发出追问时才单独发 `needs_info_resubmit`。
 - **`GET /health`**：加 `queueMax`、`queueFull`。
 - **`chat-to-fix/scripts/connected.ts`**：slack 改为 `outbox`，不再要 `SLACK_BOT_TOKEN`；`slack.mentions` 先设为关，`app_mentions:read` 批下来再打开。
 - **`chat-to-fix/scripts/slack-forwarder.ts`**：Chat-to-Fix 自己的转发程序，留给 `adapters.slack: "real"` 单独部署时用，不和 Slack Bot 同时跑。
