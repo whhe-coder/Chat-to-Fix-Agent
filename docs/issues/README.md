@@ -6,4 +6,5 @@
 | --- | --- |
 | [GitLab 拒绝缺少 Jira key 的提交](gitlab-push-missing-jira-key.md) | 修复已验证；后续 CI 误判单独跟踪 |
 | [Smartcat push pipeline 被误报为 MR CI 通过](gitlab-smartcat-pipeline-misclassified.md) | 修复已加载，端到端复测待完成 |
+| [可选作业运行时提前报告 CI 通过](gitlab-optional-job-premature-ci-pass.md) | 已确认，待修复 |
 | [抽取四处重复逻辑，并补齐材料块边界测试](shared-helper-extraction.md) | 待处理；重构建议，含一处测试缺口 |

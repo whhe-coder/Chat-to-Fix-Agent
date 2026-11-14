@@ -1,6 +1,6 @@
 # 固定频道 `/fix` 入口规格
 
-状态：Slack 应用已获工作区批准，Bot token 的四项预期 scopes 已通过 Slack `auth.test` 验证，`/fix` 命令已创建。Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`），只通过本地单元测试；频道 ID 已配置，Bot 已在目标频道成功发信；真实 `/fix` 调用尚未完成。真实 Bot 读取发起人邮箱的代码尚未实现；本机模拟频道已能把配置的邮箱随 `/fix` 交给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
+状态：Slack 应用已获工作区批准，Bot token 的四项预期 scopes 已通过 Slack `auth.test` 验证，`/fix` 命令已创建。Bot 的 `/fix` 处理代码和发件箱转发已实现（[`src/slackBot/`](../src/slackBot/)，`npm run start:slack`）。目标频道的一次真实联调已验证空正文提示、有效命令、任务消息、Jira 和 Draft MR 链接及讨论串回报。CI 在可选作业仍运行时提前报告通过，完整验收未完成。真实 Bot 读取发起人邮箱的代码尚未实现；本机模拟频道已能把配置的邮箱随 `/fix` 交给 Agent，见 [模拟 Bot 规格](mock-slack-bot.md)。旧私信入口见 [历史规格](slack-dm-entry.md)。
 
 ## 目标行为
 
@@ -70,4 +70,4 @@
 
 ## 验收
 
-在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；服务不通、队列满时只有发起者看到提示；Bot 在任务消息的 thread 回报发件箱里的进度和结果。指定频道 ID 已配置，Bot 已在该频道发信成功；真实 `/fix` 调用仍待验收。
+在指定频道调用一次 `/fix`，只创建一个任务消息；重复投递不重复启动任务；其他频道调用被拒绝；服务不通、队列满时只有发起者看到提示；Bot 在任务消息的 thread 回报发件箱里的进度和结果。真实调用已验证空正文提示及一次有效任务的讨论串回报。重复投递、其他频道和服务故障路径待验收；CI 的提前结论见[已确认问题](../docs/issues/gitlab-optional-job-premature-ci-pass.md)。
