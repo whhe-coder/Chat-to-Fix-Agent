@@ -300,7 +300,8 @@ export function createRealGitlab(config, options: any = {}) {
     // Jobs of the pipeline (retried-and-replaced jobs are not listed by default).
     for (const job of await listAll(`/projects/${ref}/pipelines/${pipeline.id}/jobs`)) {
       if (ACTIVE.has(job?.status)) sawActive = true
-      if (job?.allow_failure === true) { if (ACTIVE.has(job?.status)) optionalActive = true; continue }
+      // Only one actually queued or running holds a pass (not one that may never start, e.g. behind a manual job).
+      if (job?.allow_failure === true) { if (job?.status === 'running' || job?.status === 'pending') optionalActive = true; continue }
       if (BAD.has(job?.status)) failed.push(entry(job))
       else if (ACTIVE.has(job?.status)) pending = true
       const ended = Date.parse(job?.finished_at ?? '')
@@ -344,7 +345,9 @@ export function createRealGitlab(config, options: any = {}) {
     const holdForOptional = result.optionalActive && result.failed.length === 0
       && result.countedEndedAt > 0 && now() - result.countedEndedAt < nonBlockingWaitMs
     const status = result.pending || holdForOptional ? 'pending' : result.failed.length > 0 ? 'failed' : 'passed'
-    return { status, sha, pipelineUrl: pipeline.web_url ?? null, failedJobs: status === 'failed' ? result.failed : [] }
+    // heldForOptional: every counting job passed and only the hold keeps it pending (the monitor settles it as passed
+    // if its own wait limit runs out meanwhile).
+    return { status, sha, pipelineUrl: pipeline.web_url ?? null, failedJobs: status === 'failed' ? result.failed : [], ...(holdForOptional && !result.pending ? { heldForOptional: true } : {}) }
   }
 
   const jobIdOf = (job) => {
