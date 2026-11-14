@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   createFixCommandHandler, neutralizeBroadcasts,
   USAGE_TEXT, WRONG_CHANNEL_TEXT, UNAVAILABLE_TEXT, QUEUE_FULL_TEXT, POST_FAILED_TEXT,
-  SUPERSEDED_TEXT, MISCONFIGURED_TEXT, MAYBE_STARTED_TEXT, FOLLOW_UP_HINT,
+  SUPERSEDED_TEXT, MISCONFIGURED_TEXT, MAYBE_STARTED_TEXT,
 } from '../fix-command.js';
 import { ChatToFixApiError } from '../chat-to-fix-api.js';
 
@@ -55,13 +55,21 @@ test('/fix 在别的频道或私信里：只回临时消息，不发任务消息
   assert.deepEqual(s.responses.map((r) => r.text), [WRONG_CHANNEL_TEXT, WRONG_CHANNEL_TEXT]);
 });
 
+test('/fix 在别的频道且正文为空：先判频道，回频道不对，不回用法', async () => {
+  const s = setup();
+  const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH, debounceMs: 0, retryDelayMs: 0 });
+  await s.run({ channel_id: 'C-OTHER', text: '  ' }, handler);
+  assert.deepEqual(s.log, [['ack']]);
+  assert.deepEqual(s.responses, [{ response_type: 'ephemeral', text: WRONG_CHANNEL_TEXT }]);
+});
+
 test('/fix 通过：确认，发任务消息（去广播），再 POST /events', async () => {
   const s = setup();
   const handler = createFixCommandHandler({ api: s.api, postMessage: s.postMessage, fixChannelId: CH, debounceMs: 0, retryDelayMs: 0 });
   await s.run({ text: ' <!channel> 购买按钮拼错了 ' }, handler);
   assert.deepEqual(s.log.map(([k]) => k), ['ack', 'health', 'message', 'post']);
   assert.equal(s.log[2][1].channel, CH);
-  assert.equal(s.log[2][1].text, `<@U1> 提交了修复请求：购买按钮拼错了\n${FOLLOW_UP_HINT}`);
+  assert.equal(s.log[2][1].text, `<@U1> 提交了修复请求：购买按钮拼错了`);
   assert.equal(s.log[2][1].thread_ts, undefined);
   assert.deepEqual(s.log[3][1], {
     source: 'fix', eventId: 'slash:TR1', channel: CH, threadTs: '100.001', messageTs: '100.001',

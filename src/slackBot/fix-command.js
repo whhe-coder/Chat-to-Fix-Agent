@@ -8,9 +8,9 @@ export const POST_FAILED_TEXT = '机器人没能在频道里发出任务消息�
 export const SUPERSEDED_TEXT = '这条 /fix 已被你后一条替代，只处理最后一条。';
 export const MISCONFIGURED_TEXT = '机器人配置有误（频道和服务不一致），这次请求没有开始处理，请联系维护人员。';
 export const MAYBE_STARTED_TEXT = '请求可能已经开始处理，请先看本讨论串后面的消息，不要重复提交。';
-export const FOLLOW_UP_HINT = '要补充或修改，请重新 /fix 并写完整描述。';
 
 const LIFETIME_MS = 60 * 60 * 1000;
+// 5 秒是初始尝试值，后续按实际使用情况调优（Logan 2026-11-14 的意见）。
 export const DEBOUNCE_MS = 5000;
 export const RETRY_DELAY_MS = 2000;
 
@@ -95,7 +95,7 @@ export function createFixCommandHandler({
     try {
       const posted = await postMessage({
         channel: fixChannelId,
-        text: `<@${command.user_id}> 提交了修复请求：${neutralizeBroadcasts(text)}\n${FOLLOW_UP_HINT}`,
+        text: `<@${command.user_id}> 提交了修复请求：${neutralizeBroadcasts(text)}`,
         unfurl_links: false,
         unfurl_media: false,
       });
@@ -129,13 +129,14 @@ export function createFixCommandHandler({
     const triggerId = command?.trigger_id;
     if (triggerId && !firstTime(triggerId)) return;
 
+    // 先判频道再判正文：其他频道里不管有没有正文，都提示去指定频道。
+    if (!fixChannelId || command?.channel_id !== fixChannelId) {
+      await respond({ response_type: 'ephemeral', text: WRONG_CHANNEL_TEXT });
+      return;
+    }
     const text = typeof command?.text === 'string' ? command.text.trim() : '';
     if (!text) {
       await respond({ response_type: 'ephemeral', text: USAGE_TEXT });
-      return;
-    }
-    if (!fixChannelId || command.channel_id !== fixChannelId) {
-      await respond({ response_type: 'ephemeral', text: WRONG_CHANNEL_TEXT });
       return;
     }
 
