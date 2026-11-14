@@ -261,6 +261,7 @@ test('slash: opens the thread, creates the task in it, replies 202 { taskId, per
   assert.equal(t.origin.text, 'login page is broken')
   assert.equal(t.origin.permalink, 'https://slack.test/archives/C1/p91')
   assert.equal(t.origin.eventId, 'slash:T1')
+  assert.equal(t.origin.source, 'slash', 'the debug page labels the entry by origin.source')
   assert.equal(t.binding.jiraProject, 'DEMO')
   assert.deepEqual(runnerCalls, [['start', 'T-1']])
   assert.deepEqual(notices, [])

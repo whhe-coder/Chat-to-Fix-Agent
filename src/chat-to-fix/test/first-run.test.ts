@@ -227,3 +227,19 @@ test('show-task prints the token bill: total, per role with models and where the
   await showTask({ conn: { url: s.url, token: 't' }, out: (l) => list.push(l) })
   assert.match(list[0], /cost=\$0\.62\+unpriced$/)
 })
+
+test('formatTask shows the ci line, review.by, needsInfo.jira, closeNote, follow-ups and each run end reason', () => {
+  const text = formatTask({
+    ...TASK,
+    ci: { round: 2, status: 'failed', outcome: 'out_of_scope', settled: true, pipelineUrl: 'https://ci/1', failedJobs: [{ name: 'lint' }] },
+    review: { verdict: 'pass', rounds: 1, by: 'reviewer' }, needsInfo: { jira: 'which env?' }, issueAssessment: { ready: true },
+    closeNote: 'done anyway', origin: { followUps: [{}, {}] }, runs: [{ no: 1, endReason: 'stalled' }],
+  })
+  assert.match(text, /ci {6}round 2 {2}failed -> out_of_scope {2}\(settled\) {2}failed: lint {2}https:\/\/ci\/1/)
+  assert.match(text, /by reviewer/)
+  assert.match(text, /needs {3}.*which env/)
+  assert.match(text, /ready=true/)
+  assert.match(text, /close {3}done anyway/)
+  assert.match(text, /2 follow-up/)
+  assert.match(text, /run 1: stalled/)
+})

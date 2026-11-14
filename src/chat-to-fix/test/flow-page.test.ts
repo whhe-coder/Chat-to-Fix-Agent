@@ -775,3 +775,25 @@ test('real CI run (2026-11-12): the waiting answer that mentions a failure, a [P
   assert.ok(labels.includes('等系统给 CI 结果'))
   assert.ok(!labels.includes('CI 失败摘要'))
 })
+
+// ------------------------------------------------------------------ what the code records today (2026-11-14)
+
+test('jira_assess_request is a known tool; the first arrow names the entry (/fix, or @ for a mention and old tasks)', () => {
+  const a = buildArrows([rec({ type: 'tool_call', role: 'jira', tool: 'jira_assess_request', text: 'jira_assess_request {}' })], undefined, { detailed: true })
+  assert.equal(a[0].unknown, false)
+  assert.match(a[0].label, /评估需求/)
+  const created = rec({ type: 'system', role: null, text: 'run 1 created: group G1, bots main=s1' })
+  assert.equal(buildArrows([created], { origin: { source: 'fix', text: 'x' } })[0].label, '/fix 事件')
+  assert.equal(buildArrows([created], { origin: { source: 'mention', text: 'x' } })[0].label, '@ 事件')
+  assert.equal(buildArrows([created], { origin: { text: 'x' } })[0].label, '@ 事件')
+})
+
+test('a watchdog nudge in a CI fix round goes to the Pipeline bot; the detailed ci_stop call is a failure', () => {
+  const limit = buildArrows([rec({ type: 'limit', role: null, step: 'ci', check: 'stalled', action: 'posted nudge 1 of 3 to the Pipeline bot', text: 'stalled at step ci: posted nudge 1 of 3 to the Pipeline bot' })])
+  assert.equal(limit[0].to, 'pipeline')
+  const stop = buildArrows([
+    rec({ type: 'tool_call', role: 'pipeline', step: 'ci', tool: 'ci_stop', text: 'ci_stop {"reason":"out_of_scope","note":"n"}' }),
+    rec({ type: 'tool_result', role: 'pipeline', step: 'ci', tool: 'ci_stop', text: 'Recorded' }),
+  ], undefined, { detailed: true })
+  assert.equal(stop[0].failed, true)
+})

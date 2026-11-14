@@ -20,14 +20,13 @@
 - 提交是一行的 Conventional Commit；MR 一直是 Draft，bot 从不合并、批准或部署。
 - 五个 bot 都是 DeepSeek Harness（DSH，由仓库根目录安装，整包使用、不修改）里的会话，共用一个 Anthropic API key；bot 层从 DS Bot 0.3.1 裁剪而来（`bot/`，裁掉了什么见 `rewrite/INVENTORY.md`）。全部是 TypeScript，Node 24 直接运行，不用编译。
 
-## 现在做到哪（2026-11-12）
+## 现在做到哪（2026-11-14）
 
-- 用真实模型（Claude Sonnet 5.5）、模拟的 Slack / Jira / GitLab，主流程能整条跑通（真实运行都在加 CI 步骤之前；加了 CI 之后只在模拟 CI 上测过）。
-- 一次跑通的端到端测试集：7 个前端修复用例，每个带一份隐藏测试；第一个真实运行的用例（圆角）17 项检查全过，用时 2 分 15 秒。
+- 用真实模型（Claude Sonnet 5.5）、模拟的 Slack / Jira / GitLab，主流程能整条跑通；DSH 修复 bot 的端到端用例用真实模型都通过（每个用例约 $0.3）。
+- 端到端测试集：12 个用例（默认 7 个前端修复用例，另有 CI 修复循环、追问循环等 5 个按名字跑），每个带一份隐藏测试。
 - 调试页：左边是 bot 之间的实时时序图，右边是竖屏群聊；每个任务、每个 bot 的花费和速度。
-- 真实的 Slack、Jira、GitLab 适配器已经写好，只在本机模拟服务上测过，还没有接真实服务（等 token 和权限）。
-- CI 修复循环已实现（Git Pipeline bot 负责），只在本机模拟 CI 上测过；`/fix` 入口已实现，只在本机模拟服务上测过。
-- 2026-11-13：修复 bot 从 Claude Code 改为 DSH 原生（分支 `dsh-coding`）。单元测试和冒烟（模拟模型）通过；还没用真实模型跑过，上面那些真实运行都是 Claude Code 时期的。
+- 真实 Slack、Jira、GitLab 已接上，`/fix` 入口和 CI 修复循环已实现。真实运行 T-1（F2PGBA-410，MR !379）和 T-5（F2PGBA-411，MR !380）从头到尾跑通，CI 通过。
+- 2026-11-13：修复 bot 从 Claude Code 改为 DSH 原生，五个 bot 都在 DSH 上。
 
 ## 运行
 

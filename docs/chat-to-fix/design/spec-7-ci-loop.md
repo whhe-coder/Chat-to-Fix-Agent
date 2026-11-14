@@ -58,7 +58,7 @@
 ```
 
 - "回写"是第 7 步，"结束"是第 8 步。`src/task/contracts.ts` 的 `STEP_IDS` 有 `ci`。
-- 一个写工具可以出现在多个步骤里：`createFlow` 有 `stepsOfWriteTool`，返回列了这个工具的所有步骤；原来的 `stepOfWriteTool` 保留，返回第一个。`src/task/gate.ts` 的 `allow` 是"当前步骤在其中就放行"。`review_report` 同时出现在 `code` 和 `ci` 两步。`validateFlow` 不变。
+- 一个写工具可以出现在多个步骤里：`createFlow` 有 `stepsOfWriteTool`，返回列了这个工具的所有步骤；原来的 `stepOfWriteTool` 保留，返回第一个。`src/task/gate.ts` 的 `allow` 是"当前步骤在其中就放行"。`request_review` 同时出现在 `code` 和 `ci` 两步（`review_report` 后来收窄为只在 `ci`）。`validateFlow` 不变。
 - `TOOL_EXTRA_EVIDENCE` 有 `mr_push_fix`：`review.verdict == pass`、`diff.withinLimits`，沿用现有的求值器，没有新的证据种类。
 - `src/task/contracts.ts` 的 `RECORD_TYPES` 有 `ci`（监控和 CI 工具写的 CI 状态变化）。CI 的常量、形状和工具参数也集中在 `contracts.ts`：`CI_STATUSES`、`CI_OUTCOMES`、`CI_STOP_REASONS`、`REVIEW_VERDICTS`、`newCi`、`CI_TOOL_PARAMETERS`、`CI_CONFIG_DEFAULTS`、`DONE_END_REASONS`。
 

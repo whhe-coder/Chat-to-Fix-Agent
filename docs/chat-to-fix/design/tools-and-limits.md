@@ -111,7 +111,7 @@ coding bot 是 DSH 会话，预设 `coding`：DSH 自带的 `read`、`read_image
 
 推送不再是强制推送：分支只增不改，每次都是新 commit 加普通推送（`src/adapters/git.ts`、`src/adapters/repo.ts` 的 `openDraftMR` 不再修订提交）。远端比本地新时推送失败（`push_rejected`），不拉取不覆盖。不碰默认分支。
 
-新增工具共 22 个（`src/tools/index.ts` 注册，按 `src/registry/bots.ts` 分给各角色；`task_read`、`needs_info_confirm` 两个由多个 bot 共用，各算一个）。其中写操作 12 个：6 个写外部系统（`slack_reply`、`jira_create_issue`、`jira_add_comment`、`jira_transition`、`mr_open_draft`、`mr_push_fix`），1 个写本地代码目录（`repo_prepare`），5 个写任务（`review_report`、`task_advance`、`task_close`、`needs_info_confirm`、`ci_stop`）。每个写工具执行前都要过步骤检查；一个写工具可以属于多个步骤（`review_report` 在 `code` 和 `ci`），任一个匹配即可。
+新增工具共 25 个（`src/tools/index.ts` 注册，按 `src/registry/bots.ts` 分给各角色；`task_read`、`needs_info_confirm` 两个由多个 bot 共用，各算一个）。其中写操作 14 个：6 个写外部系统（`slack_reply`、`jira_create_issue`、`jira_add_comment`、`jira_transition`、`mr_open_draft`、`mr_push_fix`），1 个写本地代码目录（`repo_prepare`），7 个写任务（`jira_assess_request`、`request_review`、`review_report`、`task_advance`、`task_close`、`needs_info_confirm`、`ci_stop`）。每个写工具执行前都要过步骤检查；一个写工具可以属于多个步骤（`request_review` 在 `code` 和 `ci`），任一个匹配即可。
 
 ## 3. 每个群的成员
 

@@ -51,7 +51,7 @@ const TOOL_HINTS = Object.freeze({
   task_read: '读任务', task_records: '读记录', repo_prepare: '准备代码', repo_diff: '看改动', repo_read_file: '读文件', repo_log: '看历史',
   mr_open_draft: '开 Draft MR', mr_get: '查 MR', jira_create_issue: '建工单', jira_get_issue: '查工单', jira_add_comment: '加评论',
   jira_transition: '改状态', review_report: '记录修不了', ci_read_log: '读 CI 日志', mr_push_fix: '推修复提交', ci_stop: '停止 CI 循环',
-  request_review: '请求评审', run_tests: '跑测试', read: '读文件', write: '写文件', edit: '改文件', glob: '找文件', grep: '搜索',
+  request_review: '请求评审', jira_assess_request: '评估需求', run_tests: '跑测试', read: '读文件', write: '写文件', edit: '改文件', glob: '找文件', grep: '搜索',
 })
 
 const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -130,7 +130,9 @@ function buildDetailed(records, task) {
     const text = String(r.text ?? '')
     if (/^run \d+ created/.test(text)) {
       const origin = task?.origin
-      push(r, { key: 'event', from: 'slackext', to: 'gate', kind: 'call', label: '@ 事件', detail: origin ? `${origin.text ?? ''}${origin.permalink ? `\n\n${origin.permalink}` : ''}` : text })
+      // The entry is the /fix command (origin.source 'fix' or 'slash'); a record of the older @ mention (or without a source) keeps "@ 事件".
+      const entry = origin?.source === 'fix' || origin?.source === 'slash' ? '/fix 事件' : '@ 事件'
+      push(r, { key: 'event', from: 'slackext', to: 'gate', kind: 'call', label: entry, detail: origin ? `${origin.text ?? ''}${origin.permalink ? `\n\n${origin.permalink}` : ''}` : text })
       push(r, { key: 'create', from: 'gate', to: 'gate', kind: 'self', label: '建任务/建群', detail: text })
       awaitTaskLine = true
     } else if (r.tool === 'task_close') {
@@ -214,6 +216,8 @@ function buildDetailed(records, task) {
     const call = pending.find((p) => !p.done && p.tool === tool && p.role === (r.role ?? null))
     if (!call) { grey(r, `结果 ${tool}`, { tool, result: text, ok: r.ok ?? null, ms: r.ms ?? null, failed: r.ok === false }); return }
     const done = settle(call, r, text, r.ok)
+    // ci_stop ended the CI loop without a passing CI: the call is drawn as a failure (the "CI loop stopped" record behind it stays a note)
+    if (tool === 'ci_stop' && r.ok !== false) for (const a of done) a.failed = true
     // A call to the Slack service gets its answer as a dashed arrow back.
     if (tool.startsWith('slack_')) {
       const first = done[0]
@@ -241,7 +245,7 @@ function buildDetailed(records, task) {
   const onUsage = (r) => {
     if (isLane(r.role)) (roundUsage[r.role] ??= []).push(r)
     const lane = roleLane(r)
-    push(r, { from: lane, to: lane, kind: 'self', label: `用量 ${r.model ?? ''} ${r.unpriced ? '未定价' : fmtUsd(r.costUsd)}`.trim(), detail: String(r.text ?? ''), minor: true })
+    push(r, { from: lane, to: lane, kind: 'self', label: `${r.reviewer ? '审查者用量' : '用量'} ${r.model ?? ''} ${r.unpriced ? '未定价' : fmtUsd(r.costUsd)}`.trim(), detail: String(r.text ?? ''), minor: true })
   }
 
   const onLine = (r) => {
@@ -337,7 +341,8 @@ function buildDetailed(records, task) {
           break
         }
         case 'approval': push(r, { from: 'gate', to: isLane(r.role) ? r.role : lastCallRole[r.tool] ?? 'main', kind: 'notice', label: `拒绝审批 ${r.text ?? ''}`, detail: String(r.text ?? '') }); break
-        case 'limit': push(r, { from: 'gate', to: r.check === 'engine_silent' ? 'coding' : 'main', kind: 'notice', label: `${r.check ?? 'limit'}: ${r.action ?? r.text ?? ''}`, detail: String(r.text ?? '') }); break
+        // The nudge goes to the bot that leads the step (core/task/monitor.ts: the Pipeline bot in a CI fix round), named in the action text.
+        case 'limit': push(r, { from: 'gate', to: r.check === 'engine_silent' ? 'coding' : /Pipeline bot/.test(String(r.action ?? r.text ?? '')) ? 'pipeline' : 'main', kind: 'notice', label: `${r.check ?? 'limit'}: ${r.action ?? r.text ?? ''}`, detail: String(r.text ?? '') }); break
         default: grey(r, `${r.type ?? 'record'} ${r.text ?? ''}`.trim())
       }
     } catch {
@@ -601,6 +606,13 @@ function toConcise(all, task) {
 
 // ------------------------------------------------------------------ the page
 
+// The CI and review state a page shows (null on a task that never reached them; old tasks lack the fields).
+const ciOf = (ci) => (ci ? {
+  status: ci.status ?? null, round: ci.round ?? 0, outcome: ci.outcome ?? null, settled: ci.settled === true, pipelineUrl: ci.pipelineUrl ?? null,
+  failedJobs: (ci.failedJobs ?? []).map((job) => job?.name ?? String(job)),
+} : null)
+const reviewOf = (review) => (review ? { verdict: review.verdict ?? null, by: review.by ?? null, rounds: review.rounds ?? null } : null)
+
 const trimTask = (task, now) => {
   const run = task.runs?.at?.(-1)
   const start = Date.parse(run?.startedAt ?? task.queuedAt ?? task.createdAt)
@@ -612,6 +624,9 @@ const trimTask = (task, now) => {
     jira: { key: task.jira?.key ?? null, url: task.jira?.url ?? null }, mr: { url: task.mr?.url ?? null },
     binding: { channel: task.binding?.channel ?? null, repo: task.binding?.repo ?? null },
     usage: usageView(task.usage),
+    ci: ciOf(task.ci), review: reviewOf(task.review),
+    needsInfo: { main: task.needsInfo?.main ?? null, jira: task.needsInfo?.jira ?? null, coding: task.needsInfo?.coding ?? null },
+    closeNote: task.closeNote ?? null, followUps: Array.isArray(task.origin?.followUps) ? task.origin.followUps.length : 0,
     runs: (task.runs ?? []).map((x) => ({ no: x.no, startedAt: x.startedAt ?? null, endedAt: x.endedAt ?? null, endReason: x.endReason ?? null })),
   }
 }
@@ -746,6 +761,9 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
   <div class="f shrink"><span class="k">Jira</span><span id="jira">-</span></div>
   <div class="f shrink"><span class="k">MR</span><span id="mr">-</span></div>
   <div class="f"><span class="k">当前步骤</span><span id="step">-</span></div>
+  <div class="f shrink" id="cibox"><span class="k">CI</span><span id="ci">-</span></div>
+  <div class="f shrink" id="reviewbox"><span class="k">评审</span><span id="review">-</span></div>
+  <div class="f shrink" id="extrabox"><span class="k">备注</span><span id="extra">-</span></div>
   <label title="显示每一次工具调用和旁白"><input type="checkbox" id="detailed"> 详细</label>
   <label title="显示或隐藏右侧的群聊"><input type="checkbox" id="chatToggle" checked> 群聊</label>
   <div class="live"><span class="dot" id="dot"></span><span id="liveText">连接中</span></div>
@@ -821,7 +839,7 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
   }
   function renderHeader() {
     var t = state.task, st = $('state');
-    if (!t) { st.textContent = '-'; st.className = 'badge'; $('elapsed').textContent = '-'; $('jira').textContent = '-'; $('mr').textContent = '-'; $('step').textContent = '-'; $('cost').textContent = '-'; $('costbox').title = ''; return; }
+    if (!t) { st.textContent = '-'; st.className = 'badge'; $('elapsed').textContent = '-'; $('jira').textContent = '-'; $('mr').textContent = '-'; $('step').textContent = '-'; $('cost').textContent = '-'; $('costbox').title = ''; $('ci').textContent = '-'; $('review').textContent = '-'; $('extra').textContent = '-'; return; }
     // the bill: total cost and usage, the average output speed with DSH's part and the derived part named (the strings are built on the server)
     $('cost').textContent = t.usage ? t.usage.line.replace(/^花费 /, '') : '-';
     $('costbox').title = t.usage ? t.usage.title : '还没有用量记录';
@@ -830,7 +848,28 @@ text.sub { font-size: 10.5px; fill: var(--muted); }
     linkOrText($('jira'), t.jira && t.jira.key, t.jira && t.jira.url);
     linkOrText($('mr'), t.mr && t.mr.url, t.mr && t.mr.url);
     $('step').textContent = t.step ? (STEP_NAME[t.step] || t.step) : '-';
+    renderFacts(t);
     tickElapsed();
+  }
+  // CI, review and the small facts of the task (who confirmed the missing information, the close note, the follow-up @s), each one compact with the detail in the tooltip.
+  function renderFacts(t) {
+    var c = t.ci, ciEl = $('ci'), ciBox = $('cibox');
+    if (!c) { ciEl.textContent = '-'; ciEl.style.color = ''; ciBox.title = '还没有 CI 状态'; }
+    else {
+      var bad = c.outcome ? c.outcome !== 'passed' : c.status === 'failed';
+      ciEl.textContent = (c.outcome ? c.outcome : (c.status || '-')) + (c.round ? ' · 第 ' + c.round + ' 轮' : '') + (c.settled && !c.outcome ? ' · 已结束' : '');
+      ciEl.style.color = bad ? 'var(--c-fail)' : '';
+      ciBox.title = [c.pipelineUrl ? 'pipeline ' + c.pipelineUrl : '', c.failedJobs.length ? '失败 job: ' + c.failedJobs.join(', ') : ''].filter(Boolean).join('\n') || 'CI ' + (c.status || '-');
+    }
+    var r = t.review, rv = $('review');
+    rv.textContent = r ? (r.verdict || '?') + (r.rounds != null ? ' · ' + r.rounds + ' 轮' : '') + (r.by ? ' · ' + r.by : '') : '-';
+    rv.style.color = r && r.verdict && r.verdict !== 'pass' ? 'var(--c-notice)' : '';
+    var bits = [], ni = t.needsInfo || {};
+    ['main', 'jira', 'coding'].forEach(function (k) { if (ni[k]) bits.push('缺信息(' + k + ')'); });
+    if (t.followUps) bits.push('追问 ' + t.followUps);
+    if (t.closeNote) bits.push(t.closeNote);
+    $('extra').textContent = bits.length ? bits.join(' · ') : '-';
+    $('extrabox').title = bits.join('\n') || '没有备注';
   }
   function tickElapsed() {
     var t = state.task; if (!t) return;

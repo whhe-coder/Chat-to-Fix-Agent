@@ -7,13 +7,13 @@
 
 ## 1. 一句话说明
 
-有人在绑定的 Slack 频道里用斜杠命令 `/fix 问题描述` 提一个问题（2026-11-12 定，实现中；之前的入口是 @ 机器人，现在 @ 只用于任务讨论串里的补充信息），软件为这个问题建一个任务，拉起一个由五个 bot 组成的群。群里的 bot 按固定步骤分工：取回讨论、建 Jira 单、准备代码、编码（改代码并在内部审查）、开 Draft MR、等 CI（失败时修）、回写结果。软件不合并、不批准 MR，最后一步交给开发者。
+有人在绑定的 Slack 频道里用斜杠命令 `/fix 问题描述` 提一个问题（2026-11-12 定，已实现；之前的入口是 @ 机器人，现在 @ 只用于任务讨论串里的补充信息），软件为这个问题建一个任务，拉起一个由五个 bot 组成的群。群里的 bot 按固定步骤分工：取回讨论、建 Jira 单、准备代码、编码（改代码并在内部审查）、开 Draft MR、等 CI（失败时修）、回写结果。软件不合并、不批准 MR，最后一步交给开发者。
 
 ## 2. 名词
 
 | 名词 | 含义 |
 |---|---|
-| 任务 | 软件内部的工作单位。收到一次有效的 @ 就建一个，存在软件自己的任务库里 |
+| 任务 | 软件内部的工作单位。收到一次有效的 `/fix` 就建一个，存在软件自己的任务库里 |
 | Jira 单 | Jira 里给人看的工单，由 Jira bot 在流程中创建。它的单号是任务上的一个字段 |
 | 运行 | 任务的一次执行。一个任务可以有多次运行，例如补充信息后重跑 |
 | bot 注册表 | 所有 bot 的定义。架构里只有 bot 这一种可注册的东西 |
@@ -176,7 +176,7 @@ bot 的规格沿用 DS Bot。DS Bot 已经定好了一个 bot 有哪些字段、
 | 负责 Slack 和 Jira 接入的同事 | Slack 应用、Slack 和 Jira 的访问方式；真实的令牌和权限 |
 | 负责机器的同事 | 正式部署的机器 |
 
-和同事之间的接口还没有约定，问题列在 [questions-for-colleagues.md](questions-for-colleagues.md)。Slack、Jira、GitLab 的真实适配器已经写好（`src/adapters/`），但只对本地桩测过；约定之前默认用假响应。把 @ 事件转给监听口的活，原来留给同事，现在由 `scripts/slack-forwarder.ts` 做：它用 Slack 的 Socket Mode 收 @，再 POST 到 `/events`（没对真 Slack 跑过）。
+和同事之间的接口还没有约定，问题列在 [questions-for-colleagues.md](questions-for-colleagues.md)。Slack、Jira、GitLab 的真实适配器已经写好（`src/adapters/`），先对本地桩测过，2026-11-13、11-14 已在真实服务上各跑通一次；默认仍用假响应。把 @ 事件转给监听口的活，原来留给同事，现在由 `scripts/slack-forwarder.ts` 做：它用 Slack 的 Socket Mode 收 @，再 POST 到 `/events`（真实 Slack 上已跑通）。
 
 ## 5. 运行流转
 
@@ -192,7 +192,7 @@ stateDiagram-v2
   state "超时" as timedout
   state "人工停止" as stopped
   state "已过期" as expired
-  [*] --> queued: 收到 @
+  [*] --> queued: 收到 /fix
   queued --> running: 轮到并建好群
   queued --> expired: 排队超过上限
   running --> done: 主 bot 结束任务
@@ -204,7 +204,7 @@ stateDiagram-v2
   done --> [*]
 ```
 
-队列已满时收到的 @ 不建任务，直接在原讨论回复。
+队列已满时收到的 `/fix` 不建任务，频道里不发任何东西（服务端回 429）。
 
 ### 5.2 八个步骤
 
@@ -233,7 +233,7 @@ stateDiagram-v2
 | `jira_assess_request` | 2 |
 | `jira_create_issue` | 2 |
 | `repo_prepare` | 3 |
-| `review_report` | 4、6 |
+| `review_report` | 6（只记 `cannot_fix`） |
 | `mr_open_draft` | 5，并且任务上记有“审查通过” |
 | `mr_push_fix` | 6，并且 CI 失败、轮次没到上限、本轮审查通过 |
 | `ci_stop` | 6，并且已读过日志、不在等 pipeline |

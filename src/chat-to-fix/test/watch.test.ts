@@ -455,3 +455,14 @@ test('runTui: scrolling up stops following; End resumes', async () => {
     await done
   } finally { TASKS['T-2'].records = [rec({ text: 'two' }), rec({ text: 'three' })] }
 })
+
+test('ci records stand out, usage records are left out of the screen, and the header carries CI and cost', () => {
+  assert.deepEqual(recordParts({ type: 'ci', text: 'CI passed' })[0], ['green', '[CI]'])
+  assert.deepEqual(recordParts({ type: 'ci', text: 'CI loop stopped: out_of_scope: x' })[0], ['red', '[CI]'])
+  const task = { id: 'T-1', state: 'running', ci: { status: 'failed', round: 2 }, usage: { calls: 3, totalUsd: 0.5 }, runs: [{}] }
+  const usage = { type: 'usage', role: 'coding', model: 'm', costUsd: 0.1, at: '2026-11-12T10:00:00.000Z' }
+  const screen = layout({ width: 120, height: 20, tasks: [task], task, records: [usage, usage] }).join('\n')
+  assert.match(screen, /CI failed 第2轮/)
+  assert.match(screen, /花费 \$0\.50/)
+  assert.match(screen, /执行记录 \(0\)/)
+})

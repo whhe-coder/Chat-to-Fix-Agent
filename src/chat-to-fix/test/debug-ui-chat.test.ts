@@ -270,3 +270,26 @@ test('the chat client prints the bill: total line, a row per bot with model, cos
   assert.match(CHAT_CSS, /\.cx-mems/)
   assert.doesNotThrow(() => new Script(CHAT_JS))
 })
+
+test('ci records: a pass is a notice, a failure or a stopped loop is a red row', () => {
+  const at = '2026-11-12T10:00:00.000Z'
+  const chat = buildChat([
+    { at, type: 'ci', step: 'ci', text: 'CI passed after 1 fix round' },
+    { at, type: 'ci', step: 'ci', text: 'CI failed in round 2: lint' },
+    { at, type: 'ci', step: 'ci', role: 'pipeline', text: 'CI loop stopped: out_of_scope: x' },
+  ], undefined)
+  assert.deepEqual(chat.messages.map((m: any) => [m.kind, m.ok ?? null, m.text]), [
+    ['notice', null, '[ci] CI 通过（修复 1 轮后）'], ['refusal', false, 'CI 第 2 轮失败: lint'], ['refusal', false, 'CI loop stopped: out_of_scope: x'],
+  ])
+})
+
+test('the reviewer\'s usage record gets its own line; the Coding bot\'s own usage still joins its round', () => {
+  const records = [
+    { at: '2026-11-14T10:00:00.000Z', type: 'line', role: 'gate', text: 'run 1 created: group g, bots main=session-m slack=session-s jira=session-j pipeline=session-p coding=session-c' },
+    { at: '2026-11-14T10:01:00.000Z', type: 'usage', role: 'coding', botId: 'session-c', reviewer: true, model: 'claude-sonnet-5-5', costUsd: 0.02, text: 'reviewer usage claude-sonnet-5-5: in 3, out 40, cache read 0, cache write 1k, $0.0200' },
+  ]
+  const chat = buildChat(records, taskOf(records))
+  const line = chat.messages.find((m) => /审查者用量/.test(m.text))
+  assert.ok(line, 'a reviewer usage line')
+  assert.match(line.text, /^审查者用量：claude-sonnet-5-5: in 3, out 40/)
+})

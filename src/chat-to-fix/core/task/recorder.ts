@@ -116,8 +116,8 @@ export function createRecorder({ store, botlayer, pricing = undefined, warn = (.
       at: e.at, type: 'usage', model: e.model ?? 'unknown', ...(e.effort === undefined ? {} : { effort: e.effort }), ...tokens,
       costUsd, costSource: cli ? 'cli' : costUsd === null ? null : 'table', unpriced: costUsd === null,
       source: e.source, durationMs: e.durationMs ?? 0, ...(e.tpsTokens === undefined ? {} : { tpsTokens: e.tpsTokens }), ...(e.ttftMs === undefined ? {} : { ttftMs: e.ttftMs }),
-      outputTps: e.outputTps ?? null, tpsBasis: e.tpsBasis ?? null, ...(e.failed ? { failed: true } : {}),
-      text: `usage ${e.model ?? 'unknown'}: in ${fmtTokens(tokens.input)}, out ${fmtTokens(tokens.output)}, cache read ${fmtTokens(tokens.cacheRead)}, cache write ${fmtTokens(tokens.cacheWrite)}, ${costUsd === null ? 'unpriced' : fmtUsd(costUsd)}${e.outputTps ? `, ${fmtTps(e.outputTps)}` : ''}${e.failed ? ' (failed call)' : ''}`,
+      outputTps: e.outputTps ?? null, tpsBasis: e.tpsBasis ?? null, ...(e.failed ? { failed: true } : {}), ...(e.reviewer ? { reviewer: true } : {}),
+      text: `${e.reviewer ? 'reviewer ' : ''}usage ${e.model ?? 'unknown'}: in ${fmtTokens(tokens.input)}, out ${fmtTokens(tokens.output)}, cache read ${fmtTokens(tokens.cacheRead)}, cache write ${fmtTokens(tokens.cacheWrite)}, ${costUsd === null ? 'unpriced' : fmtUsd(costUsd)}${e.outputTps ? `, ${fmtTps(e.outputTps)}` : ''}${e.failed ? ' (failed call)' : ''}`,
     }
     const run = runOf(task, undefined)
     await append(task, run, bot.role, bot.botId, record)

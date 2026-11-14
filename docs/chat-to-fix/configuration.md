@@ -67,6 +67,19 @@ key 怎么走到模型：启动脚本清空环境，只把一张白名单传给 
 { "channel": "C0456", "repo": "group/project", "jiraProject": "DEMO", "testCommands": ["sh test.sh", "npm ci && npm test"] }
 ```
 
+### CI 设置
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `limits.ciMaxRounds` | 3 | 最多追加几个修复提交 |
+| `limits.ciWaitMinutes` | 30 | 等一个提交的 CI 结果的最长时间：一直没有 pipeline 记为没有触发 CI，有 pipeline 但没跑完记为等待超时 |
+| `limits.ciTotalMinutes` | 90 | 所有轮次加起来最长等多久 |
+| `limits.ciPollSeconds` | 15 | 轮询间隔 |
+| `limits.ciLogMaxChars` | 12000 | 读失败日志时取末尾多少字符 |
+| 绑定的 `ciJobs`、`ciNone` | 无 | 只给模拟 CI 用：`ciJobs` 是模拟 pipeline 的 job 列表，`ciNone: true` 表示推送后不产生 pipeline；真实 GitLab 不看 |
+
+一次判定会等主 pipeline 里还在跑的 allow_failure job，最多 10 分钟（细节见 [spec-7](design/spec-7-ci-loop.md)）。
+
 ## 5. 怎么确认能用
 
 | 检查 | 命令（仓库根目录） | 花不花钱 | 看什么 |
@@ -80,6 +93,6 @@ key 怎么走到模型：启动脚本清空环境，只把一张白名单传给 
 ## 6. 费用
 
 - 价目在 `src/chat-to-fix/core/task/pricing.ts`（美元每百万 token）：Sonnet 5.5 输入 2、输出 10、缓存读 0.1、缓存写 2.5。可在配置 `pricing` 里改。五个 bot 和审查者都按这张表算。
-- 参考：2026-11-12 用 Claude Code 当修复 bot 的两次真实运行，整个任务 $0.30–$0.40，其中修复 bot $0.11–$0.16（报告在 `~/chat-to-fix-runs/e2e-20261112-*/report.md`）。DSH 原生的修复 bot 还没实测，估计整个任务 $0.4–$1.0（修复 bot 的回合更多、审查者另算）。
+- 参考：2026-11-12 用 Claude Code 当修复 bot 的两次真实运行，整个任务 $0.30–$0.40，其中修复 bot $0.11–$0.16（报告在 `~/chat-to-fix-runs/e2e-20261112-*/report.md`）。DSH 原生的修复 bot 已实测：端到端用例每个约 $0.3。
 - 每个任务的花费：调试页（`node src/chat-to-fix/scripts/flow-page.ts --dir <运行目录>`）、`node src/chat-to-fix/scripts/show-task.ts T-1 --dir <运行目录>`、控制接口 `GET /tasks` 的 `totalUsd`。
 - 上限：任务 80 分钟、编码步 40 分钟、修复 bot 一轮 200 次工具调用、一次审查 15 分钟、最多 3 轮审查。马上停一个任务：`curl -s -X POST -H "x-chat-to-fix-token: $(cat <数据目录>/http-token)" http://127.0.0.1:3090/tasks/T-1/stop`。
