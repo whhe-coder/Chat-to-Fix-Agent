@@ -89,7 +89,7 @@ export function testTools() {
         const dir = task.repo?.dir
         if (!dir) throw new Error('the code directory is not prepared yet')
         const allowed = (task.binding?.testCommands ?? []).map((command) => String(command).trim()).filter((command) => command !== '')
-        if (allowed.length === 0) throw new Error('this repository has no test commands configured (testCommands of the channel binding), so no test can be run; say so in your answer')
+        if (allowed.length === 0) throw new Error('no test command is configured for this repository in Chat-to-Fix (testCommands of the channel binding is empty), so no test can be run; say so in your answer in these terms, not that the repository has no tests')
         const wanted = String(args.command ?? '').trim()
         if (!allowed.includes(wanted)) throw new Error(`"${wanted}" is not one of the test commands; run one of: ${allowed.map((command) => JSON.stringify(command)).join(', ')}`)
         const timeoutMs = minutesOf(ctx.config) * 60_000

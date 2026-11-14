@@ -249,7 +249,7 @@ test('end: notices only when the end reason is neither a done reason (completed,
   }
 })
 
-test('end: needs_info sends needs_info_resubmit only with slack.mentions false', async () => {
+test('end: needs_info sends needs_info_resubmit only with slack.mentions false and when no question went out', async () => {
   for (const [slack, expected] of [[{ mentions: false }, [['needs_info_resubmit']]], [{ mentions: true }, []], [undefined, []]] as any[]) {
     const r = await rig({ slack })
     await r.runner.start(r.id)
@@ -257,6 +257,12 @@ test('end: needs_info sends needs_info_resubmit only with slack.mentions false',
     assert.deepEqual(r.notices.map((n) => [n[1]]), expected, JSON.stringify(slack))
     if (expected.length) assert.equal(r.notices[0][0], r.id)
   }
+  // the question already carried the resubmit line: no separate notice
+  const asked = await rig({ slack: { mentions: false } })
+  await asked.runner.start(asked.id)
+  await asked.store.patchTask(asked.id, { slack: { sent: { question: true } } })
+  await asked.runner.end(asked.id, 'needs_info', 'needs_info')
+  assert.deepEqual(asked.notices, [])
   // other end reasons do not get it
   const r = await rig({ slack: { mentions: false } })
   await r.runner.start(r.id)

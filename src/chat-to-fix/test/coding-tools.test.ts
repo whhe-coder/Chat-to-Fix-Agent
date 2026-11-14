@@ -81,7 +81,7 @@ test('run_tests refuses any other command, a missing list, another role and othe
   await r.store.patchTask(r.task.id, { step: 'mr' })
   assert.match(await r.registry.call('run_tests', 'S-coding', { command: 'sh test.sh' }), /only in step code or step ci, the task is in step mr/)
   const none = await rig({ testCommands: null })
-  assert.match(await none.registry.call('run_tests', 'S-coding', { command: 'sh test.sh' }), /no test commands configured/)
+  assert.match(await none.registry.call('run_tests', 'S-coding', { command: 'sh test.sh' }), /no test command is configured for this repository in Chat-to-Fix/)
 })
 
 test('run_tests stops a command at testMinutes and kills what it started; it is never retried', async () => {

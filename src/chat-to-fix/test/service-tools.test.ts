@@ -45,7 +45,7 @@ function fakeAdapters() {
   return { adapters, calls, state, named: (name) => calls.filter((call) => call.name === name) }
 }
 
-async function rig({ limits = {} } = {}) {
+async function rig({ limits = {}, slack = undefined, language = undefined }: any = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'chat-to-fix-service-'))
   const configPath = join(dir, 'config.json')
   await writeFile(configPath, JSON.stringify({
@@ -55,6 +55,8 @@ async function rig({ limits = {} } = {}) {
     apiModel: 'anthropic/test',
     bindings: [{ channel: 'C1', repo: 'group/project', jiraProject: 'DEMO' }],
     limits,
+    ...(slack === undefined ? {} : { slack }),
+    ...(language === undefined ? {} : { language }),
   }))
   const config = loadConfig({ path: configPath, env: { ANTHROPIC_API_KEY: 'test-key' } })
   const store = createStore({ dataDir: config.dataDir, warn() {} })
@@ -188,6 +190,20 @@ test('slack_reply is refused by the gate outside its step or without needs-info 
   await step('writeback')
   assert.match(await call('slack', 'slack_reply', { purpose: 'result', text: 'Draft MR opened' }), /sent/)
   assert.equal((await now()).slack.sent.result, true)
+})
+
+test('slack_reply question: without mentions the system adds the /fix resubmit line (in the configured language); with mentions it does not', async () => {
+  for (const [slack, language, hint] of [[{ mentions: false }, 'zh', /\n\n讨论串里的回复收不到：请把原来的描述和上面缺的信息写在一起，重新发 \/fix。$/], [{ mentions: false }, 'en', /\n\nReplies in this thread are not received: please send \/fix again/], [{ mentions: true }, 'zh', null]] as any[]) {
+    const { call, fake, step, store, task } = await rig({ slack, language })
+    await step('issue')
+    await store.patchTask(task.id, { needsInfo: { main: { text: 'q', at: 't' }, jira: { text: 'q', at: 't' } } })
+    const question = '还缺两点：\n- 是哪个按钮\n- 改成什么文字'
+    assert.match(await call('slack', 'slack_reply', { purpose: 'question', text: question }), /sent/)
+    const sent = fake.named('slack.reply')[0].args[2]
+    assert.ok(sent.startsWith(question), 'the question is kept as written, points on their own lines')
+    if (hint === null) assert.equal(sent, question)
+    else assert.match(sent, hint)
+  }
 })
 
 // ---------- Jira ----------
