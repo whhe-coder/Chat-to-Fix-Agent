@@ -21,7 +21,7 @@ Status values: Not run / Passed (N fix rounds) / Handed to a human / Fix not tri
 
 ## Check before running
 
-These cases were checked against `origin/master` (`1a846c2`, 2026-11-04) of the company repo copy on this machine, `/Users/zihuifan/Documents/ChatGPT/f2p-work/dsh-worl/free-to-play-pc-company-20261009`. The main used for T-4 has moved on to `c4704cad` (2026-11-13), which this machine doesn't have. So confirm on the latest main before running (checked against `c4704ca` on 2026-11-14: the files, test names and assertions the 4 cases depend on are all there, the `CampaignDetailsSection` baseline is still 175, and `unit-test` and `complexity` are not `allow_failure`; if main moves again, check again):
+The cases were checked on 2026-11-14 against `free-to-play-pc` master `c4704ca` (2026-11-13), the commit T-4 ran on: the files, test names and assertions the 4 cases depend on are all there, the `CampaignDetailsSection` baseline is 175, and `unit-test` and `complexity` are not `allow_failure`. If master has moved on, check again before running:
 
 1. The files and test names listed in each case's "Code it depends on" section still exist, and the assertions haven't changed. Each case includes a `git grep` command.
 2. In `.gitlab-ci.yml`, `unit-test` still runs `pnpm run test:coverage` and `complexity` still runs `pnpm run lint:complexity`; neither is `allow_failure`.
@@ -30,6 +30,7 @@ These cases were checked against `origin/master` (`1a846c2`, 2026-11-04) of the 
 ## How to run
 
 - In the Slack channel bound to `free-to-play-pc`, paste the case's `/fix` text as is.
+- While a non-blocking job (sonar) is still running after the required jobs passed, the "CI passed" notice can come up to 10 minutes later (see spec-7).
 - Run one at a time. Wait until the thread posts its result summary and the task ends, then run the next.
 - Always keep the MR as Draft; don't merge or close it. Leave the Jira ticket open too, and close it after the demo.
 - Each failed round waits for two pipelines (the system reruns once automatically), and a round takes about 12 minutes, so one case takes 15-45 minutes.
