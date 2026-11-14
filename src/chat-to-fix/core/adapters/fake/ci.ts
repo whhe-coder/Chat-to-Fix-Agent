@@ -201,9 +201,14 @@ export function createFakeCi(config, { findMr }) {
   /** What a job is now: a recorded "running" job nobody runs any more counts as failed. */
   const effective = (job) => (job.status === 'running' && !live.has(keyOf(job.id)) ? 'failed' : job.status)
 
-  /** { pending, failed: [jobs] } of one pipeline and everything it triggers. */
+  /**
+   * { pending, failed: [jobs], optionalActive } of one pipeline and everything it triggers. Like the real adapter: a
+   * running allow_failure job of the main pipeline holds a pass back (`optionalActive`), never a failure; allow_failure
+   * jobs of a downstream pipeline stand in for an allow_failure trigger job and are not waited for.
+   */
   function evaluate(db, pipeline, depth = 0) {
     let pending = false
+    let optionalActive = false
     const failed: any[] = []
     for (const job of pipeline.jobs.filter((j) => !j.retried)) {
       if (job.bridge) {
@@ -215,10 +220,11 @@ export function createFakeCi(config, { findMr }) {
         continue
       }
       const status = effective(job)
-      if (status === 'running') pending ||= !job.allowFailure // an allow_failure job still running is not waited for
+      if (status === 'running' && job.allowFailure) optionalActive ||= depth === 0
+      else if (status === 'running') pending = true
       else if ((status === 'failed' || status === 'canceled') && !job.allowFailure) failed.push({ pipeline, job })
     }
-    return { pending, failed }
+    return { pending, failed, optionalActive }
   }
 
   async function getChecks(binding, iid) {
@@ -229,8 +235,8 @@ export function createFakeCi(config, { findMr }) {
     const mains = db.pipelines.filter((p) => p.repo === mr.repo && p.sha === sha && p.parentId === undefined)
     if (mains.length === 0) return { status: 'pending', sha, pipelineUrl: null, failedJobs: [] }
     const main = mains.reduce((a, b) => (b.id > a.id ? b : a))
-    const { pending, failed } = evaluate(db, main)
-    const status = pending ? 'pending' : failed.length > 0 ? 'failed' : 'passed'
+    const { pending, failed, optionalActive } = evaluate(db, main)
+    const status = pending || (optionalActive && failed.length === 0) ? 'pending' : failed.length > 0 ? 'failed' : 'passed'
     return {
       status, sha, pipelineUrl: pipelineUrl(main),
       failedJobs: status === 'failed' ? failed.map(({ pipeline, job }) => ({ id: job.id, name: job.name, url: jobUrl(pipeline, job), pipelineId: pipeline.id, projectId: pipeline.projectId })) : [],

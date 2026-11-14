@@ -181,6 +181,52 @@ test('getChecks: allow_failure work (jobs, trigger jobs, their downstream pipeli
   } finally { await s.close() }
 })
 
+test('getChecks: a pass waits for allow_failure jobs still going, up to a cap after the counting jobs ended; a failure does not wait', async () => {
+  const ended = '2026-11-13T15:07:00.000Z'
+  const at = (iso) => () => Date.parse(iso)
+  const gl = (baseUrl, now) => createRealGitlab({ gitlab: { baseUrl } }, { env: { CHAT_TO_FIX_GITLAB_TOKEN: TOKEN }, warn() {}, backoffMs: 1, now, nonBlockingWaitMs: 10 * 60 * 1000 } as any) as any
+  const routes: any = {
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7`]: mrBody(),
+    [`GET /projects/group%2Fsub%2Fproject/merge_requests/7/pipelines`]: [pipe(12)],
+    [`GET /projects/group%2Fsub%2Fproject/pipelines/12`]: pipe(12, { status: 'running' }),
+    [`GET /projects/11/pipelines/12/trigger_jobs`]: [],
+    [`GET /projects/11/pipelines/12/jobs`]: [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'running', { allow_failure: true })],
+  }
+  const s = await routed(routes)
+  try {
+    // counting jobs passed one minute ago, the non-blocking Sonar job still runs: hold the pass
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'pending')
+    // past the cap: report the pass anyway
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:17:01.000Z')).getChecks(binding, 7)).status, 'passed')
+    // Sonar done (even failed): passed
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'failed', { allow_failure: true })]
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/12`] = pipe(12, { status: 'success' })
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
+    routes[`GET /projects/group%2Fsub%2Fproject/pipelines/12`] = pipe(12, { status: 'running' })
+    // a counting job failed: failed at once, Sonar still running or not
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'failed', { finished_at: ended }), job(2, 'sonarqube', 'running', { allow_failure: true })]
+    const failed = await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)
+    assert.equal(failed.status, 'failed')
+    assert.deepEqual(failed.failedJobs.map((j) => j.name), ['unit'])
+    // an allow_failure trigger job and its downstream are still not waited for
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended })]
+    routes[`GET /projects/11/pipelines/12/trigger_jobs`] = [{ id: 50, name: 'persona', status: 'running', allow_failure: true, downstream_pipeline: { id: 99, project_id: 77, sha: 'down-sha', status: 'running' } }]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
+    assert.equal(s.requests.some((r) => r.path.includes('/projects/77/')), false)
+
+    // only a running or queued allow_failure job holds; one that may never start ('created', behind a manual job) does not
+    routes[`GET /projects/11/pipelines/12/trigger_jobs`] = []
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'created', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
+    // the held result says so (the monitor settles it as passed when its own wait limit runs out)
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'running', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).heldForOptional, true)
+    // no end time from GitLab for the counting jobs: no hold, as before
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success'), job(2, 'sonarqube', 'running', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
+  } finally { await s.close() }
+})
+
 test('getChecks: a downstream pipeline is read with its OWN project id; its failures count; an unreadable one counts as failed', async () => {
   const routes: any = {
     [`GET /projects/group%2Fsub%2Fproject/merge_requests/7`]: mrBody(),
@@ -477,7 +523,7 @@ test('fake CI: a flaky job fails the first time and passes after retryJobs (a ne
   await assert.rejects(repo.retryJobs(b, [{ id: 9999 }]), (e: any) => e.code === 'gitlab_not_found')
 })
 
-test('fake CI: an allow_failure job or downstream still running is not waited for; a failed counting job settles at once', async () => {
+test('fake CI: a running allow_failure job of the main pipeline holds a pass back; an allow_failure downstream does not; a failed counting job settles at once', async () => {
   const { repo, b, open } = await fakeSetup({
     ciJobs: [{ name: 'lint', command: 'exit 1' }, { name: 'e2e', command: 'echo ok', delaySeconds: 30, allowFailure: true, downstream: true }, { name: 'soft', command: 'echo ok', delaySeconds: 30, allowFailure: true }],
   })
@@ -489,6 +535,12 @@ test('fake CI: an allow_failure job or downstream still running is not waited fo
   const o = await ok.open()
   const passed = await poll(() => ok.repo.getChecks(ok.b, o.opened.iid), (c) => c.status !== 'pending', 5000)
   assert.equal(passed.status, 'passed')
+  const sonar = await fakeSetup({ ciJobs: [{ name: 'unit', command: 'echo ok' }, { name: 'sonarqube', command: 'echo ok', delaySeconds: 0.8, allowFailure: true }] })
+  const so = await sonar.open()
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal((await sonar.repo.getChecks(sonar.b, so.opened.iid)).status, 'pending', 'unit passed, the non-blocking job still runs')
+  const later = await poll(() => sonar.repo.getChecks(sonar.b, so.opened.iid), (c) => c.status !== 'pending', 5000)
+  assert.equal(later.status, 'passed')
 })
 
 test('fake CI: a deterministic failure stays failed after a retry', async () => {

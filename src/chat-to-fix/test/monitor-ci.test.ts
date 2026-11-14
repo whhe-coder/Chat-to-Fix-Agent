@@ -296,6 +296,15 @@ test('a pipeline that never finishes within ciWaitMinutes: no_pipeline with "wai
   assert.match(s.calls.sent[0].text, /等待超时/)
 })
 
+test('the wait limit runs out while only a non-blocking job holds the pass: settled as passed, not as no result', async () => {
+  const s = setup()
+  s.reply.value = { status: 'pending', sha: 'sha1', pipelineUrl: PIPE, failedJobs: [], heldForOptional: true }
+  await start(s); await s.monitor.tick()
+  s.advance(31); await s.monitor.tick()
+  assert.equal(s.task().ci.outcome, 'passed')
+  assert.equal(s.task().ci.status, 'passed')
+})
+
 test('ciTotalMinutes over all rounds ends the wait even when this commit has waited little', async () => {
   const s = setup({ ci: undefined })
   s.tasks.get('T-1').ci = pendingCi(s, 5, { round: 2, waitedMs: 86 * MIN })
