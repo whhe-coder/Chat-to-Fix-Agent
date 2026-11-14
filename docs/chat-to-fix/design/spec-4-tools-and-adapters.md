@@ -113,7 +113,7 @@
 | 工具 | 参数 | 规则 | 写入任务 |
 |---|---|---|---|
 | `slack_read_thread` | 无 | 读 `origin` 指向的那个讨论。返回每条消息的发言人、时间、文字、附件名和链接。整体过长（超过 8000 个字符）时截断并注明 | `slack.readAt` |
-| `slack_reply` | `purpose`（`ack`、`question`、`result`）、`text` | 写工具，`allow` 时带上 `purpose`。该用途已经发过时不再发，返回“已发过”。`text` 为空或超过 `limits.replyMaxChars`（默认 600）时拒绝 | `slack.sent.<purpose>` 为真 |
+| `slack_reply` | `purpose`（`ack`、`question`、`result`）、`text` | 写工具，`allow` 时带上 `purpose`。该用途已经发过时不再发，返回“已发过”。`text` 为空或超过 `limits.replyMaxChars`（默认 600）时拒绝。`question` 的几点分行列出；`slack.mentions` 为 false 时工具在末尾加一句“讨论串里的回复收不到，请重新 /fix”，任务结束时就不再单独发 `needs_info_resubmit`（2026-11-14） | `slack.sent.<purpose>` 为真 |
 
 工具的 `purpose` 只有这三个取值。Slack 的工具只能访问 `origin` 里的那一个讨论，参数里没有频道和讨论。
 
@@ -137,7 +137,7 @@ Jira 的工具只能访问 `jira.key` 那一张单。新建的单不带现有自
 | `repo_diff` | 无 | 返回改动的文件列表、增删行数和补丁；补丁过长（超过 12000 个字符）时截断并注明；最多列出 100 个文件 | — |
 | `repo_read_file` | `path`、`ref`（可选） | `path` 必须是仓库内的相对路径，不能跳出仓库。`ref` 必须是普通的分支、标签或提交名。内容过长（超过 12000 个字符）时截断并注明；适配器拒绝超过 5 MB 的文件 | — |
 | `repo_log` | `path`（可选）、`n`（默认 20，最多 50） | 返回提交列表 | — |
-| `mr_open_draft` | `title`、`description`、`commit_message`（可选） | 写工具。`allow` 只检查步骤、审查是否通过、改动规模（`diffMaxFiles`、`diffMaxLines`），别的不查。`commit_message` 是一行 Conventional Commit（`type(scope): summary`，scope 可省，后面可带 `!`，type 取 feat、fix、chore、refactor、test、docs、perf、build、ci、style、revert，没有正文）；默认是 `fix: <title>`（按下面的长度上限截断）。工具在末尾加任务的 Jira 单号，提交信息是 `<type(scope): summary> (<KEY>)`（例如 `fix(price): subtract the discount instead of adding it (F2PGBA-12)`），整行不超过 100 个字符；超长、带别的单号或任务没有单号时拒绝，自己写了本任务单号会先去掉。单号放末尾是因为公司 GitLab 推送规则要带单号，而 commitlint 要 type 在最前面。适配器接受带或不带末尾 ` (KEY-n)` 的 Conventional Commit，整行 ≤ 100，并按给定的信息原样提交。标题和描述里都没有 Jira 单号时，工具在描述末尾附上 `Jira: <单号>`。任务已有 `mr.url` 时复用并返回它，新改动作为又一个提交加到分支上；推送被拒时失败（`push_rejected`），提示向人报告（`task_close needs_person`）。`mr.iid` 和 `mr.sha` 也一并记下，给 CI 步骤读 | `mr.url`、`mr.iid`、`mr.sha` |
+| `mr_open_draft` | `title`、`description`、`commit_message`（可选） | 写工具。`allow` 只检查步骤、审查是否通过、改动规模（`diffMaxFiles`、`diffMaxLines`），别的不查。`commit_message` 是一行 Conventional Commit（`type(scope): summary`，scope 可省，后面可带 `!`，type 取 feat、fix、chore、refactor、test、docs、perf、build、ci、style、revert，没有正文）；默认是 `fix: <title>`（按下面的长度上限截断）。工具在末尾加任务的 Jira 单号，提交信息是 `<type(scope): summary> (<KEY>)`（例如 `fix(price): subtract the discount instead of adding it (F2PGBA-12)`），整行不超过 100 个字符；超长、带别的单号或任务没有单号时拒绝，自己写了本任务单号会先去掉。单号放末尾是因为公司 GitLab 推送规则要带单号，而 commitlint 要 type 在最前面。适配器接受带或不带末尾 ` (KEY-n)` 的 Conventional Commit，整行 ≤ 100，并按给定的信息原样提交。标题和描述里都没有 Jira 单号时，工具在描述末尾附上 `Jira: <单号>`。描述不写 CI 状态（开 MR 时 CI 还没跑，结果由系统发到 Slack 和 Jira）。任务已有 `mr.url` 时复用并返回它，新改动作为又一个提交加到分支上；推送被拒时失败（`push_rejected`），提示向人报告（`task_close needs_person`）。`mr.iid` 和 `mr.sha` 也一并记下，给 CI 步骤读 | `mr.url`、`mr.iid`、`mr.sha` |
 | `mr_get` | 无 | 返回本任务 MR 的状态和流水线状态；分支没有 MR 时直接说没有（适配器的 `mr_not_found` 是一个答案，不算失败） | — |
 | `ci_read_log` | `job`（失败 job 的 id 或名字） | 只读。读一个失败 job 的日志末尾（不超过 `limits.ciLogMaxChars`，默认 12000 个字符），按外来材料包装。读过日志是 `ci_stop` 的前提 | `ci.logRead` |
 | `mr_push_fix` | `commit_message` | 写工具。把代码目录的改动提成一个新提交、普通推送到任务分支。CI 没失败、轮数到 `limits.ciMaxRounds`（默认 3）、循环已结束时拒绝；没有改动时拒绝；推送被拒时不拉取、不覆盖，记 `branch_changed` 并结束 CI 循环 | `ci`（新一轮，待定）、`mr.sha` |
@@ -231,7 +231,7 @@ Slack 转发器（`scripts/slack-forwarder.ts`）：它开一条 Slack Socket Mo
 
 ### 4.10 Coding bot 的两个工具（2026-11-13）
 
-`run_tests`（`core/tools/tests.ts`，coding，读工具，`code` 和 `ci` 步）：参数 `command` 必须和任务绑定里的某条 `testCommands` 完全相同（去掉首尾空白后比较），否则拒绝并列出能跑的命令；没有测试命令时报错。在 `task.repo.dir` 里 `sh -c <命令>` 运行，单独一个进程组，`limits.testMinutes` 到时杀掉整组；环境变量只有白名单（`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`TERM`、`TMPDIR`、`LC_*`）；返回退出码、用时和输出最后 8000 个字符（标成材料）。不重试。
+`run_tests`（`core/tools/tests.ts`，coding，读工具，`code` 和 `ci` 步）：参数 `command` 必须和任务绑定里的某条 `testCommands` 完全相同（去掉首尾空白后比较），否则拒绝并列出能跑的命令；没有测试命令时报错，说法是“Chat-to-Fix 没给这个仓库配测试命令”，不说仓库没有测试。在 `task.repo.dir` 里 `sh -c <命令>` 运行，单独一个进程组，`limits.testMinutes` 到时杀掉整组；环境变量只有白名单（`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`TERM`、`TMPDIR`、`LC_*`）；返回退出码、用时和输出最后 8000 个字符（标成材料）。不重试。
 
 `request_review`（`core/tools/review.ts`，coding，写工具，`code` 和 `ci` 步）：参数 `summary`。先查轮数（任务上 `review.rounds`，`cannot_fix` 不算），到了 `limits.reviewMaxRounds` 就拒绝；代码目录对基准提交没有改动也拒绝。然后拼审查材料（`reviewer.md`、Slack 原文和摘要、Jira 步的结果、CI 步的失败摘要、`summary`、真实 diff，外来文字都标成材料），调门面 `runReview`（规格 5 第 4.9 节）。审查没有正常结束（`stopReason` 不是 `completed`）就报错、不记、不算一轮。否则按回答第一行定结论（`pass` 或 `not pass`，看不出的按不通过记），写 `review: { verdict, comments, rounds, at, by: 'reviewer' }`，把结论和审查者的回答返回给 coding bot。不重试。
 
