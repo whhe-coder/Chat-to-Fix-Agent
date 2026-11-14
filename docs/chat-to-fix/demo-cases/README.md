@@ -21,7 +21,7 @@
 
 ## 跑之前先查
 
-这些用例是对着本机公司仓库副本 `/Users/zihuifan/Documents/ChatGPT/f2p-work/dsh-worl/free-to-play-pc-company-20261009` 的 `origin/master`（`1a846c2`，2026-11-04）核对的。T-4 用的 main 已经到了 `c4704cad`（2026-11-13），本机没有这个提交。所以跑之前要在最新 main 上确认：
+这些用例是对着本机公司仓库副本 `/Users/zihuifan/Documents/ChatGPT/f2p-work/dsh-worl/free-to-play-pc-company-20261009` 的 `origin/master`（`1a846c2`，2026-11-04）核对的。T-4 用的 main 已经到了 `c4704cad`（2026-11-13），本机没有这个提交。所以跑之前要在最新 main 上确认（2026-11-14 已对 `c4704ca` 核对过：4 个用例依赖的文件、测试名、断言都在，`CampaignDetailsSection` 的基线还是 175，`unit-test` 和 `complexity` 不是 `allow_failure`；main 再更新就要重查）：
 
 1. 每个用例“依赖的代码”一节列出的文件和测试名还在，断言没变。每个用例都附了 `git grep` 命令。
 2. `.gitlab-ci.yml` 里的 `unit-test` 还是跑 `pnpm run test:coverage`，`complexity` 还是跑 `pnpm run lint:complexity`，两个都不是 `allow_failure`。
