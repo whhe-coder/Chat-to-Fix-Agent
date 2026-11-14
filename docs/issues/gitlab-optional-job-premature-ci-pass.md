@@ -17,15 +17,15 @@
 
 ## 后续证据（2026-11-14）
 
-另外三次运行同样在 pipeline 结束前就报告了“CI 通过”，最终结果都是成功：
+另外三次运行同样在 pipeline 结束前就报告了“CI 通过”：
 
 | 任务 | Agent 报告通过（北京时间） | pipeline 结束 | 还在跑的 |
 | --- | --- | --- | --- |
-| 模拟 `T-4` | 2026-11-13 18:08:04 | 18:10 后（[1936131](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1936131)） | `sonar`、两条 `allow_failure` 的 e2e 下游 |
+| 模拟 `T-4` | 2026-11-13 18:08:04 | 未记录（[1936131](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1936131)）：`sonar` 18:10 后成功，e2e-smoke 下游 18:10:57 成功，e2e-persona 下游之后仍在排队 | `sonar`、两条 `allow_failure` 的 e2e 下游 |
 | 真实 Slack `T-5` | 2026-11-14 11:39:35 | 11:40:42（[1939813](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1939813)） | 未逐个核对 job |
 | 真实 Slack `T-8` | 2026-11-14 14:39:32 | 14:40:37（[1940014](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1940014)） | 未逐个核对 job |
 
-结束时间取自 GitLab MR 接口的 `head_pipeline.finished_at`。[T-4 运行记录](../chat-to-fix/runs/2026-11-13-T-4.md)当时把这种情况写成了预期行为，已按本问题改正。
+T-5、T-8 的结束时间取自 GitLab MR 接口的 `head_pipeline.finished_at`，两条最终都是 `success`。[T-4 运行记录](../chat-to-fix/runs/2026-11-13-T-4.md)当时把这种情况写成了预期行为，已按本问题改正。
 
 ## 影响与验收
 
