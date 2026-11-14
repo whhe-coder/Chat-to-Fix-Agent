@@ -1,6 +1,6 @@
 # Jira 报告人是 token 所有者，发起人没有映射过去
 
-- 状态：已确认，往后放、另开票（Zihui 2026-11-14）；需要 Bot 传邮箱 + Agent 指派
+- 状态：已确认，往后放、另开票（Zihui，[频道消息](https://xsolla.slack.com/archives/C0BT0TH2RS9/p1794642758579979)）；需要 Bot 传邮箱 + Agent 指派
 - 发现日期：2026-11-14
 - 关联任务：真实 Slack `T-5` / [F2PGBA-411](https://xsolla.atlassian.net/browse/F2PGBA-411)、`T-8` / [F2PGBA-412](https://xsolla.atlassian.net/browse/F2PGBA-412)
 
@@ -15,7 +15,7 @@
 - 任务的 `origin.user` 只有 Slack 的 `{id, name}`，没有邮箱；Bot 没有调 `users.info`。
 - MR 描述里也没写发起人。
 
-[Slack 接入架构](../chat-to-fix/slack/architecture.md) 4.8 拟按发起人邮箱设报告人/经办人。Zihui 2026-11-14 在频道说：CI 三次失败后“需要人看”只写在 Jira 评论里，不会通知到人；要等 Bot 传来发起人邮箱才能把单子指派给发起人，这项往后放、另开票。Slack App 已有 `users:read`、`users:read.email`；Agent 适配器已接受 `user.email`（`7521aa2`），但还不设报告人/经办人。
+[Slack 接入架构](../chat-to-fix/slack/architecture.md) 4.8 拟按发起人邮箱设报告人/经办人。Zihui 2026-11-14 [在频道说](https://xsolla.slack.com/archives/C0BT0TH2RS9/p1794642758579979)：CI 三次失败后“需要人看”只写在 Jira 评论里，不会通知到人；要等 Bot 传来发起人邮箱才能把单子指派给发起人，这项往后放、另开票。Slack App 已有 `users:read`、`users:read.email`；Agent 适配器已接受 `user.email`（`7521aa2`），但还不设报告人/经办人。
 
 ## 验收
 

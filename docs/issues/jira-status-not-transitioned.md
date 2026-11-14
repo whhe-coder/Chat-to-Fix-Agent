@@ -1,6 +1,6 @@
 # Jira 状态不流转，文档却写回写时“改状态”
 
-- 状态：设计已定（CI 通过后流转到 In Review），往后放、另开票（Zihui 2026-11-14）
+- 状态：设计为 CI 通过后流转；目标状态待确认（F2PGBA 没有名为 In Review 的转换），往后放、另开票（Zihui，[频道消息](https://xsolla.slack.com/archives/C0BT0TH2RS9/p1794642758579979)）
 - 发现日期：2026-11-14
 - 关联任务：真实 Slack `T-5`、`T-8`；模拟 `T-4`
 
@@ -18,4 +18,4 @@
 ## 验收
 
 - [ ] 申请 Jira 流转权限（F2PGBA 的可用转换，2026-11-14 Jira 接口返回：To Do、In Progress、Done、Blocked、Testing；没有名为 In Review 的转换，要确认目标状态）。
-- [ ] 不流转的话，改文档；流转的话，配置 `jiraTransitions` 并实测一次。
+- [ ] 配置 `jiraTransitions` 并实测一次。
