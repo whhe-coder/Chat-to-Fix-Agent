@@ -1,48 +1,48 @@
-# CI 修复循环演示用例
+# CI Fix Loop Demo Cases
 
-## 为什么有这些用例
+## Why these cases exist
 
-2026-11-14 Logan 要几个稍复杂的例子：MR 流水线的单元测试先失败，Agent 再修第二轮。修好了，MR 留着不合并，用来演示；修不好，记成问题。用例都放在这一个目录里。
+On 2026-11-14 Logan asked for a few more complex examples: the unit tests on the MR pipeline fail first, then the agent fixes them in a second round. If the fix works, the MR is left unmerged for demos; if it doesn't, we log it as an issue. All the cases live in this one folder.
 
-真实频道的绑定没有配 `testCommands`，Coding bot 在本地跑不了测试，MR 流水线就是第一次跑测试。下面的需求都不提测试，让 CI 来发现问题。修复循环怎么走见 [spec-7](../design/spec-7-ci-loop.md)：job 失败后系统先自动重跑一次；重跑还失败才算一轮，Git Pipeline bot 读日志，Coding bot 修，再追加一个提交；最多修 3 轮，之后交给人。
+The real channel binding has no `testCommands` configured, so the Coding bot can't run tests locally and the MR pipeline is the first time the tests run. None of the requests below mention tests, so CI is what finds the problems. For how the fix loop works, see [spec-7](../design/spec-7-ci-loop.md): after a job fails, the system automatically reruns it once; only if the rerun also fails does it count as a round. The Git Pipeline bot reads the log, the Coding bot fixes it and adds a commit; at most 3 rounds, then it is handed to a human.
 
-目标仓库是 GitLab `account-platform/free-to-play-pc`。MR 流水线里的必需 job 有 commitlint、eslint、stylelint、type-check、complexity 和 unit-test（`pnpm run test:coverage`，带覆盖率门槛）。sonar 和两条 e2e 下游流水线是 `allow_failure`，不影响结论。
+The target repo is GitLab `account-platform/free-to-play-pc`. The required jobs in the MR pipeline are commitlint, eslint, stylelint, type-check, complexity and unit-test (`pnpm run test:coverage`, with a coverage threshold). sonar and the two downstream e2e pipelines are `allow_failure` and don't affect the result.
 
-## 用例
+## Cases
 
-| # | 用例 | 预计失败的 job | 预期 | 状态 |
+| # | Case | Job expected to fail | Expected | Status |
 | --- | --- | --- | --- | --- |
-| 1 | [文档链接按入口带来源参数](01-docs-link-utm.md) | unit-test（可能还有 type-check） | 修 1 轮后通过 | 未跑 |
-| 2 | [Creator Campaign 封面图上限改成 10 MB](02-cover-image-10mb.md) | unit-test（两个文件里各有一个测试） | 修 1～2 轮后通过 | 未跑 |
-| 3 | [受众要求加上 Instagram](03-audience-instagram.md) | type-check 和 unit-test | 修 1～2 轮后通过；也看 bot 会不会指出后端限制 | 未跑 |
-| 4 | [Give game keys 加「下载 CSV 模板」](04-keys-csv-template.md) | complexity | 难修，很可能交给人 | 未跑 |
+| 1 | [Documentation links get a source parameter per entry point](01-docs-link-utm.md) | unit-test (maybe type-check too) | Passes after 1 fix round | Not run |
+| 2 | [Raise the Creator Campaign cover image limit to 10 MB](02-cover-image-10mb.md) | unit-test (one test in each of two files) | Passes after 1-2 fix rounds | Not run |
+| 3 | [Add Instagram to audience requirements](03-audience-instagram.md) | type-check and unit-test | Passes after 1-2 fix rounds; also see whether the bot points out the backend limitation | Not run |
+| 4 | [Add a "Download CSV template" link to Give game keys](04-keys-csv-template.md) | complexity | Hard to fix, most likely handed to a human | Not run |
 
-状态写：未跑 / 通过（修了 N 轮）/ 交给人 / 没触发修复（第一次流水线就过了）/ 失败（已记问题）。
+Status values: Not run / Passed (N fix rounds) / Handed to a human / Fix not triggered (first pipeline passed) / Failed (issue logged).
 
-## 跑之前先查
+## Check before running
 
-这些用例是对着本机公司仓库副本 `/Users/zihuifan/Documents/ChatGPT/f2p-work/dsh-worl/free-to-play-pc-company-20261009` 的 `origin/master`（`1a846c2`，2026-11-04）核对的。T-4 用的 main 已经到了 `c4704cad`（2026-11-13），本机没有这个提交。所以跑之前要在最新 main 上确认（2026-11-14 已对 `c4704ca` 核对过：4 个用例依赖的文件、测试名、断言都在，`CampaignDetailsSection` 的基线还是 175，`unit-test` 和 `complexity` 不是 `allow_failure`；main 再更新就要重查）：
+These cases were checked against `origin/master` (`1a846c2`, 2026-11-04) of the company repo copy on this machine, `/Users/zihuifan/Documents/ChatGPT/f2p-work/dsh-worl/free-to-play-pc-company-20261009`. The main used for T-4 has moved on to `c4704cad` (2026-11-13), which this machine doesn't have. So confirm on the latest main before running (checked against `c4704ca` on 2026-11-14: the files, test names and assertions the 4 cases depend on are all there, the `CampaignDetailsSection` baseline is still 175, and `unit-test` and `complexity` are not `allow_failure`; if main moves again, check again):
 
-1. 每个用例“依赖的代码”一节列出的文件和测试名还在，断言没变。每个用例都附了 `git grep` 命令。
-2. `.gitlab-ci.yml` 里的 `unit-test` 还是跑 `pnpm run test:coverage`，`complexity` 还是跑 `pnpm run lint:complexity`，两个都不是 `allow_failure`。
-3. 频道绑定还是没有 `testCommands`，`ciMaxRounds` 还是 3。
+1. The files and test names listed in each case's "Code it depends on" section still exist, and the assertions haven't changed. Each case includes a `git grep` command.
+2. In `.gitlab-ci.yml`, `unit-test` still runs `pnpm run test:coverage` and `complexity` still runs `pnpm run lint:complexity`; neither is `allow_failure`.
+3. The channel binding still has no `testCommands`, and `ciMaxRounds` is still 3.
 
-## 怎么跑
+## How to run
 
-- 在绑定 `free-to-play-pc` 的 Slack 频道里，把用例里的 `/fix` 文本原样贴进去。
-- 一次只跑一个。等讨论串出了结果汇总、任务结束，再跑下一个。
-- MR 一律保持 Draft，不合并、不关。Jira 单也先留着，演示完再关。
-- 每轮失败都要等两次流水线（系统会自动重跑一次），一轮大约 12 分钟，所以一个用例要 15～45 分钟。
-- 跑完把结果填进用例文件末尾的“结果”一节，再改上表的“状态”。完整的运行记录照常写到 [`../runs/`](../runs/)。
+- In the Slack channel bound to `free-to-play-pc`, paste the case's `/fix` text as is.
+- Run one at a time. Wait until the thread posts its result summary and the task ends, then run the next.
+- Always keep the MR as Draft; don't merge or close it. Leave the Jira ticket open too, and close it after the demo.
+- Each failed round waits for two pipelines (the system reruns once automatically), and a round takes about 12 minutes, so one case takes 15-45 minutes.
+- When a run finishes, fill the result into the "Result" section at the end of the case file and update the "Status" in the table above. The full run record is written to [`../runs/`](../runs/) as usual.
 
-## 跑失败了怎么办
+## What to do when a run fails
 
-按 Logan 的规则，失败的运行记成问题：在 [`docs/issues/`](../../issues/README.md) 新建一个文件，写明证据、影响和验收条件，并加进那里的 README 表格，再在本用例的“结论”里链过去。下面这些都算失败：
+Per Logan's rule, a failed run is logged as an issue: create a new file in [`docs/issues/`](../../issues/README.md) with the evidence, impact and acceptance criteria, add it to the table in that README, then link to it from this case's "Conclusion". All of the following count as failures:
 
-- Agent 自己出错，比如没读日志就停了、推送出错、Slack 或 Jira 回写不对。
-- 修法不对：CI 变绿了，但办法是删测试、改弱断言、抬高复杂度基线，或者把需求改没了。
-- 该交给人时没交。
+- The agent itself errors, for example it stops without reading the log, a push fails, or the Slack or Jira write-back is wrong.
+- The fix is wrong: CI turns green, but by deleting tests, weakening assertions, raising the complexity baseline, or watering down the requirement.
+- It should have handed off to a human and didn't.
 
-修了 3 轮还不过、正常交给人（`completed_ci_failed`），或者 bot 用 `ci_stop` 说清了原因，这是用例 4 想演示的结果，不算失败。
+If it still fails after 3 rounds and is handed to a human as expected (`completed_ci_failed`), or the bot explains the reason clearly with `ci_stop`, that is the outcome case 4 is meant to demonstrate and does not count as a failure.
 
-如果 Coding bot 第一次就把测试一起改了，流水线第一次就过了，这不算 Agent 的问题，状态写“没触发修复”。这时可以换下一个用例。
+If the Coding bot changes the tests along with the code on the first try and the first pipeline passes, that is not an agent problem; write "Fix not triggered" as the status. You can move on to the next case.

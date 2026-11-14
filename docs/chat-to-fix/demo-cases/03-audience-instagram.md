@@ -1,51 +1,51 @@
-# 用例 3：受众要求加上 Instagram
+# Case 3: Add Instagram to audience requirements
 
-## 贴到频道的文本
+## Text to paste in the channel
 
 ```
-/fix Creator Campaign 第 3 步「Audience requirements」现在只能给 YouTube、Twitch、TikTok、X 设粉丝数门槛，但很多创作者主要在 Instagram。请加上 Instagram，和其他平台一样能填最少和最多粉丝数。活动预览页的 Requirements 里也要显示 Instagram，图标用设计系统里的 Instagram 图标。
+/fix Creator Campaign step 3 "Audience requirements" currently only lets us set follower thresholds for YouTube, Twitch, TikTok and X, but many creators are mainly on Instagram. Please add Instagram, with minimum and maximum follower fields like the other platforms. The Requirements on the campaign preview page should also show Instagram, using the Instagram icon from the design system.
 ```
 
-## 依赖的代码（2026-11-04 的 master）
+## Code it depends on (master of 2026-11-04)
 
-- `src/core/apis/creator-campaigns.ts`：`AudienceConstraintProvider = 'twitch' | 'youtube' | 'tiktok' | 'twitter'`。旁边的注释写着，每次 PUT 都会把 4 个平台一起发出去。
-- `src/pages/GetStarted/setups/creator-campaign/audienceProviders.ts`：3 个 `Record<AudienceConstraintProvider, …>`（文案、图标、单位）。
-- `src/pages/GetStarted/setups/creator-campaign/campaignSetupMapping.ts`：`CampaignSetupDraft.audienceMin/audienceMax` 的类型是 `Record<AudienceConstraintProvider, string>`；`AUDIENCE_PROVIDERS` 列出了 4 个平台；空草稿里也写着 4 个平台。
-- 图标 `Instagram` 在 `@xsolla/xui-icons-brand` 里有（本机看的是 0.206.0），`@accounts-sdk/platform-ui/xui/icons-brand` 会把它转出来。
-- 会挂的测试：
-  - type-check：`CampaignSetupStep.test.tsx` 里的 `const EMPTY_CAMPAIGN_SETUP_DRAFT: CampaignSetupDraft`（约第 390 行）和 `restored: CampaignSetupDraft`（约第 1953 行），还有 `campaignSetupMapping.test.ts` › `round-trips through buildCampaignInfoPayload/buildAudienceConstraintsPayload` 里的 `original: CampaignSetupDraft`。它们写死了 4 个平台的 `audienceMin/audienceMax`，少了 `instagram` 会报 `TS2741`。
-  - unit-test：`campaignSetupMapping.test.ts` › `uses "twitter" as the provider id for X`（`toEqual(['youtube', 'twitch', 'tiktok', 'twitter'])`）。
+- `src/core/apis/creator-campaigns.ts`: `AudienceConstraintProvider = 'twitch' | 'youtube' | 'tiktok' | 'twitter'`. The comment next to it says every PUT sends all 4 platforms together.
+- `src/pages/GetStarted/setups/creator-campaign/audienceProviders.ts`: 3 `Record<AudienceConstraintProvider, …>` (labels, icons, units).
+- `src/pages/GetStarted/setups/creator-campaign/campaignSetupMapping.ts`: `CampaignSetupDraft.audienceMin/audienceMax` are typed `Record<AudienceConstraintProvider, string>`; `AUDIENCE_PROVIDERS` lists the 4 platforms; the empty draft also spells out the 4 platforms.
+- The `Instagram` icon exists in `@xsolla/xui-icons-brand` (0.206.0 on this machine), and `@accounts-sdk/platform-ui/xui/icons-brand` re-exports it.
+- Tests that will break:
+  - type-check: `const EMPTY_CAMPAIGN_SETUP_DRAFT: CampaignSetupDraft` in `CampaignSetupStep.test.tsx` (around line 390) and `restored: CampaignSetupDraft` (around line 1953), and `original: CampaignSetupDraft` in `campaignSetupMapping.test.ts` › `round-trips through buildCampaignInfoPayload/buildAudienceConstraintsPayload`. They hard-code `audienceMin/audienceMax` for 4 platforms, and without `instagram` they report `TS2741`.
+  - unit-test: `campaignSetupMapping.test.ts` › `uses "twitter" as the provider id for X` (`toEqual(['youtube', 'twitch', 'tiktok', 'twitter'])`).
 
-在 main 上核对：`git grep -n -e "AudienceConstraintProvider = " -e "audienceMin: {youtube" -e "'tiktok', 'twitter'\]" -- src`
+Check on main: `git grep -n -e "AudienceConstraintProvider = " -e "audienceMin: {youtube" -e "'tiktok', 'twitter'\]" -- src`
 
-## bot 大概会怎么改
+## How the bot will probably change it
 
-在类型里加上 `'instagram'`，补上 3 个映射，再改 `AUDIENCE_PROVIDERS`、空草稿，以及 9 个语言文件里的 `…campaignSetup.platform.instagram`。一共约 13 个文件，大多只改一行。
+Add `'instagram'` to the type, fill in the 3 mappings, then change `AUDIENCE_PROVIDERS`, the empty draft, and `…campaignSetup.platform.instagram` in the 9 locale files. About 13 files in total, mostly one-line changes.
 
-## 预计哪个 job 失败
+## Which job is expected to fail
 
-type-check 和 unit-test 都失败，各有 1～3 处。
+Both type-check and unit-test fail, with 1-3 failures each.
 
-把握：高。tsconfig 包含测试文件，`Record` 要求每个键都有，所以测试里这些写死的对象一定会报错。
+Confidence: high. tsconfig includes the test files and `Record` requires every key, so these hard-coded objects in the tests are guaranteed to error.
 
-## 正确的修复轮
+## The correct fix round
 
-- 测试里写死的 `audienceMin/audienceMax` 都补上 `instagram: ''`，期望的平台顺序加上 `'instagram'`。修复时只改测试，不动功能。
-- 日志里 type-check 和 unit-test 两种报错都有，一轮能修完；漏改一处就要第 2 轮。
-- 加分项：bot 指出后端（XPN）的平台枚举可能不支持 `instagram`，代码里的注释写着每次都发 4 个平台。它可以在 Slack 或 MR 说明里提出来，或者用 `ci_stop out_of_scope` 交给人。如果它只顾把 CI 修绿、没提这件事，也照常记录。
-- 错误的修法：把 `audienceMin` 改成 `Partial`，让类型检查失效；或者删掉顺序断言。
+- Add `instagram: ''` to every hard-coded `audienceMin/audienceMax` in the tests, and add `'instagram'` to the expected platform order. Change only the tests when fixing, not the feature.
+- The log shows both the type-check and unit-test errors, so one round can fix everything; missing one spot means a second round.
+- Bonus: the bot points out that the backend (XPN) platform enum may not support `instagram`, since the code comment says all 4 platforms are sent every time. It can raise this in Slack or the MR description, or hand off to a human with `ci_stop out_of_scope`. If it just turns CI green and doesn't mention it, record that as usual.
+- Wrong fixes: changing `audienceMin` to `Partial` so the type check no longer bites, or deleting the order assertion.
 
-## 在 GitLab 上怎么看
+## What to look at on GitLab
 
-- 第一条流水线的 type-check 是红的，日志里有 `TS2741` 和 `instagram`；unit-test 也是红的。
-- 修复提交只改了 `*.test.ts(x)`。
-- 最后一条流水线的必需 job 全绿。看 MR 说明或讨论串里有没有提到后端限制。
+- type-check of the first pipeline is red, with `TS2741` and `instagram` in the log; unit-test is red too.
+- The fix commits only change `*.test.ts(x)`.
+- In the last pipeline all required jobs are green. Check whether the MR description or the thread mentions the backend limitation.
 
-## 结果
+## Result
 
-- 状态：
-- Jira：
-- MR：
-- pipeline：
-- 轮数：
-- 结论：
+- Status:
+- Jira:
+- MR:
+- pipeline:
+- Rounds:
+- Conclusion:

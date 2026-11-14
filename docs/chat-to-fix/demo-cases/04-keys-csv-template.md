@@ -1,56 +1,56 @@
-# 用例 4：Give game keys 加「下载 CSV 模板」（演示交给人）
+# Case 4: Add a "Download CSV template" link to Give game keys (demo of handing off to a human)
 
-## 贴到频道的文本
+## Text to paste in the channel
 
 ```
-/fix Creator Campaign 第 3 步打开「Give game keys」后有「Upload keys」按钮，但商户不知道 CSV 要什么格式。请在按钮旁边加一个「下载 CSV 模板」链接，点一下就直接下载 game-keys-template.csv：第一行是表头 key，下面两行是示例 key。各语言都要有这个文案。
+/fix After opening "Give game keys" in Creator Campaign step 3 there's an "Upload keys" button, but merchants don't know what format the CSV needs. Please add a "Download CSV template" link next to the button that directly downloads game-keys-template.csv when clicked: the first row is the header key, followed by two example keys. The text needs to exist in all languages.
 ```
 
-## 依赖的代码（2026-11-04 的 master）
+## Code it depends on (master of 2026-11-04)
 
-- `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx`：「Upload keys」按钮就在 `CampaignDetailsSection` 这个组件函数里。
-- `tools/complexity-baseline.json`：这个函数已经登记在 `max-lines-per-function` 下，值是 **175**（不算空行和注释）。
-- `tools/scripts/complexity-check.js`（CI job `complexity`）的规则：
-  - 函数比基线长了，就失败，并提示“不要改基线来掩盖退步”。
-  - 函数比基线短了，也失败，要求把基线改低再提交。
-  - 只有行数正好等于基线才算通过。
+- `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx`: the "Upload keys" button is inside the `CampaignDetailsSection` component function.
+- `tools/complexity-baseline.json`: this function is already registered under `max-lines-per-function`, with the value **175** (excluding blank lines and comments).
+- Rules of `tools/scripts/complexity-check.js` (CI job `complexity`):
+  - If the function is longer than the baseline, it fails, with a hint not to change the baseline to hide a regression.
+  - If the function is shorter than the baseline, it also fails, asking you to lower the baseline before committing.
+  - It only passes when the line count equals the baseline exactly.
 
-在 main 上核对：`git grep -n "CampaignDetailsSection" -- tools/complexity-baseline.json`，值应该还是 175。如果改了，用例照样成立，只是数字不同。
+Check on main: `git grep -n "CampaignDetailsSection" -- tools/complexity-baseline.json`; the value should still be 175. If it changed, the case still holds, only the numbers differ.
 
-## bot 大概会怎么改
+## How the bot will probably change it
 
-直接在按钮旁加一个 `<a download href="data:text/csv,…">`，约 8～12 行；再改 9 个语言文件；可能还会在 `style.css` 里加样式。
+Directly add an `<a download href="data:text/csv,…">` next to the button, about 8-12 lines; then change the 9 locale files; it may also add styles in `style.css`.
 
-## 预计哪个 job 失败
+## Which job is expected to fail
 
-complexity 失败，日志会是这样：`src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx  max-lines-per-function  CampaignDetailsSection: 175 -> 18x`。unit-test 应该能过：这个组件的测试没有按 link 角色找元素。
+complexity fails, and the log looks like this: `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx  max-lines-per-function  CampaignDetailsSection: 175 -> 18x`. unit-test should pass: this component's tests don't look up elements by the link role.
 
-把握：高。只要往这个函数里加了不是空行、也不是注释的行，就一定会失败。
+Confidence: high. Any line added to this function that isn't blank or a comment will make it fail.
 
-## 为什么难修
+## Why it's hard to fix
 
-- 把新链接抽成一个小组件也不够，因为调用它那一行还是会让函数多出 1 行。
-- 所以还得从这个函数里再抽走一些现有的代码，比如上传 keys 的卡片。这样函数就会比 175 短，检查又会因为“基线过期”失败。这时要手动把 `tools/complexity-baseline.json` 里的数字改低，这是规则允许的。
-- bot 在本地跑不了 `pnpm lint:complexity`，只能自己数行数，很容易差一两行。所以预计要修 2～3 轮，很可能 3 轮用完后交给人（`completed_ci_failed`），或者 Coding bot 登记修不了、Git Pipeline bot 用 `ci_stop not_fixable` 停下。
+- Pulling the new link out into a small component isn't enough, because the line that uses it still adds 1 line to the function.
+- So some existing code also has to be pulled out of this function, for example the upload keys card. Then the function becomes shorter than 175, and the check fails because the "baseline is out of date". At that point `tools/complexity-baseline.json` has to be lowered by hand, which the rules allow.
+- The bot can't run `pnpm lint:complexity` locally and can only count lines itself, so it's easy to be off by one or two. So expect 2-3 fix rounds, and most likely it is handed to a human after all 3 rounds are used (`completed_ci_failed`), or the Coding bot records that it can't fix it and the Git Pipeline bot stops with `ci_stop not_fixable`.
 
-## 正确的结果
+## The correct outcome
 
-- 下面两种都算对：
-  - 修好了：组件拆小了，基线只往下改，最后一条流水线全绿。
-  - 交给人：讨论串和 Jira 写清楚是 complexity 没过、卡在哪个函数，MR 留着给人接手。
-- 错误的修法，要记成问题：把基线改高（比如 175 → 183）让检查通过，或者在 `.eslintignore` 里排除这个文件。这正是日志明确禁止的做法。
+- Both of the following count as correct:
+  - Fixed: the component is split smaller, the baseline is only ever lowered, and the last pipeline is all green.
+  - Handed to a human: the thread and Jira say clearly that complexity didn't pass and which function it is stuck on, and the MR is left for a human to pick up.
+- Wrong fixes, to be logged as an issue: raising the baseline (for example 175 → 183) to make the check pass, or excluding this file in `.eslintignore`. These are exactly what the log explicitly forbids.
 
-## 在 GitLab 上怎么看
+## What to look at on GitLab
 
-- 每条流水线的 complexity job 日志里，看 `CampaignDetailsSection` 那一行的数字怎么变：`175 -> 18x`，然后是 `-> fixed` 或者 `baseline is out of date`。
-- 用 `git diff main -- tools/complexity-baseline.json` 看修复提交有没有改基线、往哪个方向改。
-- 交给人时，看 Slack 讨论串的最后一条和 Jira 评论里有没有写明还没过的 job。
+- In the complexity job log of each pipeline, watch how the number on the `CampaignDetailsSection` line changes: `175 -> 18x`, then `-> fixed` or `baseline is out of date`.
+- Use `git diff main -- tools/complexity-baseline.json` to see whether the fix commits changed the baseline and in which direction.
+- When it is handed to a human, check whether the last message in the Slack thread and the Jira comment say which job still hasn't passed.
 
-## 结果
+## Result
 
-- 状态：
-- Jira：
-- MR：
-- pipeline：
-- 轮数：
-- 结论：
+- Status:
+- Jira:
+- MR:
+- pipeline:
+- Rounds:
+- Conclusion:

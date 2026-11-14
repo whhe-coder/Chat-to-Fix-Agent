@@ -1,53 +1,53 @@
-# 用例 1：文档链接按入口带来源参数
+# Case 1: Documentation links get a source parameter per entry point
 
-## 贴到频道的文本
+## Text to paste in the channel
 
 ```
-/fix Dashboard 的「Documentation」快捷卡片，和 Get Started → Creator Campaign 第 3 步「Give game keys」下面的文档链接，现在打开的都是 https://developers.xsolla.com/?audience=pc-f2p，文档站分不出访问是从哪个入口来的。请给两个入口加上各自的来源参数：Dashboard 用 utm_source=publisher_account&utm_medium=dashboard_shortcut，Creator Campaign 用 utm_source=publisher_account&utm_medium=creator_campaign。audience=pc-f2p 保留。埋点里上报的 target_url 也用带参数的完整链接。
+/fix The "Documentation" shortcut card on the Dashboard, and the documentation link under Get Started → Creator Campaign step 3 "Give game keys", both open https://developers.xsolla.com/?audience=pc-f2p right now, so the docs site can't tell which entry point a visit came from. Please add a source parameter for each entry point: Dashboard uses utm_source=publisher_account&utm_medium=dashboard_shortcut, Creator Campaign uses utm_source=publisher_account&utm_medium=creator_campaign. Keep audience=pc-f2p. The target_url reported in the tracking event should also be the full link with the parameters.
 ```
 
-## 依赖的代码（2026-11-04 的 master）
+## Code it depends on (master of 2026-11-04)
 
-- `src/pages/Dashboard/constants.ts`：`DOCUMENTATION_URL = 'https://developers.xsolla.com/?audience=pc-f2p'`。两个入口共用这个常量：`src/pages/Dashboard/components/Shortcuts.tsx`（`openDocs`）和 `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx`（`trackDocumentationClick` 和 `href`）。
-- 断言这个值、或断言用的是这个常量的测试：
-  - `src/pages/Dashboard/constants.test.ts` › `points documentation at the PC F2P audience-scoped docs`（`toBe` 精确比较原链接）
+- `src/pages/Dashboard/constants.ts`: `DOCUMENTATION_URL = 'https://developers.xsolla.com/?audience=pc-f2p'`. Both entry points share this constant: `src/pages/Dashboard/components/Shortcuts.tsx` (`openDocs`) and `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.tsx` (`trackDocumentationClick` and `href`).
+- Tests that assert this value, or assert that this constant is used:
+  - `src/pages/Dashboard/constants.test.ts` › `points documentation at the PC F2P audience-scoped docs` (`toBe`, exact comparison with the original link)
   - `src/pages/Dashboard/components/Shortcuts.test.tsx` › `tracks the outbound link and opens it in a new tab`
   - `src/pages/GetStarted/setups/creator-campaign/CampaignDetailsSection.test.tsx` › `reports the documentation click with the target url`
   - `src/pages/GetStarted/setups/creator-campaign/CampaignSetupStep.test.tsx` › `tracks the game keys documentation link as a creator-campaign external guide click`
 
-在 main 上核对：`git grep -n "DOCUMENTATION_URL" -- src`
+Check on main: `git grep -n "DOCUMENTATION_URL" -- src`
 
-## bot 大概会怎么改
+## How the bot will probably change it
 
-两个入口要不同的链接，一个常量不够用了。常见的改法有两种：
+The two entry points need different links, so one constant is no longer enough. Two common approaches:
 
-- **A**：保留 `DOCUMENTATION_URL`，给它加上 Dashboard 的参数，再新建一个 Creator Campaign 用的常量，改 `CampaignDetailsSection.tsx`。
-- **B**：删掉 `DOCUMENTATION_URL` 或给它改名，换成两个新常量或一个 `buildDocumentationUrl(medium)`，改两个组件。
+- **A**: Keep `DOCUMENTATION_URL`, add the Dashboard parameters to it, create a new constant for Creator Campaign, and change `CampaignDetailsSection.tsx`.
+- **B**: Delete or rename `DOCUMENTATION_URL`, replace it with two new constants or a `buildDocumentationUrl(medium)`, and change both components.
 
-## 预计哪个 job 失败
+## Which job is expected to fail
 
-- 走 A：unit-test 失败。`constants.test.ts` 的精确比较不再相等。两个 Creator Campaign 测试还期望上报 `DOCUMENTATION_URL`，但组件已经换成了新常量。
-- 走 B：type-check 也会失败。上面 4 个测试文件都还在 `import {DOCUMENTATION_URL}`，会报 `has no exported member`。
+- Approach A: unit-test fails. The exact comparison in `constants.test.ts` no longer matches. The two Creator Campaign tests still expect `DOCUMENTATION_URL` to be reported, but the component now uses the new constant.
+- Approach B: type-check fails too. The 4 test files above still `import {DOCUMENTATION_URL}` and will report `has no exported member`.
 
-把握：高。只要 bot 第一次没顺手改测试，就一定失败。
+Confidence: high. As long as the bot doesn't happen to fix the tests on the first pass, it will fail.
 
-## 正确的修复轮
+## The correct fix round
 
-- 只改测试，不动功能：期望值改成新链接或新常量，每个入口各断言自己的链接，保留“必须是 https”的断言。
-- 走 B 时，4 个测试文件的 import 都要改。如果第一次只修了 type-check 报出来的文件，第二轮可能还有断言失败，所以可能要修 2 轮。
-- 错误的修法：把链接改回原样，或者删掉断言。
+- Change only the tests, not the feature: update the expected values to the new link or constant, assert each entry point's own link, and keep the "must be https" assertion.
+- With approach B, the imports in all 4 test files need changing. If the first round only fixes the files type-check reports, the second round may still hit assertion failures, so it may take 2 rounds.
+- Wrong fixes: changing the link back to the original, or deleting the assertions.
 
-## 在 GitLab 上怎么看
+## What to look at on GitLab
 
-- MR 的 Commits 里有两个或更多提交：第一个是功能改动，后面的是修复。
-- Pipelines 里第一条流水线的 unit-test（或 type-check）是红的，日志里能看到上面列出的测试名或 `TS2305`。最后一条流水线的必需 job 全绿。
-- 修复提交只改了 `*.test.ts(x)`，或者在测试之外只做了很小的调整。
+- The MR's Commits has two or more commits: the first is the feature change, the rest are fixes.
+- In Pipelines, unit-test (or type-check) of the first pipeline is red, and the log shows the test names listed above or `TS2305`. In the last pipeline all required jobs are green.
+- The fix commits only change `*.test.ts(x)`, or make only very small adjustments outside the tests.
 
-## 结果
+## Result
 
-- 状态：
-- Jira：
-- MR：
-- pipeline：
-- 轮数：
-- 结论：
+- Status:
+- Jira:
+- MR:
+- pipeline:
+- Rounds:
+- Conclusion:
