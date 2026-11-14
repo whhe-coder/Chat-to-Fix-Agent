@@ -1,6 +1,6 @@
 # 可选作业运行时提前报告 CI 通过
 
-- 状态：部分修复（#21，`bd9b853`），待真实复测；下游不等的取舍待 Logan 确认
+- 状态：部分修复 by commit `bd9b853`（#21）；主 pipeline 内的非阻塞 job 已由真实 Slack `T-10` 复测通过；下游不等的取舍待 Logan 确认
 - 发现日期：2026-11-13
 - 关联任务：真实 Slack 联调 `T-1` / [F2PGBA-410](https://xsolla.atlassian.net/browse/F2PGBA-410)
 - 关联 MR：[!379](https://gitlab.loc/account-platform/free-to-play-pc/-/merge_requests/379)
@@ -27,6 +27,19 @@
 
 T-5、T-8 的结束时间取自 GitLab MR 接口的 `head_pipeline.finished_at`，两条最终都是 `success`。[T-4 运行记录](../chat-to-fix/runs/2026-11-13-T-4.md)当时把这种情况写成了预期行为，已按本问题改正。
 
+## 复测（2026-11-14，T-10，#21 合并后）
+
+[pipeline 1940429](https://gitlab.loc/account-platform/free-to-play-pc/-/pipelines/1940429)，北京时间：
+
+| 时间 | 事件 |
+| --- | --- |
+| 19:20:52 | 最后一个必需 job `unit-test` 成功 |
+| 19:22:02 | `sonar`（`allow_failure: true`）成功 |
+| 19:22:03 | GitLab 将 pipeline 标为 `success` |
+| 19:22:18 | Agent 向 Slack 报告“CI 通过”（发件箱第 37 条） |
+
+Agent 等 `sonar` 跑完、pipeline 结束后才报告。两条 e2e 下游的 bridge job（`allow_failure: true`）在 19:18:16 就已标为 `success`，下游 pipeline 本身何时结束没有核对。
+
 ## 影响与验收
 
 如果可选作业稍后失败，Slack 和 Jira 已发出的“CI 通过”不会自动更正。即使可选作业最终成功，用户也会在 pipeline 仍运行时收到完成通知。
@@ -34,4 +47,4 @@ T-5、T-8 的结束时间取自 GitLab MR 接口的 `head_pipeline.finished_at`�
 - [ ] 主 MR pipeline 或下游 pipeline 仍为活动状态时，不报告整个 pipeline 已通过。（#21：主 pipeline 里正在跑或排队的非阻塞 job 会拖住“通过”，最多到必需 job 结束后 10 分钟；非阻塞的下游 pipeline 不等，因为 T-3 等它等到超时。待确认这个取舍。）
 - [ ] 明确区分“必需检查已通过”和“pipeline 已结束”；如果允许前者提前通知，消息必须说明仍有哪些作业在运行，任务不能按最终结果关闭。
 - [x] 增加一个可选作业仍运行、其他必需作业已成功的测试，确认不会提前写回最终结论。（#21，`test/adapters-ci.test.ts`、`test/monitor-ci.test.ts`）
-- [ ] 用真实 MR pipeline 复核 Slack 与 Jira 的最终通知时机。
+- [x] 用真实 MR pipeline 复核 Slack 与 Jira 的最终通知时机。（T-10，见上方复测）
