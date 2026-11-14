@@ -5,6 +5,7 @@
 - 当前运行方式见 [Agent 上手说明](../../src/chat-to-fix/README.md)；怎么配（一个 Anthropic API key 给五个 bot、模型、上限、怎么确认能用）见 [Agent 配置说明](configuration.md)；代码怎么连起来见 [架构说明](architecture.md)。
 - 当前里程碑和验收标准见 [实施计划](../../plans/chat-to-fix-agent.md)。
 - `/fix` 的当前入口要求见 [固定频道规格](../../spec/slack-fix-command.md)。
+- 按当前代码执行本机模拟人工回归，见[模拟人工回归指导](manual-regression.md)；人工测试员和 AI 助手均可使用。
 
 | 内容 | 适用状态 | 入口 |
 | --- | --- | --- |
