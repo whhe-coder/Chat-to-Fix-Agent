@@ -291,7 +291,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
       groupId: null, bots: {}, runNo: null, taskNo: null, lead: 'main', step: null, stepKey: undefined, stepStart: t, runStart: t,
       stepNudgedAt: null, quietSince: null, quietNudges: 0,
       lastCodingEventAt: t, turnRunning: false, engineSilentCount: 0, codingSteps: 0, longCalls: 0, idleRelay: false, ended: false,
-      ciPolledAt: 0, ciPhaseKey: null, softFired: { time: false, usd: false }, wrappingUp: false,
+      ciPolledAt: 0, ciHeld: undefined, ciPhaseKey: null, softFired: { time: false, usd: false }, wrappingUp: false,
     }
     watched.set(taskId, w)
     subscribe()
@@ -451,6 +451,9 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
           if (!ci.sha && checks.sha) patch.sha = checks.sha
           if (checks.pipelineUrl && checks.pipelineUrl !== ci.pipelineUrl) patch.pipelineUrl = checks.pipelineUrl
           if (Object.keys(patch).length > 0) ci = await commitCi(w, ci, patch, `pipeline: ${checks.pipelineUrl ?? '-'}`)
+          // Every counting job passed and only a running allow_failure job holds the pass: remember it, so a wait
+          // limit reached meanwhile settles as passed, not as no result.
+          w.ciHeld = checks.status === 'pending' && checks.heldForOptional === true ? (checks.sha ?? ci.sha) : undefined
           if (checks.status === 'passed') return ciPassed(w, task, ci, now())
           if (checks.status === 'failed') {
             if (!ci.retried) return ciRetry(w, task, ci, checks)
@@ -464,6 +467,7 @@ export function createMonitor({ store, botlayer, limits, end, send, repo, langua
     const t2 = now()
     const waited = ci.waitedMs + Math.max(0, t2 - since)
     if (t2 - since > limits.ciWaitMinutes * MINUTE || waited > limits.ciTotalMinutes * MINUTE) {
+      if (w.ciHeld !== undefined && w.ciHeld === ci.sha) return ciPassed(w, task, ci, t2)
       const timedOut = !!ci.pipelineUrl || waited > limits.ciTotalMinutes * MINUTE
       const note = timedOut ? 'wait timed out' : `no pipeline was triggered within ${limits.ciWaitMinutes} minutes`
       return ciNoPipeline(w, task, ci, t2, timedOut, note)

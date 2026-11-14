@@ -72,7 +72,7 @@ key 怎么走到模型：启动脚本清空环境，只把一张白名单传给 
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `limits.ciMaxRounds` | 3 | 最多追加几个修复提交 |
-| `limits.ciWaitMinutes` | 30 | 等一个提交出 pipeline 的最长时间，超了记为没有触发 CI |
+| `limits.ciWaitMinutes` | 30 | 等一个提交的 CI 结果的最长时间：一直没有 pipeline 记为没有触发 CI，有 pipeline 但没跑完记为等待超时 |
 | `limits.ciTotalMinutes` | 90 | 所有轮次加起来最长等多久 |
 | `limits.ciPollSeconds` | 15 | 轮询间隔 |
 | `limits.ciLogMaxChars` | 12000 | 读失败日志时取末尾多少字符 |
