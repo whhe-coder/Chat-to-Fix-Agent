@@ -22,7 +22,7 @@
 | `Event Subscriptions` | 页面显示 Off；无 Bot 事件 | `/fix` 使用 Slash Commands，不订阅普通消息 |
 | `OAuth & Permissions → Bot Token Scopes` | `commands`、`chat:write`、`users:read`、`users:read.email` | 接收 slash command、以 Bot 身份回报，并为读取发起人邮箱准备权限 |
 | `OAuth & Permissions → User Token Scopes` | 无 | Bot 不代表用户访问 Slack |
-| `Slash Commands` | `/fix` 已创建；说明为 `Report an issue and track its fix` | 接收指定频道的命令；真实 Bot 处理代码已实现，尚未完成真实 Slack 验收 |
+| `Slash Commands` | `/fix` 已创建；说明为 `Report an issue and track its fix` | 指定频道的一次真实命令已进入 Agent；完整验收未完成 |
 | `Install App` | 用户报告工作区已批准；本机 Bot token 通过 Slack `auth.test`，响应列出四项当前 scopes | 审批人视图和旧待审记录的处理情况尚未核对 |
 
 目标入口改为指定频道内的 `/fix 问题描述`。目标频道 ID 已确定，写入本机 `.env.local` 和 `.env.example`；Bot 已成功发送接入测试消息。频道 `@提及`、普通频道消息和私信都不启动任务。应用不申请频道历史读取权限。完整目标行为见 [固定频道命令规格](../../spec/slack-fix-command.md)。
@@ -75,12 +75,19 @@
 
 加入频道不等于启动任务。当前 Bot 只处理指定频道的 `/fix 问题描述`；普通消息、`@Chat-to-Fix` 和其他频道的 `/fix` 都不会启动任务。若 Bot 发信返回 `channel_not_found`，先核对应用是否已加入该频道、频道 ID 是否匹配。Slack 的 [应用频道管理说明](https://slack.com/help/articles/360001537467-Guide-to-apps-in-Slack) 和 [频道中添加应用的步骤](https://slack.com/help/articles/33076000248851-Work-with-AI-agents-in-Slack)可供对照。
 
+## 2026-11-13 真实命令联调
+
+在 `#ai-intern-logan-team` 提交空正文 `/fix`，Bot 返回仅发起者可见的用法提示，频道没有新增任务消息。随后提交一条只修改 F2P README 的测试请求。Bot 建立一条任务消息，并在同一讨论串回报收到请求、Jira 工单、Draft MR 和最终结果。Agent 已在 Jira 写入 MR 和结果。详情见[实施计划的 M6 记录](../../plans/chat-to-fix-agent.md#m6-真实-slack-联调记录)。
+
+Agent 在 MR pipeline 的可选 Sonar 作业仍运行时提前报告“CI 通过”。pipeline 稍后成功，但通知时机错误；见[已确认问题](../../docs/issues/gitlab-optional-job-premature-ci-pass.md)。测试使用独立 Agent 数据目录和本机端口。真实 Bot 已停止；测试 Agent 的停止请求被当前执行环境拒绝，目前没有 Slack Bot 连接它。
+
 ## 接下来的验证
 
-1. 当前运行中的 Agent `/health` 仍绑定旧的本机频道。实际接入前要按新配置重启 Agent，并核对它返回目标频道。
-2. 真实 Bot 的 `/fix` 处理代码和发件箱转发已实现，`npm run start:slack` 启动它；读取发起人邮箱还需实现 `users.info` 调用。`npm start` 启动 Agent 和本机模拟页面，不连接真实 Slack。
-3. 在指定频道调用 `/fix`，验证只启动一次任务并在同一任务 thread 回报。
-4. 审批人端的旧待审记录是否取消尚未核对；已安装 token 的权限验证不依赖该记录。
+1. 原 `3090` Agent `/health` 仍绑定 `CLOCAL`。正式接入前按目标频道配置重启并核对。
+2. 修复 CI 提前结论，再用真实 MR pipeline 验证最终通知时机。
+3. 验证其他频道拒绝、命令重投去重、服务故障和队列已满的路径。
+4. 真实 Bot 读取发起人邮箱仍需实现 `users.info` 调用。`npm start` 启动 Agent 和本机模拟页面，不连接真实 Slack。
+5. 审批人端的旧待审记录是否取消尚未核对；已安装 token 的权限验证不依赖该记录。
 
 旧私信测试 Bot 的行为保留在 [历史规格](../../spec/slack-dm-entry.md)。
 
