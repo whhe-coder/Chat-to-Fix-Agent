@@ -213,6 +213,17 @@ test('getChecks: a pass waits for allow_failure jobs still going, up to a cap af
     routes[`GET /projects/11/pipelines/12/trigger_jobs`] = [{ id: 50, name: 'persona', status: 'running', allow_failure: true, downstream_pipeline: { id: 99, project_id: 77, sha: 'down-sha', status: 'running' } }]
     assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
     assert.equal(s.requests.some((r) => r.path.includes('/projects/77/')), false)
+
+    // only a running or queued allow_failure job holds; one that may never start ('created', behind a manual job) does not
+    routes[`GET /projects/11/pipelines/12/trigger_jobs`] = []
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'created', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
+    // the held result says so (the monitor settles it as passed when its own wait limit runs out)
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success', { finished_at: ended }), job(2, 'sonarqube', 'running', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).heldForOptional, true)
+    // no end time from GitLab for the counting jobs: no hold, as before
+    routes[`GET /projects/11/pipelines/12/jobs`] = [job(1, 'unit', 'success'), job(2, 'sonarqube', 'running', { allow_failure: true })]
+    assert.equal((await gl(s.baseUrl, at('2026-11-13T15:08:00.000Z')).getChecks(binding, 7)).status, 'passed')
   } finally { await s.close() }
 })
 
