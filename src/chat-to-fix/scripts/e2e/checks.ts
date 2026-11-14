@@ -51,8 +51,10 @@ const records = (ctx) => ctx.records ?? []
 const runOfRecord = (r) => r.run ?? 1
 /**
  * Tasks of the current shape always carry `issueAssessment` (null until the Jira bot assesses the request). Reports
- * of earlier runs (Claude Code era and the first DSH runs, before 2026-11-14) lack the field and the notices: the
- * checks that need them skip those reports instead of failing them.
+ * of runs before commit 0d80fd3 (2026-11-13 morning, incl. the Claude Code era) lack the field: the checks that need
+ * it skip those reports. Approximate: runs between 0d80fd3 and 64be8fd (2026-11-13 16:47) have the field but the old
+ * notice text (a link followed by punctuation), and Claude Code-era Bash calls are not exempt from no_shell_tool;
+ * re-checking such old reports is not supported.
  */
 const hasCurrentShape = (ctx) => ctx.task?.issueAssessment !== undefined
 /** The system notices of the task: [{ kind, text }], from the `system` records "notice <kind>: <text>" (core/task/monitor.ts deliver). */

@@ -115,7 +115,7 @@ export function createHttp({ config, token, store, outbox, queue, runner, notify
     // 5. the task lives in the new discussion: threadTs = messageTs = the opening message
     const permalink = isText(opened.permalink) ? opened.permalink : null
     const origin: any = {
-      eventId: body.eventId, channel: body.channel, threadTs: opened.ts, messageTs: opened.ts,
+      eventId: body.eventId, source: 'slash', channel: body.channel, threadTs: opened.ts, messageTs: opened.ts,
       user: { id: body.user.id, ...(isText(body.user.name) ? { name: body.user.name } : {}) }, text: body.text,
     }
     if (permalink !== null) origin.permalink = permalink
